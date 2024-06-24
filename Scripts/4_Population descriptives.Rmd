@@ -1,0 +1,606 @@
+---
+title: "Descriptive statistics - VGO3"
+---
+# Packages
+```{r}
+library(dplyr)
+library(table1)
+library(knitr)
+library(kableExtra)
+library(ggpubr)  
+```
+# Data
+```{r}
+# Extract metadata
+meta <- read.csv("../Output/Metadata/VGO3_metadata_all_livestock_nodups.csv")
+
+# Many of the variables are imported as integer variables when they should actually be character variables
+variables_to_factor_part1 <- c("gender", "abroad_lastmth", "animal_contact_lastmth", "cat_contact_lastmth", "dog_contact_lastmth", "rodent_contact_lastmth", "bird_contact_lastmth", "chicken_contact_lastmth", "sheep_contact_lastmth", "cow_contact_lastmth", "pig_contact_lastmth", "horse_contact_lastmth", "pneumonia_lastyr", "acute_resp_infec_lastyr", "covid19", "covid19_vaccine", "antibiotics_lastyr", "antacids_lastyr", "lung_med", "lung_med1_type", "lung_med1_more4hrs", "lung_med1_more8hrs", "lung_med2_type", "lung_med2_more4hrs", "lung_med2_more8hrs", "lung_med3_type", "lung_med3_more4hrs", "lung_med3_more8hrs", "lung_med4_type", "lung_med4_more4hrs", "lung_med4_more8hrs", "lung_med5_type", "lung_med5_more4hrs", "lung_med5_more8hrs", "beta_blockers", "heart_failure_attack_3m", "chest_abdom_surg_3m", "aortic_aneurysm", "cough_blood", "eye_ear_brain_surg_lastmth", "imm_def_med_current", "imm_def_illness_current", "preg_last_trimester", "lungfunc_discom", "breathalyser_diff", "consent", "onlquest_done", "fieldquest_done", "spirometry_done", "serum_done", "OP_blank_done", "NP_blank_done", "NP_blank_ID", "NP_swab_done", "work_less_19hrs", "work_more_19hrs", "manage_house", "unemployed", "student", "disabled", "retired", "voluntarywork", "health_status", "heart_vascu_disorder", "imm_def_illness", "imm_def_med", "diabetes", "wheezing_lastyr", "wheezing_SOB", "wheezing_not_cold", "tight_chest_lastyr", "SOB_lastyr", "cough_lastyr", "SOB_rest_lastyr", "nasal_allergy", "nasal_allergy_Jan", "nasal_allergy_Feb", "nasal_allergy_Mar", "nasal_allergy_Apr", "nasal_allergy_May", "nasal_allergy_Jun", "nasal_allergy_Jul", "nasal_allergy_Aug", "nasal_allergy_Sep", "nasal_allergy_Oct", "nasal_allergy_Nov", "nasal_allergy_Dec", "asthma_ever", "asthma_diag", "asthma_Jan_Feb", "asthma_Mar_Apr", "asthma_May_Jun", "asthma_Jul_Aug", "asthma_Sep_Oct", "asthma_Nov_Dec", "asthma_att_lastyr", "asthma_med", "cough_daily_3mperyr", "phlegm_daily_3mperyr", "COPD_emphysema_diag", "EAA_diag", "cort_inhaler_lastyr", "pneumonia_last3yr", "pneumonia_GP_diag", "pneumonia_antibiotics")
+variables_to_factor_part2 <- c("pneumonia_specialist", "pneumonia_specialist_conf", "pneumonia_chest_photo", "pneumonia_conf_photo", "pneumonia_specialist_antibiotics", "pneumonia_hosp", "pneumonia_fever", "pneumonia_dyspnea", "pneumonia_cough", "pneumonia_muscle_pain", "pneumonia_chest_pain", "pneumonia_wheezing", "pneumonia_stomach_pain", "pneumonia_fatigue", "pneumonia_depressed", "flu_vacc", "flu_vacc_duration", "pneumococcal_vacc", "antibiotics_lastyr_oqdata", "antibiotic_month_oqdata", "antibiotic_year_oqdata", "last_antibiotic_used", "covid19_close_contact", "covid19_household", "home_type", "move_plans", "move_no_reason", "move_health", "move_job", "move_house", "move_env", "pets_last5yrs", "cat_last5yrs", "dog_last5yrs", "bird_last5yrs", "small_animals_last5yrs", "rodent_last5yrs", "fish_last5yrs", "turtle_last5yrs", "farmanim_hobby_last5yrs", "pig_last5yrs", "cow_last5yrs", "sheep_last5yrs", "goat_last5yrs", "poultry_last5yrs", "horse_last5yrs", "no_farm_visit_lastyr", "family_farm_visit_lastyr", "job_farm_visit_lastyr", "buy_farm_visit_lastyr", "petting_zoo_visit_lastyr", "other_reason_farm_visit_lastyr", "smoked_ever", "smoke_exp_indoor_freq", "symptom_other", "CRP_test_done", "Saturation_test_done", "lung_disease", "COPD_status", "imm_def", "lung_inhal_med", "antibiotics_lastmth", "dyspnea", "cough", "hypotension", "fever", "pain_breathing", "tachycardia", "tachypnea", "confusion", "lung_med1type", "goat_contact_lastmth", "health_remarks", "lambs_thisyr", "lung_med1", "lung_med1m4h", "lung_med1m8h", "lung_med2m4h", "lung_med2m8h", "lung_med2type", "lung_med3m4h", "lung_med3m8h", "lung_med3type", "lung_med4m4h", "lung_med4m8h", "lung_med4type", "lung_med5m4h", "lung_med5m8h", "lung_med5type", "special_work", "education_level", "farm_child", "farm_child_goat", "farm_child_dairy", "farm_child_veal", "farm_child_sheep", "farm_child_pig", "farm_child_poultry", "farm_child_horse", "farm_child_agri", "farm_child_other", "health_complaint_farm_rel", "covid19_infection", "home_goatfarm", "farm_work_feeding", "farm_work_milking", "farm_work_cleanstables", "farm_work_litter", "farm_work_manure", "farm_work_yean", "farm_work_newborn", "farm_work_cleaning", "farm_work_soil", "farm_work_other", "other_work","GoatFarmExposureCategory", "ChickenFarm1000m", "ChickenFarm2000m" )
+
+variables_to_factor <- c(variables_to_factor_part1, variables_to_factor_part2)
+
+# Check which variables are in 'meta'
+valid_variables <- variables_to_factor %in% colnames(meta)
+if (!all(valid_variables)) {
+  warning("The following variables are not in 'meta': ", 
+          paste(variables_to_factor[!valid_variables], collapse = ", "))
+}
+
+# Convert to factor variables
+meta[variables_to_factor] <- lapply(meta[variables_to_factor], factor)
+
+sum(meta$population=="CP") # n = 969
+sum(meta$population=="GP") # n = 108
+sum(meta$population=="GF") # n = 100
+
+write.csv(meta,"../Output/Descriptives/VGO3_population_data.csv" )
+```
+# Only participants with at least 1 OP or NP sample sequenced
+```{r}
+# Each participant has 1 or more samples (NP and OP samples mostly for all)
+# VGO study number for the controls and goat farmers is in the column 'VGO3_ID' 
+# Only keep unique IDs
+meta_16S <- read.csv("../Output/Metadata/VGO3_metadata_all_livestock_16Slab.csv")
+
+meta_uniq_16S <- meta_16S %>%
+  distinct(VGO3_ID, .keep_all = TRUE) 
+
+# Remove rows which are blanks 
+meta_uniq_16S_noblanks <- meta_uniq_16S[!is.na(meta_uniq_16S$population), ] # 1172 left
+
+meta_uniq_16S_noblanks$X <- NULL
+
+# ps_complete <- readRDS("../Output/Phyloseq/ps_complete.Rds")
+# meta_uniq_16S_noblanksps <- meta_uniq_16S_noblanks[meta_uniq_16S_noblanks$VGO3_ID %in% ps_complete@sam_data$VGO3_ID, ] # Still 1170 remaining
+
+sum(meta_uniq_16S_noblanks$population=="CP") # n = 967
+sum(meta_uniq_16S_noblanks$population=="GP") # n = 108
+sum(meta_uniq_16S_noblanks$population=="GF") # n = 97
+
+write.csv(meta_uniq_16S_noblanks,"../Output/Descriptives/VGO3_population_data_included_16S.csv" ) # 1172 samples
+```
+# Check which IDs are different
+```{r}
+# Find VGO3_ID values in meta_uniq_16S_noblanks but not in ps_complete@sam_data
+unique_in_meta16S <- setdiff(meta_uniq_16S_noblanks$VGO3_ID, meta$VGO3_ID)
+
+# Find VGO3_ID values in ps_complete@sam_data but not in meta_uniq_16S_noblanks
+unique_in_meta <- setdiff(meta$VGO3_ID, meta_uniq_16S_noblanks$VGO3_ID)
+
+# Display the discrepancies
+cat("VGO3_IDs in meta_uniq_16S_noblanks but not in meta:\n")
+print(unique_in_meta16S)
+
+cat("\nVGO3_IDs in meta but not in meta_uniq_16S_noblanks:\n")
+print(unique_in_meta) # 17508 29798 40053 40155 40194 Possibly these were not sequenced for whatever reason
+
+```
+
+# All populations together
+```{r}
+# Use table1 to create table 
+meta_uniq_noblanks$gender <- 
+  factor(meta_uniq_noblanks$gender, levels=c(0,1),
+         labels=c("Male", 
+                  "Female"))
+meta_uniq_noblanks$smoked_ever <- 
+  factor(meta_uniq_noblanks$smoked_ever, levels=c(0,1,2),
+         labels=c("No", 
+                  "Ex-smoker",
+                  "Smoker"))
+meta_uniq_noblanks$flu_vacc <- 
+  factor(meta_uniq_noblanks$flu_vacc, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+meta_uniq_noblanks$pneumococcal_vacc <- 
+  factor(meta_uniq_noblanks$pneumococcal_vacc, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+meta_uniq_noblanks$animal_contact_lastmth<- 
+  factor(meta_uniq_noblanks$animal_contact_lastmth, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+meta_uniq_noblanks$abroad_lastmth<- 
+  factor(meta_uniq_noblanks$abroad_lastmth, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+meta_uniq_noblanks$imm_def<- 
+  factor(meta_uniq_noblanks$imm_def, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+
+
+label(meta_uniq_noblanks$gender) <- "Gender"
+label(meta_uniq_noblanks$age) <- "Age"
+label(meta_uniq_noblanks$smoked_ever) <- "Smoking status"
+label(meta_uniq_noblanks$sampling_season) <- "Sampling season"
+label(meta_uniq_noblanks$flu_vacc) <- "Influenza vaccination"
+label(meta_uniq_noblanks$pneumococcal_vacc) <- "Pneumococcal vaccination"
+label(meta_uniq_noblanks$animal_contact_lastmth) <- "Animal contact in the last month"
+label(meta_uniq_noblanks$abroad_lastmth) <- "Abroad in the last month"
+label(meta_uniq_noblanks$imm_def) <- "Immunocompromised"
+
+pvalue <- function(x, ...) {
+    # Construct vectors of data y, and groups (strata) g
+    y <- unlist(x)
+    g <- factor(rep(1:length(x), times = sapply(x, length)))
+    
+    if (is.numeric(y)) {
+        # For numeric variables, perform ANOVA
+        p <- anova(lm(y ~ g))$"Pr(>F)"[1]
+    } else {
+        # For categorical variables
+        tbl <- table(y, g)
+        
+        # Check if any cell in the contingency table is 0
+        if (any(tbl == 0)) {
+            # If any cell in the contingency table is 0, perform Fisher's exact test
+            p <- tryCatch({
+                fisher.test(tbl, workspace = 2e9)$p.value  # Increase workspace size
+            }, error = function(e) {
+                NA  # Handle errors due to large contingency tables
+            })
+        } else {
+            # Otherwise, perform chi-squared test
+            p <- chisq.test(tbl)$p.value
+        }
+    }
+    
+    # Format the p-value, using an HTML entity for the less-than sign.
+    # The initial empty string places the output on the line below the variable label.
+    c("", sub("<", "&lt;", format.pval(p, digits = 3, eps = 0.001)))
+}
+
+result_table <- table1(
+  ~ gender + age  + smoked_ever + sampling_season + imm_def + flu_vacc + pneumococcal_vacc + animal_contact_lastmth + abroad_lastmth | population,
+  data = meta_uniq_noblanks,
+   overall=F, 
+  extra.col=list(`P-value`=pvalue))
+
+
+
+write.csv(result_table, file = "../Output/Descriptives/table1.csv")
+```
+# Goat farm exposure - CP and GP 
+```{r}
+# Select CPs and GPs from the dataset
+# Exclude rows where population is "Goat farmers"
+meta_uniq_noblanks_CP_GP <- meta_uniq_noblanks[meta_uniq_noblanks$population != "Goat farmers", ]
+meta_uniq_noblanks_CP_GP$population <- droplevels(meta_uniq_noblanks_CP_GP$population)
+
+
+# Create a table of counts
+counts_table <- table(meta_uniq_noblanks_CP_GP$population, meta_uniq_noblanks_CP_GP$GoatFarmExposureCategory)
+
+counts_df <- as.data.frame.matrix(counts_table)
+rownames(counts_df) <- c("Control participants", "Pneumonia patients")
+
+row_perc <- prop.table(counts_table, margin = 1) * 100
+
+combined_table <- counts_df
+
+for (i in 1:nrow(combined_table)) {
+  for (j in 1:ncol(combined_table)) {
+    combined_table[i, j] <- paste0(counts_df[i, j], " (", round(row_perc[i, j], 2), "%)")
+  }
+}
+
+# table with kableExtra
+combined_table %>%
+  kable("html") %>%
+  kable_styling()
+
+
+
+## Show counts of the number of individuals with specific numbers of farms
+variables <- c("RVO2021_nGoatFarm_250m", "RVO2021_nGoatFarm_500m", "RVO2021_nGoatFarm_1000m", "RVO2021_nGoatFarm_3000m")
+
+frequency_tables <- list()
+
+for (variable in variables) {
+  frequency_table <- table(meta_uniq_noblanks_CP_GP[[variable]])
+  frequency_tables[[variable]] <- frequency_table
+}
+
+for (variable in variables) {
+  cat("Frequency table for", variable, ":\n")
+  print(frequency_tables[[variable]])
+  cat("\n")
+}
+
+
+kable_tables <- list()
+
+for (variable in variables) {
+  frequency_table <- table(meta_uniq_noblanks_CP_GP[[variable]])
+  frequency_df <- as.data.frame(frequency_table)
+  colnames(frequency_df) <- c("Value", "Frequency")
+  kable_table <- kable(frequency_df, caption = paste("Frequency table for", variable), 
+                       col.names = c("Value", "Frequency"),
+                       align = "c", # Center-align the content
+                       format = "html", # Use HTML format for better styling
+                       row.names = FALSE) # Exclude row names
+  kable_tables[[variable]] <- kable_table
+}
+
+for (variable in variables) {
+  combined_table <- kable_tables[[variable]] %>%
+    kable_styling()  # Apply kableExtra styling
+  print(combined_table)
+}
+
+
+# Bar plot per distance
+for (variable in variables) {
+  frequency_table <- table(meta_uniq_noblanks_CP_GP[[variable]])
+  frequency_df <- as.data.frame(frequency_table)
+  colnames(frequency_df) <- c("Value", "Frequency")
+    print(ggplot(frequency_df, aes(x = Value, y = Frequency)) +
+    geom_bar(stat = "identity", fill = "skyblue", color = "black") +
+    labs(title = paste("Frequency of", variable),
+         x = "Value", y = "Frequency") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate x-axis labels for better readability
+  )
+}
+
+plots <- list()
+plot_titles <- c("250m", "500m", "1000m", "3000m")
+
+for (i in seq_along(plot_titles)) {
+  variable <- paste("RVO2021_nGoatFarm_", plot_titles[i], sep = "")
+  frequency_table <- table(meta_uniq_noblanks_CP_GP[[variable]])
+  frequency_df <- as.data.frame(frequency_table)
+  colnames(frequency_df) <- c("Value", "Frequency")
+  p <- ggplot(frequency_df, aes(x = Value, y = Frequency)) +
+    geom_bar(stat = "identity", fill = "skyblue", color = "black") +
+    labs(title = plot_titles[i],  # Set the plot title
+         x = "Value", y = "Frequency") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1))  # Rotate x-axis labels for better readability
+  plots[[plot_titles[i]]] <- p
+}
+
+combined_plot <- ggarrange(plotlist = plots, ncol = 2, nrow = ceiling(length(plots) / 2))
+print(combined_plot)
+
+
+# Checking correlation between goat and poultry farms
+goat_farms_1000m <- meta_uniq_noblanks_CP_GP$RVO2021_nGoatFarm_1000m
+chicken_farms_1000m <- meta_uniq_noblanks_CP_GP$RVO2021_nChickenFarm_1000m
+goat_farms_3000m <- meta_uniq_noblanks_CP_GP$RVO2021_nGoatFarm_3000m
+chicken_farms_3000m <- meta_uniq_noblanks_CP_GP$RVO2021_nChickenFarm_3000m
+# Check distribution
+hist(goat_farms_1000m)
+hist(chicken_farms_1000m)
+hist(goat_farms_3000m)
+hist(chicken_farms_3000m)
+# Calculate the Spearman rank correlation coefficients and p-values
+spearman_corr_goats_chickens_result_1000m <- cor.test(goat_farms_1000m, chicken_farms_1000m, method = "spearman")
+spearman_corr_goats_chickens_result_3000m <- cor.test(goat_farms_3000m, chicken_farms_3000m, method = "spearman")
+# Print the results
+spearman_corr_goats_chickens_result_1000m
+spearman_corr_goats_chickens_result_3000m
+
+# Number of participants with a chicken farm within 1000m (ignoring NA values)
+participants_with_chicken_farms_1000m <- sum(!is.na(meta_uniq_noblanks_CP_GP$RVO2021_nChickenFarm_1000m) & meta_uniq_noblanks_CP_GP$RVO2021_nChickenFarm_1000m != 0)
+print(paste("Number of participants with a chicken farm within 1000m:", participants_with_chicken_farms_1000m))
+
+# Number of participants with a chicken farm within 1000m (ignoring NA values)
+participants_with_goat_farms_1000m <- sum(!is.na(meta_uniq_noblanks_CP_GP$RVO2021_nGoatFarm_1000m) & meta_uniq_noblanks_CP_GP$RVO2021_nGoatFarm_1000m != 0)
+print(paste("Number of participants with a goat farm within 1000m:", participants_with_goat_farms_1000m))
+```
+# Descriptive - CP
+```{r}
+meta_uniq_noblanks_CP <- meta_uniq_noblanks %>%
+  filter(population == "Control population")
+
+meta_uniq_noblanks$ed
+# Use table1 to create table 
+meta_uniq_noblanks_CP$gender <- 
+  factor(meta_uniq_noblanks_CP$gender, levels=c(0,1),
+         labels=c("Male", 
+                  "Female"))
+
+meta_uniq_noblanks_CP$pneumonia_lastyr <- 
+  factor(meta_uniq_noblanks_CP$pneumonia_lastyr, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+ 
+meta_uniq_noblanks_CP$pneumonia_last3yr <- 
+  factor(meta_uniq_noblanks_CP$pneumonia_last3yr, levels=c(0,1,2,3),
+         labels=c("No", 
+                  "Once",
+                  "Twice",
+                  "Three times"))
+
+meta_uniq_noblanks_CP$acute_resp_infec_lastyr <- 
+  factor(meta_uniq_noblanks_CP$acute_resp_infec_lastyr, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+
+meta_uniq_noblanks_CP$covid19 <- 
+  factor(meta_uniq_noblanks_CP$covid19, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))	
+
+
+meta_uniq_noblanks_CP$antibiotics_lastyr<- 
+  factor(meta_uniq_noblanks_CP$antibiotics_lastyr, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))	
+
+meta_uniq_noblanks_CP$antacids_lastyr<- 
+  factor(meta_uniq_noblanks_CP$antacids_lastyr, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))	
+
+meta_uniq_noblanks_CP$lung_med <- 
+  factor(meta_uniq_noblanks_CP$lung_med, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))	
+
+meta_uniq_noblanks_CP$beta_blockers <- 
+  factor(meta_uniq_noblanks_CP$beta_blockers, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))	
+
+meta_uniq_noblanks_CP$heart_vascu_disorder	 <- 
+  factor(meta_uniq_noblanks_CP$heart_vascu_disorder	, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))	
+
+meta_uniq_noblanks_CP$diabetes	 <- 
+  factor(meta_uniq_noblanks_CP$diabetes	, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))	
+
+meta_uniq_noblanks_CP$nasal_allergy	 <- 
+  factor(meta_uniq_noblanks_CP$nasal_allergy	, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))	
+
+meta_uniq_noblanks_CP$asthma_ever	 <- 
+  factor(meta_uniq_noblanks_CP$asthma_ever	, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))	
+
+meta_uniq_noblanks_CP$COPD_emphysema_diag	 <- 
+  factor(meta_uniq_noblanks_CP$COPD_emphysema_diag	, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))	
+
+meta_uniq_noblanks_CP$EAA_diag	 <- 
+  factor(meta_uniq_noblanks_CP$EAA_diag	, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+
+meta_uniq_noblanks_CP$cort_inhaler_lastyr	 <- 
+  factor(meta_uniq_noblanks_CP$cort_inhaler_lastyr	, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+
+meta_uniq_noblanks_CP$smoked_ever <- 
+  factor(meta_uniq_noblanks_CP$smoked_ever, levels=c(0,1,2),
+         labels=c("No", 
+                  "Ex-smoker",
+                  "Smoker"))
+
+
+label(meta_uniq_noblanks_CP$gender) <- "Gender"
+label(meta_uniq_noblanks_CP$age) <- "Age"
+label(meta_uniq_noblanks_CP$pneumonia_lastyr) <- "Pneumonia in the last year"
+label(meta_uniq_noblanks_CP$pneumonia_last3yr) <- "Pneumonia in the last 3 Years"
+label(meta_uniq_noblanks_CP$acute_resp_infec_lastyr) <- "Acute resp infection in the last year"
+label(meta_uniq_noblanks_CP$covid19) <- "COVID-19"
+label(meta_uniq_noblanks_CP$antibiotics_lastyr) <- "Antibiotics in the last year"
+label(meta_uniq_noblanks_CP$antacids_lastyr) <- "Antacids in the last year"
+label(meta_uniq_noblanks_CP$lung_med) <- "Taking lung medication"
+label(meta_uniq_noblanks_CP$beta_blockers) <- "Taking beta blockers"
+label(meta_uniq_noblanks_CP$heart_vascu_disorder) <- "Heart/vascular disorder"
+label(meta_uniq_noblanks_CP$diabetes) <- "Diabetes"
+label(meta_uniq_noblanks_CP$nasal_allergy) <- "Nasal Allergy"
+label(meta_uniq_noblanks_CP$asthma_ever) <- "Asthma"
+label(meta_uniq_noblanks_CP$COPD_emphysema_diag) <- "COPD/Emphysema Diagnosis"
+label(meta_uniq_noblanks_CP$EAA_diag) <- "EAA diagnosis"
+label(meta_uniq_noblanks_CP$cort_inhaler_lastyr) <- "corticosteroid inhaler in the last year"
+label(meta_uniq_noblanks_CP$smoked_ever) <- "Smoking status"
+label(meta_uniq_noblanks_CP$cigarettes_per_day) <- "Cigarettes smoked per day"
+label(meta_uniq_noblanks_CP$RVO2021_nGoatFarm_3000m) <- "Number of goat farms within 3000m"
+label(meta_uniq_noblanks_CP$RVO2021_nGoats_3000m) <- "Number of goats within 3000m"
+label(meta_uniq_noblanks_CP$RVO2021_MindistGoatFarm50plus) <- "Minimum distance to nearest goat farm (50+)"
+
+table1_CP <- table1(
+  ~ gender + age  + pneumonia_lastyr + pneumonia_last3yr + acute_resp_infec_lastyr + covid19 + antibiotics_lastyr+ antacids_lastyr + lung_med + beta_blockers + heart_vascu_disorder + diabetes + nasal_allergy + asthma_ever + COPD_emphysema_diag + EAA_diag + cort_inhaler_lastyr + smoked_ever + cigarettes_per_day + RVO2021_nGoatFarm_3000m + RVO2021_nGoats_3000m + RVO2021_MindistGoatFarm50plus | population, 
+  data = meta_uniq_noblanks_CP)
+
+write.csv(table1_CP, file = "../Output/Descriptives/table1_CP.csv")
+
+
+hist(meta_uniq_noblanks_CP$RVO2021_nGoats_3000m)
+```
+# Table for Aniek
+# All participants 
+```{r}
+# Use table1 to create table 
+meta$gender <- 
+  factor(meta$gender, levels=c(0,1),
+         labels=c("Male", 
+                  "Female"))
+meta$smoked_ever <- 
+  factor(meta$smoked_ever, levels=c(0,1,2),
+         labels=c("No", 
+                  "Ex-smoker",
+                  "Smoker"))
+meta$asthma_ever <- 
+  factor(meta$asthma_ever, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+meta$COPD_emphysema_diag <- # N.B for CP and GF this diagnosis is COPD & emphysema but for GPs it is just COPD
+  factor(meta$COPD_emphysema_diag, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+meta$lung_med <- 
+  factor(meta$lung_med, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+meta$imm_def <- 
+  factor(meta$imm_def, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+meta$flu_vacc <- 
+  factor(meta$flu_vacc, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+meta$pneumococcal_vacc <- 
+  factor(meta$pneumococcal_vacc, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+meta$antibiotics_lastyr <- # for CP and GF
+  factor(meta$antibiotics_lastyr, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+meta$antibiotics_lastmth <- # for GP
+  factor(meta$antibiotics_lastmth, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+meta$abroad_lastmth<- 
+  factor(meta$abroad_lastmth, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+meta$GoatFarmwithin2000m <- 
+  factor(meta$GoatFarmwithin2000m, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+meta$GoatFarmwithin1000m <- 
+  factor(meta$GoatFarmwithin1000m, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+meta$GoatFarmwithin500m <- 
+  factor(meta$GoatFarmwithin500m, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+meta$animal_contact_lastmth<- 
+  factor(meta$animal_contact_lastmth, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+
+label(meta$sampling_season) <- "Sampling season"
+label(meta$age) <- "Age"
+label(meta$gender) <- "Gender"
+label(meta$smoked_ever) <- "Smoking status"
+label(meta$asthma_ever) <- "Asthma (ever)"
+label(meta$COPD_emphysema_diag) <- "COPD/emphysema"
+label(meta$lung_med) <- "Lung medication used"
+label(meta$imm_def) <- "Immunocompromised"
+label(meta$flu_vacc) <- "Influenza vaccination"
+label(meta$pneumococcal_vacc) <- "Pneumococcal vaccination"
+label(meta$antibiotics_lastmth) <- "Antibiotic use in the last month (GP)"
+label(meta$antibiotics_lastyr) <- "Antibiotic use in the last year (CP and GF)"
+label(meta$abroad_lastmth) <- "Abroad in the last month"
+label(meta$GoatFarmwithin2000m) <- "Goat farm within 2000m (CP and GP)"
+label(meta$GoatFarmwithin1000m) <- "Goat farm within 1000m (CP and GP)"
+label(meta$GoatFarmwithin500m) <- "Goat farm within 500m (CP and GP)"
+label(meta$animal_contact_lastmth) <- "Animal contact in the last month"
+
+
+
+All_populations <- table1(
+  ~ sampling_season + age + gender + smoked_ever + asthma_ever + COPD_emphysema_diag + lung_med + imm_def + flu_vacc + pneumococcal_vacc +antibiotics_lastmth + antibiotics_lastyr + abroad_lastmth + GoatFarmwithin2000m + GoatFarmwithin1000m + GoatFarmwithin500m + animal_contact_lastmth| population,
+  data = meta,
+  overall=F, 
+  extra.col=list(`P-value`=pvalue))
+
+
+write.csv(All_populations, file = "../Output/Descriptives/All_populations_table1.csv")
+```
+# Only participants with at least 1 OP or NP sample sequenced
+```{r}
+# Use table1 to create table 
+meta_uniq_16S_noblanks$gender <- 
+  factor(meta_uniq_16S_noblanks$gender, levels=c(0,1),
+         labels=c("Male", 
+                  "Female"))
+meta_uniq_16S_noblanks$smoked_ever <- 
+  factor(meta_uniq_16S_noblanks$smoked_ever, levels=c(0,1,2),
+         labels=c("No", 
+                  "Ex-smoker",
+                  "Smoker"))
+meta_uniq_16S_noblanks$asthma_ever <- 
+  factor(meta_uniq_16S_noblanks$asthma_ever, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+meta_uniq_16S_noblanks$COPD_emphysema_diag <- # N.B for CP and GF this diagnosis is COPD & emphysema but for GPs it is just COPD
+  factor(meta_uniq_16S_noblanks$COPD_emphysema_diag, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+meta_uniq_16S_noblanks$lung_med <- 
+  factor(meta_uniq_16S_noblanks$lung_med, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+meta_uniq_16S_noblanks$imm_def <- 
+  factor(meta_uniq_16S_noblanks$imm_def, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+meta_uniq_16S_noblanks$flu_vacc <- 
+  factor(meta_uniq_16S_noblanks$flu_vacc, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+meta_uniq_16S_noblanks$pneumococcal_vacc <- 
+  factor(meta_uniq_16S_noblanks$pneumococcal_vacc, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+meta_uniq_16S_noblanks$antibiotics_lastyr <- # for CP and GF
+  factor(meta_uniq_16S_noblanks$antibiotics_lastyr, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+meta_uniq_16S_noblanks$antibiotics_lastmth <- # for GP
+  factor(meta_uniq_16S_noblanks$antibiotics_lastmth, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+meta_uniq_16S_noblanks$abroad_lastmth<- 
+  factor(meta_uniq_16S_noblanks$abroad_lastmth, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+meta_uniq_16S_noblanks$GoatFarmwithin2000m <- 
+  factor(meta_uniq_16S_noblanks$GoatFarmwithin2000m, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+meta_uniq_16S_noblanks$GoatFarmwithin500m <- 
+  factor(meta_uniq_16S_noblanks$GoatFarmwithin500m, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+meta_uniq_16S_noblanks$animal_contact_lastmth<- 
+  factor(meta_uniq_16S_noblanks$animal_contact_lastmth, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+
+label(meta_uniq_16S_noblanks$sampling_season) <- "Sampling season"
+label(meta_uniq_16S_noblanks$age) <- "Age"
+label(meta_uniq_16S_noblanks$gender) <- "Gender"
+label(meta_uniq_16S_noblanks$smoked_ever) <- "Smoking status"
+label(meta_uniq_16S_noblanks$asthma_ever) <- "Asthma (ever)"
+label(meta_uniq_16S_noblanks$COPD_emphysema_diag) <- "COPD/emphysema"
+label(meta_uniq_16S_noblanks$lung_med) <- "Lung medication used"
+label(meta_uniq_16S_noblanks$imm_def) <- "Immunocompromised"
+label(meta_uniq_16S_noblanks$flu_vacc) <- "Influenza vaccination"
+label(meta_uniq_16S_noblanks$pneumococcal_vacc) <- "Pneumococcal vaccination"
+label(meta_uniq_16S_noblanks$animal_contact_lastmth) <- "Animal contact in the last month"
+label(meta_uniq_16S_noblanks$abroad_lastmth) <- "Abroad in the last month"
+label(meta_uniq_16S_noblanks$GoatFarmwithin2000m) <- "Goat farm within 2000m (CP and GP)"
+label(meta_uniq_16S_noblanks$GoatFarmwithin500m) <- "Goat farm within 500m (CP and GP)"
+
+
+All_populations <- table1(
+  ~ sampling_season + age + gender + smoked_ever + asthma_ever + COPD_emphysema_diag + lung_med + imm_def + flu_vacc + pneumococcal_vacc + animal_contact_lastmth + abroad_lastmth + GoatFarmwithin2000m + GoatFarmwithin500m | population,
+  data = meta_uniq_16S_noblanks,
+  overall=F, 
+  extra.col=list(`P-value`=pvalue))
+
+
+
+write.csv(All_populations, file = "../Output/Descriptives/All_populations_table1.csv")
+
+```
+
