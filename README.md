@@ -1,1 +1,8 @@
-# Microbiome_pneumonia_goat_farming
+# Respiratory microbiome in relation to pneumonia and residential exposure to goat farming
+[![MIT License](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
+
+**Authors**: Beatrice Cornu Hewitt <a href="https://orcid.org/0000-0002-4594-4393" target="orcid.widget" rel="noopener noreferrer" style="vertical-align:top;"><img src="https://orcid.org/sites/default/files/images/orcid_16x16.png" style="width:1em;margin-right:.5em;" alt="ORCID iD icon"></a><br>
+**Contact**: b.cornuhewitt@uu.nl<br>
+
+## Description
+The scripts in this repository are related to a substudy of the VGO3 project (https://www.rivm.nl/veehouderij-en-gezondheid/onderzoek-veehouderij-en-gezondheid-omwonenden-vgo). The VGO3 project was initiated to investigate why there is an increased risk of pneumonia associated with residential exposure to goat farms. Pneumonia patients, control participants and goat farmers were recruited in the study. Oropharyngeal and nasopharyngeal swabs were taken from all participants and the microbiome of these samples was characterised using 16S rRNA sequencing. We hypothesise that goat farms emit a bacterial agent into the air which could directly infect neighbouring residents to goat farms and cause pnuemonia. Alternatively, it could be that emissions from goat farms trigger a microbial shift in the airways causing dysbiosis and potential overgrowth of pathogenic pneumonia-causing bacteria. Characterising the microbiome will allow for identification of a potential responsible agent, and enable us to uncover potential shifts in microbial compositions.
