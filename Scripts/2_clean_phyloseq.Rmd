@@ -1,177 +1,49 @@
 ---
 title: "Identify contaminants with decontam and manually"
-author: "Mari-Lee Odendaal"
+author: "Mari-Lee Odendaal (adapted by Beatrice Cornu Hewitt)"
 date: "`r Sys.time()`"
 ---
 
 The overall goal of this script is to identify the contaminants per niche using Decontam and our own manual filtering step. After careful exploration, the list of list of contaminants per niche are stored and later used to exclude the contaminant ASVs from the raw phyloseq object.
 
 ```{r setup, include=F, message=F, include=F}
-subdir_name <- "2_clean_phyloseq"
+# Define a function to check and install packages
+install_if_missing <- function(packages) {
+  new_packages <- packages[!(packages %in% installed.packages()[, "Package"])]
+  if (length(new_packages)) install.packages(new_packages)
+}
+# List of required packages
+required_packages2 <- c(
+  "tidyverse", "magrittr", "glue", "ggtext", "fs", "phyloseq", "microbiomer", "patchwork",
+  "microbiome", "vegan", "microbiome", "decontam", "reshape2", "colorspace", "scales", "ggpubr", "ggvenn", "ggnewscale", 
+  "RColorBrewer", "paletteer", "gridExtra", "ggdist"
+)
+# Install missing packages
+install_if_missing(required_packages2)
+# Load all required packages
+lapply(required_packages2, library, character.only = TRUE)
+```
 
-library(tidyverse);library(magrittr);library(glue);library(here);library(ggtext);library(fs);library(phyloseq);library(microbiomer);library(vegan);library(microbiome);library(decontam);library(reshape2);library(colorspace);library(scales);library(ggpubr);library(ggvenn);library(ggnewscale);library(RColorBrewer);library(paletteer);library(gridExtra)
+# Theme for plots
 
-# set paths
-knitr::opts_knit$set(root.dir=".", aliases=c(h = "fig.height", w = "fig.width", ow = "out.width"))
-knitr::opts_chunk$set(dev=c('png', 'pdf'), 
-                      fig.path=here("results", "figures", glue("{subdir_name}/")),
-                      dpi=300)
-
+```{r setup, include=F, message=F, include=F}
 theme_set(theme_bw())
 theme_update(axis.text.x = element_text(angle = 45, hjust=1),
              strip.text = element_text(colour = 'white'),
              strip.background =element_rect(fill="#2F4858", color = "#2F4858"))
 ```
 
-```{r knit, echo=F, eval=FALSE, include=F}
-rmarkdown::render(input = here("scripts", str_c(subdir_name, ".Rmd")), output_dir = here("results"))
-```
-
-# Set-up
-## Functions
-The sample data (bacterial density) was checked using this function
-
+# Functions
+The functions used in this RMarkdown file are stored in "functions.R"
 ```{r}
-plot_sample_data <- function(df, x, y) {
-  df %>% ggplot(aes(x = x, y = y, color=niche)) +
-  geom_point(position=position_jitterdodge(), size = 2.5, 
-             alpha = 0.6, shape = 16) + 
-  labs(color = "Sample type") +
-  geom_boxplot(alpha = 0.4, outlier.shape = NA, fill = "white", 
-               show.legend = FALSE) + 
-  theme(legend.position="none") + 
-    scale_color_manual(values = c("burlywood3", "cadetblue3", 
-                                  "coral4", "#FFC857", "darkolivegreen4")) + 
-    guides(color = guide_legend(override.aes = list(alpha=1, size = 4, 
-                                                    shape = 15), nrow = 1))}
-```
-
-The composition of the different samples types was checked using this function
-
-```{r}
-create_ordered_bar <- function(ps, type, n) {
-  
-  ps_RA <- ps %>%
-    prune_samples(sample_data(ps)$niche == type, .) %>%
-    to_RA()
-  
-  otu_RA_m <- as(otu_table(ps_RA), "matrix")
-  
-bc <- vegdist(t(otu_RA_m), "bray")
-hc <- hclust(bc, method = "average")
-  
-  ps_RA %>%
-    prep_bar(n = n) %>%
-    mutate(sample_id = fct_relevel(sample_id, hc$labels[hc$order])) %>%
-    create_bar(df_topn = ., n = n, ncol_legend = 1, name_legend = "ASV") +
-    coord_flip() +
-    theme(legend.position = "right") + 
-    scale_fill_manual(values = c("#F0F0F0", paletteer_d("pals::stepped")[2:(n+1)])) +
-    labs(fill = "ASV")
-} 
-```
-
-```{r}
-plot_contaminants <- function(data) {
-  ggplot(data, aes(x = as.character(Miseq.Run), y = value)) +
-    facet_wrap(~ ASV, scales = "free_y", ncol = 5) +
-    theme(strip.text.x = element_markdown(), legend.position = "top") +
-    geom_jitter(aes(color = factor(niche)), size = 1, alpha = 0.4, shape = 16) +
-    labs(colour = "Niche") +
-    guides(colour = guide_legend(override.aes = list(alpha = 1, size = 4, 
-                                                     shape = 15))) +
-    geom_boxplot(aes(color = factor(niche)), alpha = 0.4, 
-                 outlier.shape = NA, fill = "white") +
-    guides(col = "none") +
-    scale_colour_manual(values = c("burlywood4", "cadetblue4")) +
-    labs(y = "Relative abundance", x = "Isolation-run") +
-    scale_y_continuous(trans = 'log10',
-                       breaks = trans_breaks('log10', function(x) 10^x),
-                       labels = trans_format('log10', math_format(10^.x)))
-}
-```
-
-We use the following function to generate rarefaction curves for the samples.
-
-```{r}
-rarecurve <- function (x, step = 1, sample, xlab = "Sample Size", 
-                       ylab = "Species", 
-                       label = TRUE, col, lty, tidy = FALSE, ...) 
-{
-  x <- as.matrix(x)
-  if (!identical(all.equal(x, round(x)), TRUE)) 
-    stop("function accepts only integers (counts)")
-  minobs <- min(x[x > 0])
-  if (minobs > 1) 
-    warning(gettextf("most observed count data have counts 1, 
-                     but smallest count is %d", minobs))
-  if (missing(col)) 
-    col <- par("col")
-  if (missing(lty)) 
-    lty <- par("lty")
-  tot <- rowSums(x)
-  S <- specnumber(x)
-  if (any(S <= 0)) {
-    message("empty rows removed")
-    x <- x[S > 0, , drop = FALSE]
-    tot <- tot[S > 0]
-    S <- S[S > 0]
-  }
-  nr <- nrow(x)
-  col <- rep(col, length.out = nr)
-  lty <- rep(lty, length.out = nr)
-  out <- lapply(seq_len(nr), function(i) {
-    n <- seq(1, tot[i], by = step)
-    if (n[length(n)] != tot[i]) {
-      n <- c(n, tot[i], use.names = FALSE)
-    }
-    drop(suppressWarnings(rarefy(x[i, ], n)))
-  })
-  if (tidy) {
-    len <- sapply(out, length)
-    nm <- rownames(x)
-    df <- data.frame(Site = factor(rep(nm, len), levels = nm), 
-                     Sample = unlist(lapply(out, attr, which = "Subsample")), 
-                     Species = unlist(out))
-    return(df)
-  }
-  Nmax <- sapply(out, function(x) max(attr(x, "Subsample")))
-  Smax <- sapply(out, max)
-  plot(c(1, max(Nmax)), c(1, max(Smax)), xlab = xlab, ylab = ylab, 
-       type = "n", ...)
-  if (!missing(sample)) {
-    abline(v = sample)
-    rare <- sapply(out, function(z) approx(x = attr(z, "Subsample"), 
-                                           y = z, xout = sample, rule = 1)$y)
-    abline(h = rare, lwd = 0.5)
-  }
-  for (ln in seq_along(out)) {
-    N <- attr(out[[ln]], "Subsample")
-    lines(N, out[[ln]], col = col[ln], lty = lty[ln], ...)
-  }
-  if (label) {
-    ordilabel(cbind(tot, S), labels = rownames(x), ...)
-  }
-  invisible(out)
-}
-```
-
-```{r}
-ps_stats <- function(ps, stats, step_name) {
-  stats <- add_row(stats, step = step_name, 
-                   samples = nsamples(ps), 
-                   taxa = ntaxa(ps), 
-                   reads = sum(otu_table(ps)))
-  return(stats)
-}
+source("functions.R")
 ```
 
 ## Input
 As input data we will need the previously created raw phyloseq object.
 
 ```{r}
-dir_path = here::here("results", "RData")
-ps1 <- readRDS(file = glue::glue("{dir_path}/ps_raw.Rds"))
+ps1 <- readRDS("../Output/Phyloseq/ps_raw.Rds")
 ps_raw <- ps1
 ```
 
@@ -185,74 +57,97 @@ df <- subset(df, niche != "NP?") %>% subset(., niche != "BB") %>%
   subset(., niche != "ZMCD")
 df <- df[order(df$after_DADA2_reads_nr),]
 df$Index <- seq(nrow(df))
-ggplot(data = df, aes(x=Index, y=after_DADA2_reads_nr, color=niche)) + geom_point() + 
+libsize <- ggplot(data = df, aes(x=Index, y=after_DADA2_reads_nr, color=niche)) + geom_point() + 
     scale_color_manual(values = c("burlywood3", "cadetblue3", 
                                   "coral4", "#FFC857", "darkolivegreen4")) 
+
+ggsave("../Output/Microbiome_descriptives/Library_size_persample.png",libsize)
 ```
 
-The overal composition of the NP samples looks like a typical nasopharyngeal microbiota: High abundances of Moraxella, Staphylococcus, Corynebacterium and Dolosigranulum. However, we also find the typical contaminant Pseudomonas and Caulobacteraceae high on the list. Interestingly, the patients have a high relative abundance of Streptococcus and Haemophilus.
+The overall composition of the NP samples looks like a typical nasopharyngeal microbiota: High abundances of Moraxella, Staphylococcus, Corynebacterium and Dolosigranulum. However, we also find the typical contaminant Pseudomonas and Caulobacteraceae high on the list. Interestingly, the patients have a high relative abundance of Streptococcus and Haemophilus.
 
 
 ```{r composition_NP, ow = '90%', h = 5, w = 6}
-create_ordered_bar(subset_samples(ps1, !is.na(population)), "NP", 15) + 
+NP_composition <- create_ordered_bar(subset_samples(ps1, !is.na(population)), "NP", 15) + 
   theme(axis.text.y = element_blank(), axis.ticks.y = element_blank()) + 
   geom_bar(stat = "identity", width = 1) + 
   facet_wrap(~population, scale = "free")
-```
 
+ggsave("../Output/Microbiome_descriptives/Composition_plot_NP.png", NP_composition)
+ggsave("../Output/Microbiome_descriptives/Composition_plot_NP.svg", NP_composition)
+
+```
 The overall composition of the OP samples looks like a typical oropharyngeal microbiota: Streptococcus, Veilonella, Prevotella, Neisseria, etc.
 
 ```{r composition_OP, ow = '90%', h = 5, w = 6}
-create_ordered_bar(subset_samples(ps1, !is.na(population)), "OP", 15) + 
+OP_composition <- create_ordered_bar(subset_samples(ps1, !is.na(population)), "OP", 15) + 
   theme(axis.text.y = element_blank(), axis.ticks.y = element_blank()) + 
   geom_bar(stat = "identity", width = 1) + 
   facet_wrap(~population, scale = "free")
+
+ggsave("../Output/Microbiome_descriptives/Composition_plot_OP.png", OP_composition)
+ggsave("../Output/Microbiome_descriptives/Composition_plot_OP.svg", OP_composition)
+
 ```
+
 The BD controls have high abundances of Pseudomonas, Caulobacteraceae, Bradyrhizobium, Burkholderia, etc.
 
 ```{r composition_BD, ow = '90%', h = 5, w = 5.5}
-create_ordered_bar(ps1, "BD", 10) + 
+BD_controls_composition <- create_ordered_bar(ps1, "BD", 10) + 
   theme(axis.text.y = element_blank(), axis.ticks.y = element_blank()) + 
   geom_bar(stat = "identity", width = 1) + 
   facet_wrap(~niche, scale = "free")
+
+ggsave("../Output/Microbiome_descriptives/Composition_plot_BD_controls.png", BD_controls_composition)
+
 ```
 
 The FB controls have high abundances of Pseudomonas Caulobacteraceae, Bradyrhizobium, etc.
 
 ```{r composition_FB, ow = '90%', h = 5, w = 4}
-create_ordered_bar(ps1, "FB", 10) + 
+FB_controls_composition <- create_ordered_bar(ps1, "FB", 10) + 
   theme(axis.text.y = element_blank(), axis.ticks.y = element_blank()) + 
   geom_bar(stat = "identity", width = 1) + 
   facet_wrap(~niche, scale = "free")
+
+ggsave("../Output/Microbiome_descriptives/Composition_plot_FBcontrols.png", FB_controls_composition)
 ```
 
 The Zymomocks have a stable composition.
 
 ```{r composition_ZMCB, ow = '90%', h = 5, w = 4}
-create_ordered_bar(ps1, "ZMCB", 10) + 
+ZMCB_controls_composition <- create_ordered_bar(ps1, "ZMCB", 10) + 
   theme(axis.text.y = element_blank(), axis.ticks.y = element_blank()) + 
   geom_bar(stat = "identity", width = 1) + 
   facet_wrap(~niche, scale = "free")
+
+ggsave("../Output/Microbiome_descriptives/Composition_plot_ZMCB_controls.png", ZMCB_controls_composition)
 ```
 
 ```{r composition_ZMCD, ow = '90%', h = 5, w = 4}
-create_ordered_bar(ps1, "ZMCD", 10) + 
+ZMCD_controls_composition <- create_ordered_bar(ps1, "ZMCD", 10) + 
   theme(axis.text.y = element_blank(), axis.ticks.y = element_blank()) + 
   geom_bar(stat = "identity", width = 1) + 
   facet_wrap(~niche, scale = "free")
+
+ggsave("../Output/Microbiome_descriptives/Composition_plot_ZMCD_controls.png", ZMCD_controls_composition)
+
 ```
 
 The Zymomocks have a stable composition.
 
 ```{r composition_UMD, ow = '90%', h = 5, w = 4}
-create_ordered_bar(ps1, "UMD", 10) + 
+UMD_controls_composition <- create_ordered_bar(ps1, "UMD", 10) + 
   theme(axis.text.y = element_blank(), axis.ticks.y = element_blank()) + 
   geom_bar(stat = "identity", width = 1) + 
   facet_wrap(~niche, scale = "free")
+
+ggsave("../Output/Microbiome_descriptives/Composition_plot_UMD_controls.png", UMD_controls_composition)
+
 ```
 
 # Cleaning phyloseq
-## Exlcussion of mocks
+## Exclusion of mocks
 After checking the composition of the Zymo mocks, we remove them together with some other controls from our dataset
 
 ```{r}
@@ -276,7 +171,7 @@ contaminants_np <- isContaminant(subset_samples(ps1,
                                  method="combined", conc="qPCR", neg="is_neg")
 
 contaminants_np <- subset(contaminants_np, contaminant == TRUE)
-dim(contaminants_np)[1]
+dim(contaminants_np)[1] # 128 identified
 ```
 
 ```{r}
@@ -285,7 +180,7 @@ contaminants_op <- isContaminant(subset_samples(ps1,
                                  method="combined", conc="qPCR", neg="is_neg")
 
 contaminants_op <- subset(contaminants_op, contaminant == TRUE)
-dim(contaminants_op)[1]
+dim(contaminants_op)[1] # 115
 ```
 
 24 ASVs were identified as contaminants in both the NP and OP.
@@ -298,15 +193,18 @@ con_both
 We create a frequency plot of the top 30 identified contaminants. For most of these contaminant ASVs there seems to be a correlation between their relative abundance and the bacterial density.
 
 ```{r decontam_freq_np, ow = '90%', h = 15, w = 15}
-plot_frequency(subset_samples(ps1, niche == "NP"), 
+contam_NP_freqplot <- plot_frequency(subset_samples(ps1, niche == "NP"), 
                head(rownames(contaminants_np), 30), 
                conc="qPCR") + xlab("Bacterial density (pg/ul)")
+
+contam_NP_freqplot
 ```
 
 ```{r decontam_freq_op, ow = '90%', h = 15, w = 15}
-plot_frequency(subset_samples(ps1, niche == "OP"), 
+contam_OP_freqplot <- plot_frequency(subset_samples(ps1, niche == "OP"), 
                head(rownames(contaminants_op), 30), 
                conc="qPCR") + xlab("Bacterial density (pg/ul)")
+contam_OP_freqplot
 ```
 
 The contaminants identified are shown in the table. These ASVs were also previously identified as the most abundant ASVs in the blanks.
@@ -564,6 +462,7 @@ ps1 <- prune_taxa(!taxa_names(ps1) %in% con_all, ps1)
 ps1 <- prune_taxa(taxa_sums(ps1) > 0, ps1)
 
 stats <- ps_stats(ps1, stats, "Exclusion of contaminant ASVs")
+
 ```
 
 ## Exclusion low density samples
@@ -614,10 +513,14 @@ rare_curves <- map2_dfr(rare_curve_data,
                        labels = scales::comma) +
     geom_vline(aes(xintercept = 10000),  colour="grey50", linetype="dotted") +
     labs(x = "Sample size", y = "Number of species")
+
+ggsave("../Output/Microbiome_descriptives/rarefaction_curves.svg", rare_curves)
 ```
 
 ```{r rare_curves_read_depth, ow = '90%', h = 3, w = 8, echo=FALSE}
-grid.arrange(read_counts, rare_curves, ncol = 2)
+readcounts_rarecurves <- grid.arrange(read_counts, rare_curves, ncol = 2)
+ggsave("../Output/Microbiome_descriptives/readcounts_rarecurves.svg",readcounts_rarecurves)
+
 ```
 
 Based on these figures, we chose a read cut-off at 10,000 reads. In the rarefaction curves, this was the point where the curves started flattening. 
@@ -634,21 +537,29 @@ stats <- ps_stats(ps1, stats, "Exclusion of samples with reads < 10,000")
 ```{r sample_distribution, ow = '90%', h = 4, w = 5}
 m <- meta_to_df(ps1)
 t <- count(m, population, niche) %>% as.data.frame()
-ggplot(t, aes(x = population, y = n, fill = niche)) +
+samples_perpopulation <- ggplot(t, aes(x = population, y = n, fill = niche)) +
   geom_bar(stat = "identity") +
   scale_fill_manual(values = c("burlywood3", "cadetblue3")) +
   labs(x = "Population", y = "Number of samples", fill = "Niche") +
   geom_text(position = position_stack(vjust = 0.5), 
-            aes(label = n, colour = niche), size = 3) +
+            aes(label = n, colour = niche), size = 5) +
   scale_colour_manual(values = c("burlywood4", "cadetblue4")) +
-  guides(colour = "none")
+  guides(colour = "none")+ 
+  theme(axis.text.x = element_text(size = 14),  # Adjust the size as needed
+        axis.text.y = element_text(size = 14),
+        axis.title = element_text(size = 14),
+        legend.title =element_text(size = 14),
+        legend.text = element_text(size=14))  # Adjust the size as needed
+ggsave("../Output/Microbiome_descriptives/samples_perpopulation.svg", samples_perpopulation)
 ```
 
 ```{r composition_NP_cleaned, ow = '90%', h = 5, w = 6}
-create_ordered_bar(ps1, "NP", 15) + 
+np_stacked_barplot_cleaned <- create_ordered_bar(ps1, "NP", 15) + 
   theme(axis.text.y = element_blank(), axis.ticks.y = element_blank()) + 
   geom_bar(stat = "identity", width = 1) + 
   facet_wrap(~population, scale = "free")
+
+ggsave("../Output/Microbiome_descriptives/np_stacked_barplot_cleaned.svg", np_stacked_barplot_cleaned)
 ```
 
 # Bacterial density & Shannon index
@@ -693,10 +604,12 @@ plot_sample_data(m, x=m$population, y=m$Shannon) +
 ```
 
 ```{r Shannon_index_across_population, ow = '90%', h = 3, w = 4}
-plot_sample_data(m, x=m$population, y=m$Shannon) + 
+shannon_population <- plot_sample_data(m, x=m$population, y=m$Shannon) + 
   labs(x = "Population", y = "Shannon index") +
     geom_hline(aes(yintercept = 0.8),  colour="grey50", linetype="dotted") + 
   facet_grid(.~niche, scale = "fixed")
+
+ggsave("../Output/Alpha_diversity/shannon_population.svg",shannon_population)
 ```
 
 ```{r Observed_species_across_MiSeq_run, ow = '90%', h = 4, w = 8}
@@ -707,10 +620,13 @@ plot_sample_data(m, x=m$population, y=m$Observed) +
 ```
 
 ```{r Observed_species_across_population, ow = '90%', h = 3, w = 4}
-plot_sample_data(m, x=m$population, y=m$Observed) + 
+observed_population <- plot_sample_data(m, x=m$population, y=m$Observed) + 
   labs(x = "Population", y = "Observed species") +
     geom_hline(aes(yintercept = 0.8),  colour="grey50", linetype="dotted") + 
   facet_grid(.~niche, scale = "fixed")
+
+ggsave("../Output/Alpha_diversity/observed_population.svg", observed_population)
+
 ```
 
 ```{r Bacterial_density_across_MiSeq_run, ow = '90%', h = 4, w = 8}
@@ -722,11 +638,13 @@ plot_sample_data(m, x=m$population, y=m$Observed) +
 ```
 
 ```{r Bacterial_density_across_population, ow = '90%', h = 3, w = 4}
-plot_sample_data(m, x=m$population, y=m$qPCR) + 
+bacterialdensity_population <- plot_sample_data(m, x=m$population, y=m$qPCR) + 
   labs(x = "Population", y = "qPCR (pg/µl)") +
   facet_grid(.~niche, scale = "fixed") + 
   scale_y_continuous(trans='log10', breaks=trans_breaks('log10', function(x) 10^x),
                      labels=trans_format('log10', math_format(10^.x)))
+
+ggsave("../Output/Alpha_diversity/bacterialdensity_population.svg", bacterialdensity_population)
 ```
 
 # Check removed samples
@@ -749,17 +667,18 @@ sample_data(ps1) <- m
 ```
 
 ```{r}
-dir_path = here::here("results", "RData")
-saveRDS(ps1, file = glue::glue("{dir_path}/ps_complete.Rds"))
+saveRDS(ps1, file = "../Output/Phyloseq/ps_complete.Rds")
 ```
 
 # Cleaned composition
 
 ```{r composition_OP_cleaned, ow = '90%', h = 5, w = 6}
-create_ordered_bar(ps1, "OP", 15) + 
+op_stacked_barplot_cleaned <- create_ordered_bar(ps1, "OP", 15) + 
   theme(axis.text.y = element_blank(), axis.ticks.y = element_blank()) + 
   geom_bar(stat = "identity", width = 1) + 
   facet_wrap(~population, scale = "free")
+
+ggsave("../Output/Microbiome_descriptives/Composition_plot_op_cleaned.svg", op_stacked_barplot_cleaned)
 ```
 
 ```{r}
