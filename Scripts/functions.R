@@ -1,6 +1,12 @@
 # Functions used in this RMarkdown file are used in the project. 
 # To load the functions below read in this file ("source("microbiome_functions.Rmd")")
 
+# Define a function to check and install packages
+install_if_missing <- function(packages) {
+  new_packages <- packages[!(packages %in% installed.packages()[, "Package"])]
+  if (length(new_packages)) install.packages(new_packages)
+}
+
 # Summarise the number of samples, taxa and reads in a given ps object
 ps_stats <- function(ps, stats, step_name) {
   stats <- add_row(stats, step = step_name, 
@@ -96,6 +102,19 @@ taxa_sum_reorder <- function(ps) {
   tax_table(ps) <- tax_table(ps)[index,]
   otu_table(ps) <- otu_table(ps)[,index]
   return(ps)
+}
+
+# To visualize qPCR and picogreen across Miseq runs
+plot_sample_data <- function(df, x, y) {
+  df %>%
+    ggplot(aes(x = x, y = y, color=niche)) +
+    geom_point(position=position_jitterdodge(), size = 2.5, alpha = 0.6, shape = 16) + 
+    labs(color = "Sample type") +
+    geom_boxplot(alpha = 0.4, outlier.shape = NA, fill = "white", show.legend = FALSE) + 
+    theme(legend.position="top") + 
+    scale_color_manual(values = c("burlywood3", "cadetblue3", "coral3", "coral4", 
+                                  "darkolivegreen3", "darkolivegreen4", "#FFC857", "azure3")) + 
+    guides(color = guide_legend(override.aes = list(alpha=1, size = 4, shape = 15), nrow = 1))
 }
 
 # Separates species into multiple columns.
@@ -230,4 +249,57 @@ plot_contaminants <- function(data) {
     scale_y_continuous(trans = 'log10',
                        breaks = trans_breaks('log10', function(x) 10^x),
                        labels = trans_format('log10', math_format(10^.x)))
+}
+
+
+# Create excel file from gt table
+export_to_excel <- function(table) {
+  table %>%
+    gtsummary::as_tibble() %>% 
+    rename_with(~str_remove_all(., "\\**"))
+} 
+
+# Remove rows with NAs from the dataset
+NA_remove <- function(ord, meta, vars_all) { 
+  # Calculate the initial number of rows
+  initial_rows <- nrow(meta)
+  # Remove missing values for all variables in vars_all
+  for (var in vars_all) {
+    meta <- subset(meta, !is.na(meta[var]))
+  }
+  # Calculate the final number of rows
+  final_rows <- nrow(meta)
+  # Calculate the number of rows removed
+  rows_removed <- initial_rows - final_rows
+  # Subset the distance matrix and metadata based on remaining samples
+  ord_sub <- ord[rownames(ord) %in% meta$sample_id, colnames(ord) %in% meta$sample_id]
+  ord_sub <- as.dist(ord_sub)
+  return(list(ord_sub = ord_sub, m_sub = meta, rows_removed = rows_removed))
+}
+
+
+# PERMANOVA functions 
+beta_df <- function(ord, meta, var) {
+  m_sub <- subset(meta, !is.na(meta[[var]]))
+  ord_sub <- ord[rownames(ord) %in% m_sub$sample_id, colnames(ord) %in% m_sub$sample_id]
+  list(ord_sub = as.dist(ord_sub), m_sub = m_sub)
+}
+
+do_permanova <- function(ord, meta, var) {
+  adonis2(as.formula(glue("ord ~ {var}")), permutations = 999, data = meta) %>%
+    broom::tidy() %>%
+    subset(term == var) %>%
+    mutate(
+      label_p.value = case_when(
+        p.value < 0.05 ~ "***",
+        p.value < 0.1 ~ "**",
+        p.value < 0.25 ~ "*",
+        TRUE ~ NA_character_
+      )
+    )
+}
+
+do_permanova_com <- function(ord, meta, var) {
+  data <- beta_df(ord, meta, var)
+  do_permanova(data$ord_sub, data$m_sub, var)
 }
