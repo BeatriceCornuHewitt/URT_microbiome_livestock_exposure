@@ -2,6 +2,7 @@
 title: "Identify contaminants with decontam and manually"
 author: "Mari-Lee Odendaal (adapted by Beatrice Cornu Hewitt)"
 date: "`r Sys.time()`"
+output: html_document
 ---
 
 The overall goal of this script is to identify the contaminants per niche using Decontam and our own manual filtering step. After careful exploration, the list of list of contaminants per niche are stored and later used to exclude the contaminant ASVs from the raw phyloseq object.
@@ -183,7 +184,7 @@ contaminants_op <- subset(contaminants_op, contaminant == TRUE)
 dim(contaminants_op)[1] # 115
 ```
 
-24 ASVs were identified as contaminants in both the NP and OP.
+23 ASVs were identified as contaminants in both the NP and OP.
 
 ```{r}
 con_both <- rownames(contaminants_op)[rownames(contaminants_op) %in% rownames(contaminants_np)]
