@@ -1,25 +1,21 @@
 ---
 title: "Harmonising VGO3 population metadata"
-author: "b.cornuhewitt@uu.nl" 
-date: "11-04-2024"
+author: "Beatrice Cornu Hewitt" 
+date: "`r Sys.time()`"
+output: html_document
 ---
 
 # Packages
 ```{r}
-library(dplyr)
-library(openxlsx)
-library(tidyr)
-# install.packages("epxToR")
-# install.packages('parallel')
-# install.packages("readxl")
-# install.packages("xlsx")
-# install.packages("writexl")
-library(epxToR)
-library(tidyverse)
-library(dplyr)
-library(readxl)
-library("writexl")
-library("openxlsx")
+# List of required packages
+required_packages <- c(
+  "dplyr", "openxlsx", "tidyr", "epxToR", "tidyverse", "dplyr", 
+  "readxl", "writexl", "openxlsx", "XML"
+)
+# Install missing packages
+install_if_missing(required_packages)
+# Load all required packages
+lapply(required_packages, library, character.only = TRUE)
 ```
 
 # CONTROL POPULATION
@@ -760,7 +756,7 @@ write.csv(VGO3_GF_metadata_clean, "../Output/Metadata/Metadata_per_population/VG
 ## GP data input
 ```{r}
 # GP metadata (n=108)
-VGO3_GP_metadata <- read.csv("../Data/Metadata_VGOIII_20240108_GP.csv")
+VGO3_GP_metadata <- read.csv("../Input/Metadata_VGOIII_20240108_GP.csv")
 ```
 
 ## GP data cleaning
@@ -1390,7 +1386,7 @@ write.csv(VGO3_metadata_all, "../Output/Metadata/VGO3_metadata_all.csv")
 ```{r}
 # Livestock computations were performed with RVO 2021 data provided by Ben Bom 
 # Some participants have foreign land - take this into account later on
-RVO2021_livestock_exp <- read.csv("../Data/Livestock_computations/RVO2021_computations.csv")
+RVO2021_livestock_exp <- read.csv("../Input/Livestock_computations/RVO2021_computations_max10km_new.csv")
 
 # change the name of column ID to VGO3_ID to match with VGO3_metadata_all
 RVO2021_livestock_exp <- RVO2021_livestock_exp %>%
@@ -1401,7 +1397,7 @@ RVO2021_livestock_exp$VGO3_ID <- as.character(RVO2021_livestock_exp$VGO3_ID)
 VGO3_metadata_all_livestock <- left_join(VGO3_metadata_all, RVO2021_livestock_exp, by = "VGO3_ID")
 ```
 # Adjustments to the metadata
-```{r}
+```{r, echo=TRUE, message=FALSE, warning=FALSE}
 # Add a column 'sampling_season' to the dataframe
 VGO3_metadata_all_livestock$visit_date <- as.Date(VGO3_metadata_all_livestock$visit_date)
 month <- format(VGO3_metadata_all_livestock$visit_date, "%m")
@@ -1450,14 +1446,22 @@ VGO3_metadata_all_livestock$lung_med[VGO3_metadata_all_livestock$population=="GP
 # Create a new column GoatFarmExposureCategory
 # Since we don't have residential goat farm exposure information for goat farmers, we will just categorise them as 'Goat farmer' 
 # CPs will be categorised into <1000, 1000-2000, and >2000m from goat farms (can't use <500m as this is too few participants)
-
 VGO3_metadata_all_livestock <- VGO3_metadata_all_livestock %>%
-  mutate(GoatFarmExposureCategory = "Goat farmer") %>%
   mutate(GoatFarmExposureCategory = case_when(
-    population %in% c("CP", "GP") & (is.na(RVO2021_MindistGoatFarm50plus_NEG) | RVO2021_MindistGoatFarm50plus_NEG <= -2000) ~ '>2000m',
-    population %in% c("CP", "GP") & RVO2021_MindistGoatFarm50plus_NEG >= -1000 ~ '<1000m',
-    population %in% c("CP", "GP") & RVO2021_MindistGoatFarm50plus_NEG > -2000 ~ '1000-2000m',
-    TRUE ~ GoatFarmExposureCategory
+    # If the population is Goat farmer, set category to 'Goat farmer'
+    population == "GF" ~ "Goat farmer",
+    
+    # Control Population (CP)
+    population == "CP" & (is.na(RVO2021_MindistGoatFarm50plus_NEG) | RVO2021_MindistGoatFarm50plus_NEG <= -2000) ~ '>2000m',
+    population == "CP" & RVO2021_MindistGoatFarm50plus_NEG >= -1000 ~ '<1000m',
+    population == "CP" & RVO2021_MindistGoatFarm50plus_NEG > -2000 ~ '1000-2000m',
+    
+    # GP Population
+    population == "GP" & (is.na(RVO2021_MindistGoatFarm50plus_NEG) | RVO2021_MindistGoatFarm50plus_NEG <= -2000) ~ '>2000m',
+    population == "GP" & RVO2021_MindistGoatFarm50plus_NEG > -2000 ~ '<2000m',
+    
+    # For any other population or if the conditions are not met
+    TRUE ~ NA_character_
   ))
 
 # Create 2 new variables related to goat farm exposure
@@ -1477,9 +1481,25 @@ VGO3_metadata_all_livestock$GoatFarmwithin2000m[VGO3_metadata_all_livestock$popu
 VGO3_metadata_all_livestock$RVO2021_MindistGoatFarm50plus_NEG[VGO3_metadata_all_livestock$population=="CP"]
 VGO3_metadata_all_livestock$RVO2021_MindistGoatFarm50plus_NEG[VGO3_metadata_all_livestock$population=="GP"]
 
+# Create a new column PoultryFarmExposureCategory
+# Since we don't have residential poultry farm exposure information for goat farmers, we cannot include them later on in the analyses of poultry farm exposure - so label them as NA now. 
+# CPs will be categorised into <1000, 1000-2000, and >2000m from goat farms (can't use <500m as this is too few participants)
+VGO3_metadata_all_livestock <- VGO3_metadata_all_livestock %>%
+  mutate(ChickenFarmExposureCategory = case_when(
+    population == "CP" & (is.na(RVO2021_MindistChickenFarm250plus_NEG) | RVO2021_MindistChickenFarm250plus_NEG <= -2000) ~ '>2000m',
+    population == "CP" & RVO2021_MindistChickenFarm250plus_NEG >= -1000 ~ '<1000m',
+    population == "CP" & RVO2021_MindistChickenFarm250plus_NEG > -2000 ~ '1000-2000m',
+    population == "GP" & (is.na(RVO2021_MindistChickenFarm250plus_NEG) | RVO2021_MindistChickenFarm250plus_NEG <= -2000) ~ '>2000m',
+    population == "GP" & RVO2021_MindistChickenFarm250plus_NEG > -2000 ~ '<2000m',
+    TRUE ~ NA_character_
+  )) %>%
+  mutate(ChickenFarmExposureCategory = ifelse(population == "Goat farmer", NA, ChickenFarmExposureCategory))
+
+
+VGO3_metadata_all_livestock$ChickenFarmExposureCategory[VGO3_metadata_all_livestock$population=="GF"]
+
 # Create a new column ChickenFarm1000m - is the participant living < 1000m from a chicken farm
 VGO3_metadata_all_livestock$ChickenFarm1000m <- ifelse(VGO3_metadata_all_livestock$RVO2021_nChickenFarm_1000m > 0, 1, 0)
-
 # Create a new column ChickenFarm2000m - is the participant living < 2000m from a chicken farm
 VGO3_metadata_all_livestock$ChickenFarm2000m <- ifelse(VGO3_metadata_all_livestock$RVO2021_nChickenFarm_2000m > 0, 1, 0)
 
@@ -1509,7 +1529,119 @@ sum(VGO3_metadata_all_livestock_nodups$population=="GP") # 108 (duplicates remov
 sum(VGO3_metadata_all_livestock_nodups$population=="CP") # 969
 sum(VGO3_metadata_all_livestock_nodups$population=="GF") # 100
 
+# Plots of goat and poultry farm exposure
 
+# Calculate counts for chicken farm exposure
+chicken_farm_exposure_counts <- VGO3_metadata_all_livestock_nodups %>%
+  filter(!is.na(ChickenFarmExposureCategory)) %>%
+  group_by(population, ChickenFarmExposureCategory) %>%
+  summarise(count = n(), .groups = 'drop')
+
+# Calculate counts for goat farm exposure
+goat_farm_exposure_counts <- VGO3_metadata_all_livestock_nodups %>%
+  filter(!is.na(GoatFarmExposureCategory)) %>%
+  group_by(population, GoatFarmExposureCategory) %>%
+  summarise(count = n(), .groups = 'drop')
+# Filter and plot chicken farm exposure for CP population
+# Define color palette
+color_palette <- c("CP" = "#66C2A5", "GP" = "#8DA0CB")
+
+# Filter and plot chicken farm exposure for CP population
+chicken_farm_exposure_cp <- chicken_farm_exposure_counts %>%
+  filter(population == "CP" & ChickenFarmExposureCategory %in% valid_categories_chicken$CP)
+
+chicken_plot_cp <- ggplot(chicken_farm_exposure_cp, aes(x = ChickenFarmExposureCategory, y = count, fill = population)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_text(aes(label = count), position = position_dodge(width = 0.9), vjust = -0.5) +
+  labs(title = "Chicken farm exposure categories \nfor control population",
+       x = "Chicken farm exposure category",
+       y = "Count",
+       fill = "Population") +
+  scale_fill_manual(values = color_palette) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 16, face = "bold"),           # Title size
+    axis.title.x = element_text(size = 16),                        # X-axis title size
+    axis.title.y = element_text(size = 16),                        # Y-axis title size
+    axis.text.x = element_text(size = 16, angle = 45, hjust = 1),  # X-axis text size and angle
+    axis.text.y = element_text(size = 16),                         # Y-axis text size
+    legend.title = element_text(size = 16),                        # Legend title size
+    legend.text = element_text(size = 16)                           # Legend text size
+  )
+
+# Filter and plot chicken farm exposure for GP population
+chicken_farm_exposure_gp <- chicken_farm_exposure_counts %>%
+  filter(population == "GP" & ChickenFarmExposureCategory %in% valid_categories_chicken$GP)
+
+chicken_plot_gp <- ggplot(chicken_farm_exposure_gp, aes(x = ChickenFarmExposureCategory, y = count, fill = population)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_text(aes(label = count), position = position_dodge(width = 0.9), vjust = -0.5) +
+  labs(title = "Chicken farm exposure categories \nfor pneumonia patients",
+       x = "Chicken farm exposure category",
+       y = "Count",
+       fill = "Population") +
+  scale_fill_manual(values = color_palette) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 16, face = "bold"),           # Title size
+    axis.title.x = element_text(size = 16),                        # X-axis title size
+    axis.title.y = element_text(size = 16),                        # Y-axis title size
+    axis.text.x = element_text(size = 16, angle = 45, hjust = 1),  # X-axis text size and angle
+    axis.text.y = element_text(size = 16),                         # Y-axis text size
+    legend.title = element_text(size = 16),                        # Legend title size
+    legend.text = element_text(size = 16)                           # Legend text size
+  )
+
+# Filter and plot goat farm exposure for CP population
+goat_farm_exposure_cp <- goat_farm_exposure_counts %>%
+  filter(population == "CP" & GoatFarmExposureCategory %in% valid_categories_goat$CP)
+
+goat_plot_cp <- ggplot(goat_farm_exposure_cp, aes(x = GoatFarmExposureCategory, y = count, fill = population)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_text(aes(label = count), position = position_dodge(width = 0.9), vjust = -0.5) +
+  labs(title = "Goat farm exposure categories \nfor control population",
+       x = "Goat farm exposure category",
+       y = "Count",
+       fill = "Population") +
+  scale_fill_manual(values = color_palette) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 16, face = "bold"),           # Title size
+    axis.title.x = element_text(size = 16),                        # X-axis title size
+    axis.title.y = element_text(size = 16),                        # Y-axis title size
+    axis.text.x = element_text(size = 16, angle = 45, hjust = 1),  # X-axis text size and angle
+    axis.text.y = element_text(size = 16),                         # Y-axis text size
+    legend.title = element_text(size = 16),                        # Legend title size
+    legend.text = element_text(size = 16)                           # Legend text size
+  )
+
+# Filter and plot goat farm exposure for GP population
+goat_farm_exposure_gp <- goat_farm_exposure_counts %>%
+  filter(population == "GP" & GoatFarmExposureCategory %in% valid_categories_goat$GP)
+
+goat_plot_gp <- ggplot(goat_farm_exposure_gp, aes(x = GoatFarmExposureCategory, y = count, fill = population)) +
+  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
+  geom_text(aes(label = count), position = position_dodge(width = 0.9), vjust = -0.5) +
+  labs(title = "Goat farm exposure categories \nfor pneumonia patients",
+       x = "Goat farm exposure category",
+       y = "Count",
+       fill = "Population") +
+  scale_fill_manual(values = color_palette) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 16, face = "bold"),           # Title size
+    axis.title.x = element_text(size = 16),                        # X-axis title size
+    axis.title.y = element_text(size = 16),                        # Y-axis title size
+    axis.text.x = element_text(size = 16, angle = 45, hjust = 1),  # X-axis text size and angle
+    axis.text.y = element_text(size = 16),                         # Y-axis text size
+    legend.title = element_text(size = 16),                        # Legend title size
+    legend.text = element_text(size = 16)                           # Legend text size
+  )
+
+ggsave("../Output/Participant_descriptives/Chicken_farm_categories_CP.svg", chicken_plot_cp, width = 6, height = 8)
+ggsave("../Output/Participant_descriptives/Chicken_farm_categories_GP.svg", chicken_plot_gp,width = 6, height = 8)
+ggsave("../Output/Participant_descriptives/Goat_farm_categories_CP.svg", goat_plot_cp, width = 6, height = 8)
+ggsave("../Output/Participant_descriptives/Goat_farm_categories_GP.svg", goat_plot_gp, width = 6, height = 8)
 
 ```
 # Lab metadata from Mari-Lee (16S rRNA sequencing)
@@ -1548,7 +1680,7 @@ VGO3_metadata_GP_df <- VGO3_metadata_all_livestock_forjoin %>%
 combined_df <- bind_rows(duplicated_df, VGO3_metadata_GP_df) # 2352 observations
 
 # Now combine with lab data
-VGO3_lab_metadata <- read.xlsx("../Data/Lab_metadata_fromMariLee/VGO3_meta.xlsx", rowNames = TRUE)
+VGO3_lab_metadata <- read.xlsx("../Input/VGO3_meta.xlsx", rowNames = TRUE)
 
 # For merge with lab metadata, we need to add the column VGO3_ID to the lab metadata
 # Add ID column based on sample_id
