@@ -1,0 +1,2700 @@
+---
+title: "Multivariable PERMANOVAs"
+author: "Beatrice Cornu Hewitt & Mari-Lee Odendaal"
+date: "`r Sys.time()`"
+output: html_document
+---
+
+# Packages
+```{r}
+# Define a function to check and install packages
+install_if_missing <- function(packages) {
+  new_packages <- packages[!(packages %in% installed.packages()[, "Package"])]
+  if (length(new_packages)) install.packages(new_packages)
+}
+# List of required packages
+required_packages_betadiv <- c(
+  "tidyverse", "ggtext", "glue", "phyloseq", "microbiomer", "vegan", "microbiome", "decontam", "reshape2", "readxl",
+  "colorspace", "scales", "ggpubr", "RColorBrewer", "paletteer", "rcartocolor", "microViz", "tidyr", "cowplot", "devtools","microViz", "remotes", "rcartocolor", "openxlsx"
+)
+# Install missing packages
+install_if_missing(required_packages_betadiv)
+# Load all required packages
+lapply(required_packages_betadiv, library, character.only = TRUE)
+
+# Install pairwiseAdonis package separately
+install_github("pmartinezarbizu/pairwiseAdonis/pairwiseAdonis")
+
+# remotes::install_github("david-barnett/microViz@0.12.0") 
+```
+# Theme for plots
+```{r setup, include=F, message=F, include=F}
+theme_set(theme_bw())
+theme_update(axis.text.x = element_text(angle = 45, hjust=1),
+             strip.text = element_text(colour = 'white'),
+             strip.background =element_rect(fill="#2F4858", color = "#2F4858"))
+```
+# Functions
+The functions used in this RMarkdown file are stored in "functions.R"
+```{r}
+source("functions.R")
+```
+# Data 
+```{r}
+# load the cleaned phyloseq.
+ps <- readRDS("../Output/Phyloseq/ps_complete.Rds")
+names <- readxl::read_xlsx("../Output/Metadata/Codebook_metadata_all.xlsx") 
+
+
+# Remove low abundance ASVs from NP data and convert to relative abundance
+ps_NP_filt_RA <- subset_samples(ps, niche == "NP") %>%
+  pres_abund_filter() %>% # Default uses subramanian et al. filter (0.1% relative abundance in at least 2 samples)
+  to_RA() # Convert phyloseq with raw read counts to relative abundance
+# 1514 ASVs remaining
+ps_NP_filt_RA@sam_data$population <- as.factor(ps_NP_filt_RA@sam_data$population)
+ps_NP_filt_RA@sam_data$population <- as.factor(ps_NP_filt_RA@sam_data$population)
+ps_NP_filt_RA@sam_data$gender <- as.factor(ps_NP_filt_RA@sam_data$gender)
+ps_NP_filt_RA@sam_data$smoked_ever <- as.factor(ps_NP_filt_RA@sam_data$smoked_ever)
+ps_NP_filt_RA@sam_data$sampling_season <- as.factor(ps_NP_filt_RA@sam_data$sampling_season)
+ps_NP_filt_RA@sam_data$GoatFarmExposureCategory <- as.factor(ps_NP_filt_RA@sam_data$GoatFarmExposureCategory)
+ps_NP_filt_RA@sam_data$ChickenFarmExposureCategory <- as.factor(ps_NP_filt_RA@sam_data$ChickenFarmExposureCategory)
+
+# Remove low abundance ASVs from OP data and convert to relative abundance
+ps_OP_filt_RA <- subset_samples(ps, niche == "OP") %>%
+  pres_abund_filter() %>% # Default uses Subramanian et al. filter (0.1% relative abundance in at least 2 samples)
+  to_RA() # Convert phyloseq with raw read counts to relative abundance
+# 1343 ASVs remaining
+ps_OP_filt_RA@sam_data$population <- as.factor(ps_OP_filt_RA@sam_data$population)
+ps_OP_filt_RA@sam_data$population <- as.factor(ps_OP_filt_RA@sam_data$population)
+ps_OP_filt_RA@sam_data$gender <- as.factor(ps_OP_filt_RA@sam_data$gender)
+ps_OP_filt_RA@sam_data$smoked_ever <- as.factor(ps_OP_filt_RA@sam_data$smoked_ever)
+ps_OP_filt_RA@sam_data$sampling_season <- as.factor(ps_OP_filt_RA@sam_data$sampling_season)
+ps_OP_filt_RA@sam_data$GoatFarmExposureCategory <- as.factor(ps_OP_filt_RA@sam_data$GoatFarmExposureCategory)
+ps_OP_filt_RA@sam_data$ChickenFarmExposureCategory <- as.factor(ps_OP_filt_RA@sam_data$ChickenFarmExposureCategory)
+
+
+# Filter the ps to contain only the first 4 MiSeq runs: 54,56,57,58. These include the initial 200 cp, 100 gp and 100 gf.
+ps_miseq_filtered <- subset_samples(ps, Miseq.Run %in% c(54, 56, 57, 58))
+# Remove OTUs corresponding to the filtered samples
+ps_miseq <- prune_samples(sample_names(ps_miseq_filtered), ps_miseq_filtered)
+
+sum(ps_miseq@sam_data$population=='CP')# 355 CPs 
+sum(ps_miseq@sam_data$population=='GF')# 171 GFs 
+sum(ps_miseq@sam_data$population=='GP')# 194 GFs 
+
+# Remove low abundance ASVs from NP data and convert to relative abundance
+ps_NP_miseq_filt_RA <- subset_samples(ps_miseq_filtered, niche == "NP") %>%
+  pres_abund_filter() %>% # Default uses subramanian et al. filter (0.1% relative abundance in at least 2 samples)
+  to_RA() # Convert phyloseq with raw read counts to relative abundance
+
+# A total of 830 ASVs were found to be present at or above a level of confident detection (0.1% relative abundance) in at least 2 samples (n = 19710 ASVs excluded).
+ps_NP_miseq_filt_RA@sam_data$population <- as.factor(ps_NP_miseq_filt_RA@sam_data$population)
+ps_NP_miseq_filt_RA@sam_data$population <- as.factor(ps_NP_miseq_filt_RA@sam_data$population)
+ps_NP_miseq_filt_RA@sam_data$gender <- as.factor(ps_NP_miseq_filt_RA@sam_data$gender)
+ps_NP_miseq_filt_RA@sam_data$smoked_ever <- as.factor(ps_NP_miseq_filt_RA@sam_data$smoked_ever)
+ps_NP_miseq_filt_RA@sam_data$sampling_season <- as.factor(ps_NP_miseq_filt_RA@sam_data$sampling_season)
+ps_NP_miseq_filt_RA@sam_data$GoatFarmExposureCategory <- as.factor(ps_NP_miseq_filt_RA@sam_data$GoatFarmExposureCategory)
+ps_NP_miseq_filt_RA@sam_data$ChickenFarmExposureCategory <- as.factor(ps_NP_miseq_filt_RA@sam_data$ChickenFarmExposureCategory)
+
+# Remove low abundance ASVs from OP data and convert to relative abundance
+ps_OP_miseq_filt_RA <- subset_samples(ps_miseq_filtered, niche == "OP") %>%
+  pres_abund_filter() %>% # Default uses subramanian et al. filter (0.1% relative abundance in at least 2 samples)
+  to_RA() # Convert phyloseq with raw read counts to relative abundance
+
+# A total of 666 ASVs were found to be present at or above a level of confident detection (0.1% relative abundance) in at least 2 samples (n = 19871 ASVs excluded).
+
+ps_OP_miseq_filt_RA@sam_data$population <- as.factor(ps_OP_miseq_filt_RA@sam_data$population)
+ps_OP_miseq_filt_RA@sam_data$population <- as.factor(ps_OP_miseq_filt_RA@sam_data$population)
+ps_OP_miseq_filt_RA@sam_data$gender <- as.factor(ps_OP_miseq_filt_RA@sam_data$gender)
+ps_OP_miseq_filt_RA@sam_data$smoked_ever <- as.factor(ps_OP_miseq_filt_RA@sam_data$smoked_ever)
+ps_OP_miseq_filt_RA@sam_data$sampling_season <- as.factor(ps_OP_miseq_filt_RA@sam_data$sampling_season)
+ps_OP_miseq_filt_RA@sam_data$GoatFarmExposureCategory <- as.factor(ps_OP_miseq_filt_RA@sam_data$GoatFarmExposureCategory)
+ps_OP_miseq_filt_RA@sam_data$ChickenFarmExposureCategory <- as.factor(ps_OP_miseq_filt_RA@sam_data$ChickenFarmExposureCategory)
+
+```
+# Univariable PERMANOVAs
+## Prepare data
+```{r}
+t <- subset(names, !grepl("Number", Values))
+m <- meta_to_df(ps)
+
+m <- mutate_at(m, (colnames(m)[colnames(m) %in% t$`Variable name`]), as.character)
+rownames(m) <- m$sample_id
+m <- select(m, -c("sample_id"))
+sample_data(ps) <- m
+
+ps@sam_data
+
+```
+## Nasopharynx (NP) 
+### Prepare NP data
+```{r}
+# Univariable PERMANOVA nasopharynx
+small_ps_NP <- subset_samples(ps, niche == "NP") %>%
+  pres_abund_filter() %>%
+  to_RA()
+```
+### All populations
+```{r}
+small_otu_NP <- as.data.frame(otu_table(small_ps_NP)) %>% t()
+small_df_NP <- meta_to_df(small_ps_NP)
+
+bray_curtis_dist_NP <- vegdist(small_otu_NP, method = "bray")
+ord_bc_NP <- bray_curtis_dist_NP %>% as.matrix()
+
+lst_O <- c("population", "gender", "age", "smoked_ever", "sampling_season", "flu_vacc", 
+           "pneumococcal_vacc", "animal_contact_lastmth", "abroad_lastmth", "imm_def", 
+           "GoatFarmExposureCategory", "ChickenFarmExposureCategory")
+
+# Ensure small_df contains the columns listed in lst_O
+if (!all(lst_O %in% names(small_df_NP))) {
+  stop("Not all variables in lst_O are present in small_df")
+}
+
+# Create a new data frame with the variables from lst_O
+df_selected_NP <- small_df_NP %>%
+  select(all_of(lst_O)) %>%
+  mutate(across(everything(), as.character))  # Convert all columns to character
+
+# Proceed with the transformation
+perm_overall_NP <- df_selected_NP %>%
+  pivot_longer(cols = everything(), names_to = "Var", values_to = "Cat") %>%
+  count(Var, Cat) %>%
+  filter(n > 9) %>%
+  count(Var) %>%
+  filter(n > 1) %>%
+  mutate(fit = map(Var, ~do_permanova_com(ord_bc_NP, small_df_NP, .x))) %>%
+  unnest(fit) %>%
+  mutate(type = "Bray Curtis", population = "Overall")
+
+print(perm_overall_NP)
+```
+### Control population
+```{r}
+# Subset samples and create data frames
+small_ps_NP_CP <- subset_samples(small_ps_NP, population == "CP")
+small_otu_NP_CP <- as.data.frame(otu_table(small_ps_NP_CP)) %>% t()
+small_df_NP_CP <- meta_to_df(small_ps_NP_CP)
+
+# Calculate Bray-Curtis distance matrix
+bray_curtis_dist_NP_CP <- vegdist(small_otu_NP_CP, method = "bray")
+ord_bc_NP_CP <- as.matrix(bray_curtis_dist_NP_CP)
+
+lst_CP <- c("gender", "age", "smoked_ever", "sampling_season", "flu_vacc", "pneumococcal_vacc", 
+            "animal_contact_lastmth", "abroad_lastmth", "pneumonia_lastyr", "acute_resp_infec_lastyr", 
+            "covid19", "antibiotics_lastyr", "antacids_lastyr", "lung_med", "beta_blockers", 
+            "heart_vascu_disorder", "diabetes", "nasal_allergy", "asthma_ever", "COPD_emphysema_diag", 
+            "EAA_diag", "cort_inhaler_lastyr", "pneumonia_last3yr", "pets_last5yrs", "goat_last5yrs", 
+            "no_farm_visit_lastyr", "RVO2021_MindistGoatFarm50plus_NEG", "imm_def", "GoatFarmExposureCategory","ChickenFarmExposureCategory")
+
+# Ensure small_df_CP contains the columns listed in lst_CP
+if (!all(lst_CP %in% names(small_df_NP_CP))) {
+  stop("Not all variables in lst_CP are present in small_df_CP")
+}
+
+# Create a new data frame with the variables from lst_CP
+df_selected_NP_CP <- small_df_NP_CP %>%
+  select(all_of(lst_CP)) %>%
+  mutate(across(everything(), as.character))  # Convert all columns to character
+
+# Transform the data for permutation analysis
+perm_NP_CP <- df_selected_NP_CP %>%
+  pivot_longer(cols = everything(), names_to = "Var", values_to = "Cat") %>%
+  count(Var, Cat) %>%
+  filter(n > 9) %>%
+  count(Var) %>%
+  filter(n > 1) %>%
+  mutate(fit = map(Var, ~do_permanova_com(ord_bc_NP_CP, small_df_NP_CP, .x))) %>%
+  unnest(fit) %>%
+  mutate(type = "Bray Curtis", population = "CP")
+
+print(perm_NP_CP)
+```
+### Goat farmers
+```{r}
+small_ps_NP_GF <- subset_samples(small_ps_NP, population == "GF")
+small_otu_NP_GF <- as.data.frame(otu_table(small_ps_NP_GF)) %>% t()
+small_df_NP_GF <- meta_to_df(small_ps_NP_GF)
+
+bray_curtis_dist_NP_GF <- vegdist(small_otu_NP_GF, method = "bray")
+ord_bc_NP_GF <- bray_curtis_dist_NP_GF %>% as.matrix()
+
+lst_GF <- c("gender", "age", "smoked_ever", "sampling_season", "flu_vacc", "pneumococcal_vacc", 
+            "animal_contact_lastmth", "abroad_lastmth", "pneumonia_lastyr", "acute_resp_infec_lastyr", 
+            "covid19", "antibiotics_lastyr", "antacids_lastyr", "lung_med", "beta_blockers", 
+            "heart_vascu_disorder", "diabetes", "nasal_allergy", "asthma_ever", "COPD_emphysema_diag", 
+            "EAA_diag", "cort_inhaler_lastyr", "pneumonia_last3yr", "pets_last5yrs", "goat_contact_lastmth", 
+            "education_level", "farm_child", "health_complaint_farm_rel", "home_goatfarm", 
+            "farm_work_yrs", "farm_work_hrsperweek", "farm_work_feeding", "farm_work_milking", 
+            "farm_work_cleanstables", "farm_work_litter", "farm_work_manure", "farm_work_yean", 
+            "farm_work_newborn", "farm_work_cleaning", "farm_work_soil", "farm_work_other", 
+            "imm_def")
+
+# Ensure small_df_GF contains the columns listed in lst_GF
+if (!all(lst_GF %in% names(small_df_NP_GF))) {
+  stop("Not all variables in lst_GF are present in small_df_NP_GF")
+}
+
+# Create a new data frame with the variables from lst_GF
+df_selected_NP_GF <- small_df_NP_GF %>%
+  select(all_of(lst_GF)) %>%
+  mutate(across(everything(), as.character))  # Convert all columns to character
+
+# Transform the data for permutation analysis
+perm_NP_GF <- df_selected_NP_GF %>%
+  pivot_longer(cols = everything(), names_to = "Var", values_to = "Cat") %>%
+  count(Var, Cat) %>%
+  filter(n > 9) %>%
+  count(Var) %>%
+  filter(n > 1) %>%
+  mutate(fit = map(Var, ~do_permanova_com(ord_bc_NP_GF, small_df_NP_GF, .x))) %>%
+  unnest(fit) %>%
+  mutate(type = "Bray Curtis", population = "GF")
+
+# Check the result
+print(perm_NP_GF)
+```
+### Pneumonia patients
+```{r}
+small_ps_NP_GP <- subset_samples(small_ps_NP, population == "GP")
+small_otu_NP_GP <- as.data.frame(otu_table(small_ps_NP_GP)) %>% t()
+small_df_NP_GP <- meta_to_df(small_ps_NP_GP)
+
+small_df_NP_GP$GoatFarmExposureCategory
+
+bray_curtis_dist_NP_GP <- vegdist(small_otu_NP_GP, method = "bray")
+ord_bc_NP_GP <- bray_curtis_dist_NP_GP %>% as.matrix()
+
+lst_GP <- c("gender", "age", "smoked_ever", "sampling_season", "flu_vacc", "pneumococcal_vacc", 
+            "animal_contact_lastmth", "abroad_lastmth", "practice_number", "CRP_result_mgL", 
+            "Saturation_percent", "lung_disease", "lung_inhal_med", "flu_vacc_lastyr", 
+            "asthma_ever", "COPD_status", "imm_def", "antibiotics_lastmth", "dyspnea", 
+            "cough", "hypotension", "fever", "pain_breathing", "tachycardia", "tachypnea", 
+            "confusion", "RVO2021_MindistGoatFarm50plus_NEG", "GoatFarmExposureCategory", "ChickenFarmExposureCategory")
+
+# Ensure small_df_GP contains the columns listed in lst_GP
+if (!all(lst_GP %in% names(small_df_NP_GP))) {
+  stop("Not all variables in lst_GP are present in small_df_NP_GP")
+}
+
+# Create a new data frame with the variables from lst_GP
+df_selected_NP_GP <- small_df_NP_GP %>%
+  select(all_of(lst_GP)) %>%
+  mutate(across(everything(), as.character))  # Convert all columns to character
+
+# Transform the data for permutation analysis
+perm_NP_GP <- df_selected_NP_GP %>%
+  pivot_longer(cols = everything(), names_to = "Var", values_to = "Cat") %>%
+  count(Var, Cat) %>%
+  filter(n > 9) %>%
+  count(Var) %>%
+  filter(n > 1) %>%
+  mutate(fit = map(Var, ~do_permanova_com(ord_bc_NP_GP, small_df_NP_GP, .x))) %>%
+  unnest(fit) %>%
+  mutate(type = "Bray Curtis", population = "GP")
+
+# Check the result
+print(perm_NP_GP)
+```
+### Combine univariable NP PERMANOVA results
+```{r}
+univar_perm_NP <- bind_rows(perm_overall_NP, perm_NP_CP, perm_NP_GF, perm_NP_GP) %>%
+  mutate(niche = "NP")
+```
+
+## Oropharynx (OP)
+### Prepare OP data
+```{r}
+small_ps_OP <- subset_samples(ps, niche == "OP") %>%
+  pres_abund_filter() %>%
+  to_RA()
+```
+### All populations
+```{r}
+small_otu_OP <- as.data.frame(otu_table(small_ps_OP)) %>% t()
+small_df_OP <- meta_to_df(small_ps_OP)
+
+bray_curtis_dist_OP <- vegdist(small_otu_OP, method = "bray")
+ord_bc_OP <- bray_curtis_dist_OP %>% as.matrix()
+
+# Ensure small_df contains the columns listed in lst_O
+if (!all(lst_O %in% names(small_df_OP))) {
+  stop("Not all variables in lst_O are present in small_df_OP")
+}
+
+# Create a new data frame with the variables from lst_O
+df_selected_OP <- small_df_OP %>%
+  select(all_of(lst_O)) %>%
+  mutate(across(everything(), as.character))  # Convert all columns to character
+
+# Proceed with the transformation
+perm_overall_OP <- df_selected_OP %>%
+  pivot_longer(cols = everything(), names_to = "Var", values_to = "Cat") %>%
+  count(Var, Cat) %>%
+  filter(n > 9) %>%
+  count(Var) %>%
+  filter(n > 1) %>%
+  mutate(fit = map(Var, ~do_permanova_com(ord_bc_OP, small_df_OP, .x))) %>%
+  unnest(fit) %>%
+  mutate(type = "Bray Curtis", population = "Overall")
+
+print(perm_overall_OP)
+```
+### Control population
+```{r}
+small_ps_OP_CP <- subset_samples(small_ps_OP, population == "CP")
+small_otu_OP_CP <- as.data.frame(otu_table(small_ps_OP_CP)) %>% t()
+small_df_OP_CP <- meta_to_df(small_ps_OP_CP)
+
+bray_curtis_dist_OP_CP <- vegdist(small_otu_OP_CP, method = "bray")
+ord_bc_OP_CP <- bray_curtis_dist_OP_CP %>% as.matrix()
+
+# Ensure small_df contains the columns listed in lst_O
+if (!all(lst_CP %in% names(small_df_OP_CP))) {
+  stop("Not all variables in lst_CP are present in small_df_OP_CP")
+}
+
+# Create a new data frame with the variables from lst_O
+df_selected_OP_CP <- small_df_OP_CP %>%
+  select(all_of(lst_CP)) %>%
+  mutate(across(everything(), as.character))  # Convert all columns to character
+
+# Proceed with the transformation
+perm_OP_CP <- df_selected_OP_CP %>%
+  pivot_longer(cols = everything(), names_to = "Var", values_to = "Cat") %>%
+  count(Var, Cat) %>%
+  filter(n > 9) %>%
+  count(Var) %>%
+  filter(n > 1) %>%
+  mutate(fit = map(Var, ~do_permanova_com(ord_bc_OP_CP, small_df_OP_CP, .x))) %>%
+  unnest(fit) %>%
+  mutate(type = "Bray Curtis", population = "CP")
+
+print(perm_OP_CP)
+```
+### Goat farmers
+```{r}
+small_ps_OP_GF <- subset_samples(small_ps_OP, population == "GF")
+small_otu_OP_GF <- as.data.frame(otu_table(small_ps_OP_GF)) %>% t()
+small_df_OP_GF <- meta_to_df(small_ps_OP_GF)
+
+bray_curtis_dist_OP_GF <- vegdist(small_otu_OP_GF, method = "bray")
+ord_bc_OP_GF <- bray_curtis_dist_OP_GF %>% as.matrix()
+
+# Ensure small_df_OP_GP contains the columns listed in lst_GP
+if (!all(lst_GF %in% names(small_df_OP_GF))) {
+  stop("Not all variables in lst_GF are present in small_df_OP_GF")
+}
+
+# Create a new data frame with the variables from lst_O
+df_selected_OP_GF <- small_df_OP_GF %>%
+  select(all_of(lst_GF)) %>%
+  mutate(across(everything(), as.character))  # Convert all columns to character
+
+perm_OP_GF <- df_selected_OP_GF %>%
+  pivot_longer(cols = everything(), names_to = "Var", values_to = "Cat") %>%
+  count(Var, Cat) %>%
+  filter(n > 9) %>%
+  count(Var) %>%
+  filter(n > 1) %>%
+  mutate(fit = map(Var, ~do_permanova_com(ord_bc_OP_GF, small_df_OP_GF, .x))) %>%
+  unnest(fit) %>%
+  mutate(type = "Bray Curtis", population = "GF")
+
+print(perm_OP_GF)
+
+```
+### Pneumonia patients 
+```{r}
+small_ps_OP_GP <- subset_samples(small_ps_OP, population == "GP")
+small_otu_OP_GP <- as.data.frame(otu_table(small_ps_OP_GP)) %>% t()
+small_df_OP_GP <- meta_to_df(small_ps_OP_GP)
+
+bray_curtis_dist_OP_GP <- vegdist(small_otu_OP_GP, method = "bray")
+ord_bc_OP_GP <- bray_curtis_dist_OP_GP %>% as.matrix()
+
+# Ensure small_df_OP_GP contains the columns listed in lst_GP
+if (!all(lst_GP %in% names(small_df_OP_GP))) {
+  stop("Not all variables in lst_GP are present in small_df_OP_GP")
+}
+
+# Create a new data frame with the variables from lst_O
+df_selected_OP_GP <- small_df_OP_GP %>%
+  select(all_of(lst_GP)) %>%
+  mutate(across(everything(), as.character))  # Convert all columns to character
+
+perm_OP_GP <- df_selected_OP_GP %>%
+  pivot_longer(cols = everything(), names_to = "Var", values_to = "Cat") %>%
+  count(Var, Cat) %>%
+  filter(n > 9) %>%
+  count(Var) %>%
+  filter(n > 1) %>%
+  mutate(fit = map(Var, ~do_permanova_com(ord_bc_OP_GP, small_df_OP_GP, .x))) %>%
+  unnest(fit) %>%
+  mutate(type = "Bray Curtis", population = "GP")
+
+print(perm_OP_GP)
+```
+### Combine univariable OP PERMANOVA results
+```{r}
+univar_perm_OP <- bind_rows(perm_overall_OP, perm_OP_CP, perm_OP_GF, perm_OP_GP) %>%
+  mutate(niche = "OP")
+```
+## Combine NP and OP univarible PERMANOVA results
+```{r}
+univar_perm_all <- bind_rows(univar_perm_NP, univar_perm_OP)
+```
+## Heatmap (with q-value label) of univariable PERMANOVA results
+```{r}
+perm <- rbind(univar_perm_NP, univar_perm_OP)
+names <- names %>%
+  rename(Var = `Variable name`)
+
+perm <- left_join(perm, names)
+
+# Change some descriptions as too long 
+perm$Description <- ifelse(perm$Var == "beta_blockers", "Are you using beta blockers", perm$Description)
+perm$Description <- ifelse(perm$Var == "acute_resp_infec_lastyr", "Have you had an acute respiratory infection in the past year?", perm$Description)
+
+perm$group <- ifelse(perm$Var %in% lst_GF, "GF only", NA)
+perm$group <- ifelse(perm$Var %in% lst_CP, "CP only", perm$group)
+perm$group <- ifelse(perm$Var %in% lst_GP, "GP only", perm$group)
+perm$group <- ifelse(perm$Var %in% lst_O, "All", perm$group)
+perm <- perm %>% 
+  mutate(Description = ifelse(Var == "GoatFarmExposureCategory", "Distance to nearest goat farm", Description),
+         Values = ifelse(Var == "GoatFarmExposureCategory", "CP: <1000m, 1000-2000m, >2000m; GP: <2000m and >2000m", Values))
+perm <- perm %>%
+  mutate(
+    Description = ifelse(Var == "ChickenFarmExposureCategory", "Distance to nearest chicken farm", Description),
+    Values = ifelse(Var == "ChickenFarmExposureCategory", "CP: <1000m, 1000-2000m, >2000m; GP: <2000m and >2000m", Values)
+  )
+perm$population <- factor(perm$population, levels = c("Overall", "CP", "GF", "GP"))
+perm$group <- factor(perm$group, levels = c("All", "CP only", "GF only", "GP only"))
+perm$q.value <- p.adjust(perm$p.value, "BH")
+perm <- perm %>% mutate(
+  label_q.value = ifelse(q.value < 0.25, "*", NA),
+  label_q.value = ifelse(q.value < 0.1, "**", label_q.value),
+  label_q.value = ifelse(q.value < 0.05, "***", label_q.value))
+perm <- perm %>% select(Var, Description, Values, population, niche, group, df, SumOfSqs, R2, statistic, 
+                        p.value, label_p.value, q.value, label_q.value, type)
+
+write.xlsx(perm, "../Output/Beta_diversity/Univariable_PERMANOVAs/Univariable_permanova_table_OPandNP.csv")
+
+hm_qval <- perm %>%
+  ggplot(aes(x = population, y = Description , fill = R2)) +
+  geom_tile(colour = "white") + scale_fill_gradient2(low = carto_pal(7, "Earth")[1],
+                       mid = carto_pal(7, "Earth")[4],
+                       high = carto_pal(7, "Earth")[7],
+                       limits = c(0, 0.05), 
+                       na.value = carto_pal(7, "Earth")[7]) + 
+    theme(axis.text.x = element_text(angle = 45, hjust=1),
+          legend.position = "right",
+          legend.key.height=grid::unit(0.7, "cm"),
+          legend.key.width=grid::unit(0.2, "cm"),
+          plot.background=element_blank(), 
+          axis.title.y = element_blank(),
+          axis.title.x = element_blank())  +
+    geom_text(aes(label=label_q.value), color = "white", size = 4, vjust=0.8) + labs(fill = "R2") + 
+    guides(fill = guide_colourbar(title.position="top", title.hjust = 0.5)) + facet_grid(group~niche, scales = "free", space = "free")
+
+ggsave("../Output/Beta_diversity/Univariable_PERMANOVAs/Univariable_PERMANOVA_results_heatmap.svg", hm_qval)
+ggsave("../Output/Beta_diversity/Univariable_PERMANOVAs/Univariable_PERMANOVA_results_heatmap.pdf", hm_qval)
+
+```
+
+# Multivariable PERMANOVAs
+## NP vs OP
+```{r}
+combined_NP_OP_ps <- merge_phyloseq(ps_NP_miseq_filt_RA, ps_OP_miseq_filt_RA)
+
+# Prepare the data to conduct the analyses on the entire dataset
+NP_OP_otu_tab <- as.data.frame(otu_table(combined_NP_OP_ps)) %>% t()
+NP_OP_meta_df <- meta_to_df(combined_NP_OP_ps)
+
+# Generate a Bray Curtis distance matrix
+BC_dist_NP_OP <- vegdist(NP_OP_otu_tab, method = "bray")
+BC_ord_NP_OP <- BC_dist_NP_OP %>% as.matrix()
+
+# Variables for multivariable PERMANOVA for all populations together 
+vars_all <- c("niche", "population", "gender", "age", "smoked_ever", "sampling_season")
+
+# Use NA_remove to prepare data
+NP_OP_complete_ps <- NA_remove(BC_ord_NP_OP, meta_to_df(combined_NP_OP_ps), vars_all)
+# Print the number of rows removed
+print(NP_OP_complete_ps$rows_removed)
+
+# Run adonis2 with the specified variables
+permanova_result_NP_OP <- adonis2(NP_OP_complete_ps$ord_sub ~ ., permutations = 999, data = NP_OP_complete_ps$m_sub[, vars_all])
+print(permanova_result_NP_OP)
+
+# Determine the dispersion for each niche
+# Split the distance matrix by niche
+BC_dist_NP_OP_matrix <- as.matrix(BC_dist_NP_OP)
+niche_labels <- NP_OP_meta_df$niche
+# Create a function to calculate mean Bray-Curtis dissimilarity within each niche
+mean_bc_within_group <- function(dist_matrix, labels, group) {
+  group_indices <- which(labels == group)
+  group_distances <- dist_matrix[group_indices, group_indices]
+  mean(group_distances[upper.tri(group_distances)])
+}
+
+# Calculate mean Bray-Curtis dissimilarity for each niche
+mean_bc_NP <- mean_bc_within_group(BC_dist_NP_OP_matrix, niche_labels, "NP")
+mean_bc_OP <- mean_bc_within_group(BC_dist_NP_OP_matrix, niche_labels, "OP")
+
+# Print results
+print(paste("Mean Bray-Curtis dissimilarity for NP samples:", mean_bc_NP))
+print(paste("Mean Bray-Curtis dissimilarity for OP samples:", mean_bc_OP))
+```
+
+## Nasopharynx (NP) 
+### Population (miseq runs: 54,56,57,58) 
+```{r}
+# Prepare the data to conduct the analyses on the entire dataset
+NP_miseq_otu_tab <- as.data.frame(otu_table(ps_NP_miseq_filt_RA)) %>% t()
+NP_miseq_meta_df <- meta_to_df(ps_NP_miseq_filt_RA)
+
+# Generate a Bray Curtis distance matrix
+BC_dist_NP_miseq <- vegdist(NP_miseq_otu_tab, method = "bray")
+BC_ord_NP_miseq <- BC_dist_NP_miseq %>% as.matrix()
+
+# Variables for multivariable PERMANOVA for all populations together 
+vars_all <- c("population", "gender", "age", "smoked_ever", "sampling_season")
+
+# Check completeness of variables for all populations separately
+CP_miseq_subset_df <- subset(NP_miseq_meta_df, population == "CP")
+completeness_CP_miseq <- colSums(!is.na(CP_miseq_subset_df[, vars_all]))
+print(completeness_CP_miseq)
+
+GF_miseq_subset_df <- subset(NP_miseq_meta_df, population == "GF")
+completeness_GF_miseq <- colSums(!is.na(GF_miseq_subset_df[, vars_all]))
+print(completeness_GF_miseq)
+
+GP_miseq_subset_df <- subset(NP_miseq_meta_df, population == "GP")
+completeness_GP_miseq <- colSums(!is.na(GP_miseq_subset_df[, vars_all]))
+print(completeness_GP_miseq)
+
+# Use beta_df to prepare data
+NP_miseq_complete_ps <- NA_remove(BC_ord_NP_miseq, meta_to_df(ps_NP_miseq_filt_RA), vars_all)
+# Print the number of rows removed
+print(NP_miseq_complete_ps$rows_removed)
+
+# Run adonis2 with the specified variables
+permanova_result_NP_miseq_all <- adonis2(NP_miseq_complete_ps$ord_sub ~ ., permutations = 999, data = NP_miseq_complete_ps$m_sub[, vars_all])
+print(permanova_result_NP_miseq_all)
+
+# Save PERMANOVA results 
+write.csv(permanova_result_NP_miseq_all, "../Output/Beta_diversity/Multivariable_PERMANOVAs/All_population_models/NP_allpopulations.csv")
+
+# Perform pairwise PERMANOVA tests
+NP_miseq_pairwise_permanova <- pairwise.adonis2(NP_miseq_complete_ps$ord_sub ~ ., data = NP_miseq_complete_ps$m_sub[, vars_all], permutations = 999, method = "bray")
+print(NP_miseq_pairwise_permanova)
+
+# Save pairwise PERMANOVA results 
+write.csv(NP_miseq_pairwise_permanova, "../Output/Beta_diversity/Multivariable_PERMANOVAs/All_population_models/Pairwise_NP_allpopulations.csv")
+```
+### Goat farm exposure on CP and GF
+```{r}
+# Subset the NP ps object to contain only CP samples
+ps_NP_CP_GF_filt_RA <- subset_samples(ps_NP_filt_RA, population != "GP")
+
+# Prepare the data to conduct the analyses on the entire dataset
+NP_CP_GF_otu_tab <- as.data.frame(otu_table(ps_NP_CP_GF_filt_RA)) %>% t()
+NP_CP_GF_meta_df <- meta_to_df(ps_NP_CP_GF_filt_RA)
+
+# Generate a Bray Curtis distance matrix
+BC_dist_NP_CP_GF <- vegdist(NP_CP_GF_otu_tab, method = "bray")
+BC_ord_NP_CP_GF <- BC_dist_NP_CP_GF %>% as.matrix()
+
+# Variables for multivariable PERMANOVA for all populations together 
+vars_exp_CP_GF <- c("GoatFarmExposureCategory", "gender", "age", "smoked_ever", "sampling_season")
+
+# Check completeness of variables for CP & GF
+completeness_CP_GF <- colSums(!is.na(NP_CP_GF_meta_df[, vars_exp_CP_GF]))
+print(completeness_CP_GF)
+
+# Use beta_df to prepare data
+NP_CP_GF_complete_ps <- NA_remove(BC_ord_NP_CP_GF, meta_to_df(ps_NP_CP_GF_filt_RA), vars_exp_CP_GF)
+# Print the number of rows removed
+print(NP_CP_complete_ps$rows_removed)
+
+# Run adonis2 with the specified variables
+permanova_result_NP_goat_CP_GF <- adonis2(NP_CP_GF_complete_ps$ord_sub ~ ., permutations = 999, data = NP_CP_GF_complete_ps$m_sub[, vars_exp_CP_GF])
+print(permanova_result_NP_goat_CP_GF)
+
+# Save PERMANOVA results
+write.csv(permanova_result_NP_goat_CP_GF, file = "../Output/Beta_diversity/Multivariable_PERMANOVAs/Goat_farm_models/NP_CP_GF.csv", row.names = TRUE)
+
+# Perform pairwise PERMANOVA tests
+pairwise_perm_anova_NP_goat_CP_GF <- pairwise.adonis2(NP_CP_GF_complete_ps$ord_sub ~ ., 
+                                                    data = NP_CP_GF_complete_ps$m_sub[, vars_exp_CP_GF], 
+                                                    permutations = 999, method = "bray")
+
+# Save filtered results to CSV
+write.csv(pairwise_perm_anova_NP_goat_CP_GF, file = "../Output/Beta_diversity/Multivariable_PERMANOVAs/Goat_farm_models/Pairwise_NP_CP_GF.csv", row.names = TRUE)
+```
+### Goat farm exposure on CP only 
+```{r}
+# Subset the NP ps object to contain only CP samples
+ps_NP_CP_filt_RA <- subset_samples(ps_NP_filt_RA, population == "CP")
+
+# Prepare the data to conduct the analyses on the entire dataset
+NP_CP_otu_tab <- as.data.frame(otu_table(ps_NP_CP_filt_RA)) %>% t()
+NP_CP_meta_df <- meta_to_df(ps_NP_CP_filt_RA)
+
+# Generate a Bray Curtis distance matrix
+BC_dist_NP_CP <- vegdist(NP_CP_otu_tab, method = "bray")
+BC_ord_NP_CP <- BC_dist_NP_CP %>% as.matrix()
+
+# Variables for multivariable PERMANOVA for all populations together 
+vars_exp_CP <- c("GoatFarmExposureCategory", "gender", "age", "smoked_ever", "sampling_season")
+
+# Check completeness of variables for CP & 
+completeness_CP <- colSums(!is.na(NP_CP_meta_df[, vars_exp_CP]))
+print(completeness_CP)
+
+# Use beta_df to prepare data
+NP_CP_complete_ps <- NA_remove(BC_ord_NP_CP, meta_to_df(ps_NP_CP_filt_RA), vars_exp_CP)
+# Print the number of rows removed
+print(NP_CP_complete_ps$rows_removed)
+
+# Run adonis2 with the specified variables
+permanova_result_NP_goat_CP <- adonis2(NP_CP_complete_ps$ord_sub ~ ., permutations = 999, data = NP_CP_complete_ps$m_sub[, vars_exp_CP])
+print(permanova_result_NP_goat_CP)
+
+# Save PERMANOVA results
+write.csv(permanova_result_NP_goat_CP, file = "../Output/Beta_diversity/Multivariable_PERMANOVAs/Goat_farm_models/NP_goat_exposure_CP.csv", row.names = TRUE)
+
+# Perform pairwise PERMANOVA tests
+pairwise_perm_anova_NP_goat_CP <- pairwise.adonis2(NP_CP_complete_ps$ord_sub ~ ., 
+                                                      data = NP_CP_complete_ps$m_sub[, vars_exp_CP], 
+                                                      permutations = 999, method = "bray")
+
+# Save filtered results to CSV
+write.csv(pairwise_perm_anova_NP_goat_CP, file = "../Output/Beta_diversity/Multivariable_PERMANOVAs/Goat_farm_models/Pairwise_NP_CP.csv", row.names = TRUE)
+```
+### Goat farm exposure on GP and GF
+```{r}
+# Subset the NP ps object to contain only CP samples
+ps_NP_GP_GF_filt_RA <- subset_samples(ps_NP_filt_RA, population %in% c("GP", "GF"))
+
+# Prepare the data to conduct the analyses on the entire dataset
+NP_GP_GF_otu_tab <- as.data.frame(otu_table(ps_NP_GP_GF_filt_RA)) %>% t()
+NP_GP_GF_meta_df <- meta_to_df(ps_NP_GP_GF_filt_RA)
+
+# Generate a Bray Curtis distance matrix
+BC_dist_NP_GP_GF <- vegdist(NP_GP_GF_otu_tab, method = "bray")
+BC_ord_NP_GP_GF <- BC_dist_NP_GP_GF %>% as.matrix()
+
+# Variables for multivariable PERMANOVA for all populations together 
+vars_exp_GP_GF <- c("GoatFarmExposureCategory", "gender", "age", "smoked_ever", "sampling_season")
+
+# Check completeness of variables for CP & GF
+completeness_GP_GF <- colSums(!is.na(NP_GP_GF_meta_df[, vars_exp_GP_GF]))
+print(completeness_GP_GF)
+
+# Use beta_df to prepare data
+NP_GP_GF_complete_ps <- NA_remove(BC_ord_NP_GP_GF, meta_to_df(ps_NP_GP_GF_filt_RA), vars_exp_GP_GF)
+# Print the number of rows removed
+print(NP_GP_GF_complete_ps$rows_removed)
+
+# Run adonis2 with the specified variables
+permanova_result_NP_goat_GP_GF <- adonis2(NP_GP_GF_complete_ps$ord_sub ~ ., permutations = 999, data = NP_GP_GF_complete_ps$m_sub[, vars_exp_GP_GF])
+print(permanova_result_NP_goat_GP_GF)
+
+# Save multivariable PERMANOVA results
+write.csv(permanova_result_NP_goat_GP_GF, file = "../Output/Beta_diversity/Multivariable_PERMANOVAs/Goat_farm_models/NP_GP_GF.csv", row.names = TRUE)
+
+# Perform pairwise PERMANOVA tests
+pairwise_perm_anova_NP_exp_GP_GF<- pairwise.adonis2(NP_GP_GF_complete_ps$ord_sub ~ ., data = NP_GP_GF_complete_ps$m_sub[, vars_exp_GP_GF], permutations = 999, method = "bray")
+print(pairwise_perm_anova_NP_exp_GP_GF)
+# Save pairwise PERMANOVA results
+write.csv(pairwise_perm_anova_NP_exp_GP_GF, file = "../Output/Beta_diversity/Multivariable_PERMANOVAs/Goat_farm_models/NP_GP_GF.csv", row.names = TRUE)
+```
+### Goat farm exposure on GP only
+```{r}
+# Subset the NP ps object to contain only CP samples
+ps_NP_GP_filt_RA <- subset_samples(ps_NP_filt_RA, population == "GP")
+
+# Prepare the data to conduct the analyses on the entire dataset
+NP_GP_otu_tab <- as.data.frame(otu_table(ps_NP_GP_filt_RA)) %>% t()
+NP_GP_meta_df <- meta_to_df(ps_NP_GP_filt_RA)
+
+# Generate a Bray Curtis distance matrix
+BC_dist_NP_GP <- vegdist(NP_GP_otu_tab, method = "bray")
+BC_ord_NP_GP <- BC_dist_NP_GP %>% as.matrix()
+
+# Variables for multivariable PERMANOVA for all populations together 
+vars_exp_GP <- c("GoatFarmExposureCategory", "gender", "age", "smoked_ever", "sampling_season")
+
+# Check completeness of variables for CP & GF
+completeness_GP <- colSums(!is.na(NP_GP_meta_df[, vars_exp_GP]))
+print(completeness_GP)
+
+# Use beta_df to prepare data
+NP_GP_complete_ps <- NA_remove(BC_ord_NP_GP, meta_to_df(ps_NP_GP_filt_RA), vars_exp_GP)
+# Print the number of rows removed
+print(NP_GP_complete_ps$rows_removed)
+
+# Run adonis2 with the specified variables
+permanova_result_NP_goat_GP <- adonis2(NP_GP_complete_ps$ord_sub ~ ., permutations = 999, data = NP_GP_complete_ps$m_sub[, vars_exp_GP])
+print(permanova_result_NP_goat_GP)
+
+# Save multivariable PERMANOVA results
+write.csv(permanova_result_NP_goat_GP, file = "../Output/Beta_diversity/Multivariable_PERMANOVAs/Goat_farm_models/NP_goat_exposure_GP.csv", row.names = TRUE)
+
+# Perform pairwise PERMANOVA tests
+pairwise_perm_anova_NP_exp_GP<- pairwise.adonis2(NP_GP_complete_ps$ord_sub ~ ., data = NP_GP_complete_ps$m_sub[, vars_exp_GP], permutations = 999, method = "bray")
+print(pairwise_perm_anova_NP_exp_GP)
+# Save pairwise PERMANOVA results
+write.csv(pairwise_perm_anova_NP_exp_GP, file = "../Output/Beta_diversity/Multivariable_PERMANOVAs/Goat_farm_models/NP_goat_exposure_GP_pairwise.csv", row.names = TRUE)
+```
+
+### Poultry farm exposure on CP
+```{r}
+# Subset the NP ps object to contain only CP samples
+ps_NP_CP_filt_RA <- subset_samples(ps_NP_filt_RA, population == "CP")
+
+# Prepare the data to conduct the analyses on the entire dataset
+NP_CP_otu_tab <- as.data.frame(otu_table(ps_NP_CP_filt_RA)) %>% t()
+NP_CP_meta_df <- meta_to_df(ps_NP_CP_filt_RA)
+
+# Generate a Bray Curtis distance matrix
+BC_dist_NP_CP <- vegdist(NP_CP_otu_tab, method = "bray")
+BC_ord_NP_CP <- BC_dist_NP_CP %>% as.matrix()
+
+# Variables for multivariable PERMANOVA for all populations together 
+vars_chicken_CP_GF <- c("ChickenFarmExposureCategory", "gender", "age", "smoked_ever", "sampling_season")
+
+# Check completeness of variables for CP & GF
+completeness_chicken_CP <- colSums(!is.na(NP_CP_meta_df[, vars_chicken_CP_GF]))
+print(completeness_chicken_CP)
+
+# Use beta_df to prepare data
+NP_CP_complete_ps_chicken <- NA_remove(BC_ord_NP_CP, meta_to_df(ps_NP_CP_filt_RA), vars_chicken_CP_GF)
+# Print the number of rows removed
+print(NP_CP_complete_ps_chicken$rows_removed)
+
+# Run adonis2 with the specified variables
+permanova_result_NP_chicken_CP <- adonis2(NP_CP_complete_ps_chicken$ord_sub ~ ., 
+                                             permutations = 999, 
+                                             data = NP_CP_complete_ps_chicken$m_sub[, vars_chicken_CP_GF])
+print(permanova_result_NP_chicken_CP)
+
+write.csv(permanova_result_NP_chicken_CP, file = "../Output/Beta_diversity/Multivariable_PERMANOVAs/Poultry_farm_models/NP_CP_poultry.csv")
+```
+### Poultry farm exposure on GP
+```{r}
+# Subset the NP ps object to contain only GP samples
+ps_NP_GP_filt_RA <- subset_samples(ps_NP_filt_RA, population == "GP")
+
+# Prepare the data to conduct the analyses on the entire dataset
+NP_GP_otu_tab <- as.data.frame(otu_table(ps_NP_GP_filt_RA)) %>% t()
+NP_GP_meta_df <- meta_to_df(ps_NP_GP_filt_RA)
+
+# Generate a Bray Curtis distance matrix
+BC_dist_NP_GP <- vegdist(NP_GP_otu_tab, method = "bray")
+BC_ord_NP_GP <- BC_dist_NP_GP %>% as.matrix()
+
+# Variables for multivariable PERMANOVA for all populations together 
+vars_chicken_GP_GF <- c("ChickenFarmExposureCategory", "gender", "age", "smoked_ever", "sampling_season")
+
+# Check completeness of variables for GP & GF
+completeness_chicken_GP <- colSums(!is.na(NP_GP_meta_df[, vars_chicken_GP_GF]))
+print(completeness_chicken_GP)
+
+# Use beta_df to prepare data
+NP_GP_complete_ps_chicken <- NA_remove(BC_ord_NP_GP, meta_to_df(ps_NP_GP_filt_RA), vars_chicken_GP_GF)
+# Print the number of rows removed
+print(NP_GP_complete_ps_chicken$rows_removed)
+
+# Run adonis2 with the specified variables
+permanova_result_NP_chicken_GP <- adonis2(NP_GP_complete_ps_chicken$ord_sub ~ ., 
+                                          permutations = 999, 
+                                          data = NP_GP_complete_ps_chicken$m_sub[, vars_chicken_GP_GF])
+print(permanova_result_NP_chicken_GP)
+
+write.csv(permanova_result_NP_chicken_GP, file = "../Output/Beta_diversity/Multivariable_PERMANOVAs/Poultry_farm_models/NP_GP_poultry.csv")
+```
+
+## Oropharynx (OP)
+### Population (miseq runs: 54,56,57,58) 
+```{r}
+OP_miseq_otu_tab <- as.data.frame(otu_table(ps_OP_miseq_filt_RA)) %>% t()
+OP_miseq_meta_df <- meta_to_df(ps_OP_miseq_filt_RA)
+
+# Generate a Bray Curtis distance matrix
+BC_dist_OP_miseq <- vegdist(OP_miseq_otu_tab, method = "bray")
+BC_ord_OP_miseq <- BC_dist_OP_miseq %>% as.matrix()
+
+# Variables for multivariable PERMANOVA for all populations together 
+vars_all <- c("population", "gender", "age", "smoked_ever", "sampling_season")
+
+# Check completeness of variables for all populations separately
+CP_miseq_subset_df <- subset(OP_miseq_meta_df, population == "CP")
+completeness_CP_miseq <- colSums(!is.na(CP_miseq_subset_df[, vars_all]))
+print(completeness_CP_miseq)
+
+GF_miseq_subset_df <- subset(OP_miseq_meta_df, population == "GF")
+completeness_GF_miseq <- colSums(!is.na(GF_miseq_subset_df[, vars_all]))
+print(completeness_GF_miseq)
+
+GP_miseq_subset_df <- subset(OP_miseq_meta_df, population == "GP")
+completeness_GP_miseq <- colSums(!is.na(GP_miseq_subset_df[, vars_all]))
+print(completeness_GP_miseq)
+
+# Use beta_df to prepare data
+OP_miseq_complete_ps <- NA_remove(BC_ord_OP_miseq, meta_to_df(ps_OP_miseq_filt_RA), vars_all)
+# Print the number of rows removed
+print(OP_miseq_complete_ps$rows_removed)
+
+# Run adonis2 with the specified variables
+permanova_result_OP_miseq_all <- adonis2(OP_miseq_complete_ps$ord_sub ~ ., permutations = 999, data = OP_miseq_complete_ps$m_sub[, vars_all])
+print(permanova_result_OP_miseq_all)
+
+# Save PERMANOVA results 
+write.csv(permanova_result_OP_miseq_all, "../Output/Beta_diversity/Multivariable_PERMANOVAs/All_population_models/OP_allpopulations.csv")
+
+# Perform pairwise PERMANOVA tests
+pairwise_permanova_OP_miseq_all <- pairwise.adonis2(OP_miseq_complete_ps$ord_sub ~ ., data = OP_miseq_complete_ps$m_sub[, vars_all], permutations = 999, method = "bray")
+print(pairwise_permanova_OP_miseq_all)
+
+# Save pairwise PERMANOVA results 
+write.csv(pairwise_permanova_OP_miseq_all, "../Output/Beta_diversity/Multivariable_PERMANOVAs/All_population_models/Pairwise_OP_allpopulations.csv")
+```
+### Goat farm exposure on CP and GF
+```{r}
+# Subset the OP ps object to contain only CP samples
+ps_OP_CP_GF_filt_RA <- subset_samples(ps_OP_filt_RA, population != "GP")
+
+# Prepare the data to conduct the analyses on the entire dataset
+OP_CP_GF_otu_tab <- as.data.frame(otu_table(ps_OP_CP_GF_filt_RA)) %>% t()
+OP_CP_GF_meta_df <- meta_to_df(ps_OP_CP_GF_filt_RA)
+
+# Generate a Bray Curtis distance matrix
+BC_dist_OP_CP_GF <- vegdist(OP_CP_GF_otu_tab, method = "bray")
+BC_ord_OP_CP_GF <- BC_dist_OP_CP_GF %>% as.matrix()
+
+# Variables for multivariable PERMANOVA for all populations together 
+vars_exp_CP_GF <- c("GoatFarmExposureCategory", "gender", "age", "smoked_ever", "sampling_season")
+
+# Check completeness of variables for CP & GF
+completeness_CP_GF <- colSums(!is.na(OP_CP_GF_meta_df[, vars_exp_CP_GF]))
+print(completeness_CP_GF)
+
+# Use beta_df to prepare data
+OP_CP_GF_complete_ps <- NA_remove(BC_ord_OP_CP_GF, meta_to_df(ps_OP_CP_GF_filt_RA), vars_exp_CP_GF)
+# Print the number of rows removed
+print(OP_CP_GF_complete_ps$rows_removed)
+
+# Run adonis2 with the specified variables
+permanova_result_OP_goat_CP_GF <- adonis2(OP_CP_GF_complete_ps$ord_sub ~ ., permutations = 999, data = OP_CP_GF_complete_ps$m_sub[, vars_exp_CP_GF])
+print(permanova_result_OP_goat_CP_GF)
+
+# Save PERMANOVA results 
+write.csv(permanova_result_OP_goat_CP_GF, "../Output/Beta_diversity/Multivariable_PERMANOVAs/Goat_farm_models/OP_CP_GF.csv")
+
+# Perform pairwise PERMANOVA tests
+pairwise_permanova_OP_exp_CP_GF <- pairwise.adonis2(OP_CP_GF_complete_ps$ord_sub ~ ., data = OP_CP_GF_complete_ps$m_sub[, vars_exp_CP_GF], permutations = 999, method = "bray")
+print(pairwise_permanova_OP_exp_CP_GF)
+
+# Save pairwise PERMANOVA results 
+write.csv(pairwise_permanova_OP_exp_CP_GF, "../Output/Beta_diversity/Multivariable_PERMANOVAs/Goat_farm_models/Pairwise_OP_CP_GF.csv")
+```
+### Goat farm exposure on CP only 
+```{r}
+# Subset the OP ps object to contain only CP samples
+ps_OP_CP_filt_RA <- subset_samples(ps_OP_filt_RA, population == "CP")
+
+# Prepare the data to conduct the analyses on the entire dataset
+OP_CP_otu_tab <- as.data.frame(otu_table(ps_OP_CP_filt_RA)) %>% t()
+OP_CP_meta_df <- meta_to_df(ps_OP_CP_filt_RA)
+
+# Generate a Bray Curtis distance matrix
+BC_dist_OP_CP <- vegdist(OP_CP_otu_tab, method = "bray")
+BC_ord_OP_CP <- BC_dist_OP_CP %>% as.matrix()
+
+# Variables for multivariable PERMANOVA for all populations together 
+vars_exp_CP <- c("GoatFarmExposureCategory", "gender", "age", "smoked_ever", "sampling_season")
+
+# Check completeness of variables for CP & 
+completeness_CP <- colSums(!is.na(OP_CP_meta_df[, vars_exp_CP]))
+print(completeness_CP)
+
+# Use beta_df to prepare data
+OP_CP_complete_ps <- NA_remove(BC_ord_OP_CP, meta_to_df(ps_OP_CP_filt_RA), vars_exp_CP)
+# Print the number of rows removed
+print(OP_CP_complete_ps$rows_removed)
+
+# Run adonis2 with the specified variables
+permanova_result_OP_goat_CP <- adonis2(OP_CP_complete_ps$ord_sub ~ ., permutations = 999, data = OP_CP_complete_ps$m_sub[, vars_exp_CP])
+print(permanova_result_OP_goat_CP)
+
+# Save PERMANOVA results
+write.csv(permanova_result_OP_goat_CP, file = "../Output/Beta_diversity/Multivariable_PERMANOVAs/Goat_farm_models/OP_goat_exposure_CP.csv", row.names = TRUE)
+
+# Perform pairwise PERMANOVA tests
+pairwise_perm_anova_OP_goat_CP <- pairwise.adonis2(OP_CP_complete_ps$ord_sub ~ ., 
+                                                   data = OP_CP_complete_ps$m_sub[, vars_exp_CP], 
+                                                   permutations = 999, method = "bray")
+
+# Save filtered results to CSV
+write.csv(pairwise_perm_anova_OP_goat_CP, file = "../Output/Beta_diversity/Multivariable_PERMANOVAs/Goat_farm_models/Pairwise_OP_CP.csv", row.names = TRUE)
+```
+### Goat farm exposure on GP and GF
+```{r}
+# Subset the OP ps object to contain only CP samples
+ps_OP_GP_GF_filt_RA <- subset_samples(ps_OP_filt_RA, population != "CP")
+
+# Prepare the data to conduct the analyses on the entire dataset
+OP_GP_GF_otu_tab <- as.data.frame(otu_table(ps_OP_GP_GF_filt_RA)) %>% t()
+OP_GP_GF_meta_df <- meta_to_df(ps_OP_GP_GF_filt_RA)
+
+# Generate a Bray Curtis distance matrix
+BC_dist_OP_GP_GF <- vegdist(OP_GP_GF_otu_tab, method = "bray")
+BC_ord_OP_GP_GF <- BC_dist_OP_GP_GF %>% as.matrix()
+
+# Variables for multivariable PERMANOVA for all populations together 
+vars_exp_GP_GF <- c("GoatFarmExposureCategory", "gender", "age", "smoked_ever", "sampling_season")
+
+# Check completeness of variables for CP & GF
+completeness_GP_GF <- colSums(!is.na(OP_GP_GF_meta_df[, vars_exp_GP_GF]))
+print(completeness_GP_GF)
+
+# Use beta_df to prepare data
+OP_GP_GF_complete_ps <- NA_remove(BC_ord_OP_GP_GF, meta_to_df(ps_OP_GP_GF_filt_RA), vars_exp_GP_GF)
+# Print the number of rows removed
+print(OP_GP_GF_complete_ps$rows_removed)
+
+
+# Run adonis2 with the specified variables
+permanova_result_OP_goat_GP_GF <- adonis2(OP_GP_GF_complete_ps$ord_sub ~ ., permutations = 999, data = OP_GP_GF_complete_ps$m_sub[, vars_exp_GP_GF])
+print(permanova_result_OP_goat_GP_GF)
+
+# Save PERMANOVA results 
+write.csv(permanova_result_OP_exp_GP_GF, "../Output/Beta_diversity/Multivariable_PERMANOVAs/Goat_farm_models/OP_goat_GP_GF.csv")
+
+# Perform pairwise PERMANOVA tests
+pairwise_permanova_OP_exp_GP_GF <- pairwise.adonis2(OP_GP_GF_complete_ps$ord_sub ~ ., data = OP_GP_GF_complete_ps$m_sub[, vars_exp_GP_GF], permutations = 999, method = "bray")
+print(pairwise_permanova_OP_exp_GP_GF)
+
+# Save pairwise PERMANOVA results 
+write.csv(pairwise_permanova_OP_exp_GP_GF, "../Output/Beta_diversity/Multivariable_PERMANOVAs/Goat_farm_models/Pairwise_OP_GP_GF.csv")
+```
+### Goat farm exposure on GP only
+```{r}
+# Subset the OP ps object to contain only CP samples
+ps_OP_GP_filt_RA <- subset_samples(ps_OP_filt_RA, population == "GP")
+
+# Prepare the data to conduct the analyses on the entire dataset
+OP_GP_otu_tab <- as.data.frame(otu_table(ps_OP_GP_filt_RA)) %>% t()
+OP_GP_meta_df <- meta_to_df(ps_OP_GP_filt_RA)
+
+# Generate a Bray Curtis distance matrix
+BC_dist_OP_GP <- vegdist(OP_GP_otu_tab, method = "bray")
+BC_ord_OP_GP <- BC_dist_OP_GP %>% as.matrix()
+
+# Variables for multivariable PERMANOVA for all populations together 
+vars_exp_GP <- c("GoatFarmExposureCategory", "gender", "age", "smoked_ever", "sampling_season")
+
+# Check completeness of variables for CP & GF
+completeness_GP <- colSums(!is.na(OP_GP_meta_df[, vars_exp_GP]))
+print(completeness_GP)
+
+# Use beta_df to prepare data
+OP_GP_complete_ps <- NA_remove(BC_ord_OP_GP, meta_to_df(ps_OP_GP_filt_RA), vars_exp_GP)
+# Print the number of rows removed
+print(OP_GP_complete_ps$rows_removed)
+
+# Run adonis2 with the specified variables
+permanova_result_OP_goat_GP <- adonis2(OP_GP_complete_ps$ord_sub ~ ., permutations = 999, data = OP_GP_complete_ps$m_sub[, vars_exp_GP])
+print(permanova_result_OP_goat_GP)
+
+# Save multivariable PERMANOVA results
+write.csv(permanova_result_OP_goat_GP, file = "../Output/Beta_diversity/Multivariable_PERMANOVAs/Goat_farm_models/OP_goat_exposure_GP.csv", row.names = TRUE)
+
+# Perform pairwise PERMANOVA tests
+pairwise_perm_anova_OP_exp_GP<- pairwise.adonis2(OP_GP_complete_ps$ord_sub ~ ., data = OP_GP_complete_ps$m_sub[, vars_exp_GP], permutations = 999, method = "bray")
+print(pairwise_perm_anova_OP_exp_GP)
+# Save pairwise PERMANOVA results
+write.csv(pairwise_perm_anova_OP_exp_GP, file = "../Output/Beta_diversity/Multivariable_PERMANOVAs/Goat_farm_models/OP_goat_exposure_GP_pairwise.csv", row.names = TRUE)
+```
+
+### Poultry farm exposure on CP
+```{r}
+# Subset the OP ps object to contain only CP samples
+ps_OP_CP_filt_RA <- subset_samples(ps_OP_filt_RA, population == "CP")
+
+# Prepare the data to conduct the analyses on the entire dataset
+OP_CP_otu_tab <- as.data.frame(otu_table(ps_OP_CP_filt_RA)) %>% t()
+OP_CP_meta_df <- meta_to_df(ps_OP_CP_filt_RA)
+
+# Generate a Bray Curtis distance matrix
+BC_dist_OP_CP <- vegdist(OP_CP_otu_tab, method = "bray")
+BC_ord_OP_CP <- BC_dist_OP_CP %>% as.matrix()
+
+# Variables for multivariable PERMANOVA for all populations together 
+vars_chicken_CP_GF <- c("ChickenFarmExposureCategory", "gender", "age", "smoked_ever", "sampling_season")
+
+# Check completeness of variables for CP & GF
+completeness_chicken_CP <- colSums(!is.na(OP_CP_meta_df[, vars_chicken_CP_GF]))
+print(completeness_chicken_CP)
+
+# Use beta_df to prepare data
+OP_CP_complete_ps_chicken <- NA_remove(BC_ord_OP_CP, meta_to_df(ps_OP_CP_filt_RA), vars_chicken_CP_GF)
+# Print the number of rows removed
+print(OP_CP_complete_ps_chicken$rows_removed)
+
+# Run adonis2 with the specified variables
+permanova_result_OP_chicken_CP <- adonis2(OP_CP_complete_ps_chicken$ord_sub ~ ., 
+                                          permutations = 999, 
+                                          data = OP_CP_complete_ps_chicken$m_sub[, vars_chicken_CP_GF])
+print(permanova_result_OP_chicken_CP)
+
+write.csv(permanova_result_OP_chicken_CP, file = "../Output/Beta_diversity/Multivariable_PERMANOVAs/Poultry_farm_models/OP_CP_poultry.csv")
+```
+### Poultry farm exposure on GP
+```{r}
+ps_OP_filt_RA@sam_data
+# Subset the OP ps object to contain only GP samples
+ps_OP_GP_filt_RA <- subset_samples(ps_OP_filt_RA, population == "GP")
+
+# Prepare the data to conduct the analyses on the entire dataset
+OP_GP_otu_tab <- as.data.frame(otu_table(ps_OP_GP_filt_RA)) %>% t()
+OP_GP_meta_df <- meta_to_df(ps_OP_GP_filt_RA)
+
+# Generate a Bray Curtis distance matrix
+BC_dist_OP_GP <- vegdist(OP_GP_otu_tab, method = "bray")
+BC_ord_OP_GP <- BC_dist_OP_GP %>% as.matrix()
+
+# Variables for multivariable PERMANOVA for all populations together 
+vars_chicken_GP <- c("ChickenFarmExposureCategory", "gender", "age", "smoked_ever", "sampling_season")
+
+# Check completeness of variables for GP & GF
+completeness_chicken_GP <- colSums(!is.na(OP_GP_meta_df[, vars_chicken_GP]))
+print(completeness_chicken_GP)
+
+# Use beta_df to prepare data
+OP_GP_complete_ps_chicken <- NA_remove(BC_ord_OP_GP, meta_to_df(ps_OP_GP_filt_RA), vars_chicken_GP_GF)
+# Print the number of rows removed
+print(OP_GP_complete_ps_chicken$rows_removed)
+
+# Run adonis2 with the specified variables
+permanova_result_OP_chicken_GP <- adonis2(OP_GP_complete_ps_chicken$ord_sub ~ ., 
+                                          permutations = 999, 
+                                          data = OP_GP_complete_ps_chicken$m_sub[, vars_chicken_GP])
+print(permanova_result_OP_chicken_GP)
+
+write.csv(permanova_result_OP_chicken_GP, file = "../Output/Beta_diversity/Multivariable_PERMANOVAs/Poultry_farm_models/OP_GP_poultry.csv")
+```
+# Save all multivariable PERMANOVA results into one workbook
+```{r}
+# Create a new workbook
+wb <- createWorkbook()
+# Add the data frames to the workbook
+addWorksheet(wb, "NP_population")
+writeData(wb, sheet = "NP_population", x = permanova_result_NP_miseq_all, rowNames = TRUE)
+
+addWorksheet(wb, "OP_population")
+writeData(wb, sheet = "OP_population", x = permanova_result_OP_miseq_all, rowNames = TRUE)
+
+addWorksheet(wb, "NP_CP_GF_goat_exposure")
+writeData(wb, sheet = "NP_CP_GF_goat_exposure", x = permanova_result_NP_goat_CP_GF, rowNames = TRUE)
+
+addWorksheet(wb, "OP_CP_GF_goat_exposure")
+writeData(wb, sheet = "OP_CP_GF_goat_exposure", x = permanova_result_OP_goat_CP_GF, rowNames = TRUE)
+
+addWorksheet(wb, "NP_GP_GF_goat_exposure")
+writeData(wb, sheet = "NP_GP_GF_goat_exposure", x = permanova_result_NP_goat_GP_GF, rowNames = TRUE)
+
+addWorksheet(wb, "OP_GP_GF_goat_exposure")
+writeData(wb, sheet = "OP_GP_GF_goat_exposure", x = permanova_result_OP_goat_GP_GF, rowNames = TRUE)
+
+addWorksheet(wb, "NP_CP_goat_exposure")
+writeData(wb, sheet = "NP_CP_goat_exposure", x = permanova_result_NP_goat_CP, rowNames = TRUE)
+
+addWorksheet(wb, "OP_CP_goat_exposure")
+writeData(wb, sheet = "OP_CP_goat_exposure", x = permanova_result_OP_goat_CP, rowNames = TRUE)
+
+addWorksheet(wb, "NP_GP_goat_exposure")
+writeData(wb, sheet = "NP_GP_goat_exposure", x = permanova_result_NP_goat_GP, rowNames = TRUE)
+
+addWorksheet(wb, "OP_GP_goat_exposure")
+writeData(wb, sheet = "OP_GP_goat_exposure", x = permanova_result_OP_goat_GP, rowNames = TRUE)
+
+addWorksheet(wb, "NP_CP_chicken_exposure")
+writeData(wb, sheet = "NP_CP_chicken_exposure", x = permanova_result_NP_chicken_CP, rowNames = TRUE)
+
+addWorksheet(wb, "OP_CP_chicken_exposure")
+writeData(wb, sheet = "OP_CP_chicken_exposure", x = permanova_result_OP_chicken_CP, rowNames = TRUE)
+
+addWorksheet(wb, "NP_GP_chicken_exposure")
+writeData(wb, sheet = "NP_GP_chicken_exposure", x = permanova_result_NP_chicken_GP, rowNames = TRUE)
+
+addWorksheet(wb, "OP_GP_chicken_exposure")
+writeData(wb, sheet = "OP_GP_chicken_exposure", x = permanova_result_OP_chicken_GP, rowNames = TRUE)
+
+
+# Save the workbook
+saveWorkbook(wb, "../Output/Beta_diversity/Multivariable_PERMANOVAs/All_PERMANOVA_results.xlsx", overwrite = TRUE)
+```
+
+
+# Visualise multivariable PERMANOVA results in heatmaps
+## Population (miseq runs: 54,56,57,58) 
+```{r}
+permanova_result_NP_miseq_all
+permanova_result_OP_miseq_all
+
+# Create data frames for the results of the PERMANOVA
+perm_NP_all <- data.frame(Niche = "NP", Population = "CP/GP/GF", Variable = rownames(permanova_result_NP_miseq_all), R2 = permanova_result_NP_miseq_all$R2, p_value = permanova_result_NP_miseq_all$`Pr(>F)`)
+perm_OP_all <- data.frame(Niche = "OP", Population = "CP/GP/GF", Variable = rownames(permanova_result_OP_miseq_all), R2 = permanova_result_OP_miseq_all$R2, p_value = permanova_result_OP_miseq_all$`Pr(>F)`)
+# Remove rows where Variable is equal to "Residual" or "Total" from perm_CP
+perm_NP_all <- subset(perm_NP_all, !(Variable %in% c("Residual", "Total")))
+perm_OP_all <- subset(perm_OP_all, !(Variable %in% c("Residual", "Total")))
+
+# Combine the results into a single data frame
+perm_NP_OP_all <- bind_rows(perm_NP_all, perm_OP_all)
+
+
+# Define labels for variables
+variable_labels <- c("smoked_ever" = "Smoking status",
+                     "age" = "Age (years)",
+                     "population" = "Population",
+                     "gender" = "Sex",
+                     "sampling_season" = "Season of sampling")
+
+# Apply labels to the Variable column in perm_OP_NP_all dataframe
+perm_NP_OP_all <- perm_NP_OP_all %>%
+  mutate(Variable = case_when(
+    Variable == "smoked_ever" ~ variable_labels["smoked_ever"],
+    Variable == "age" ~ variable_labels["age"],
+    Variable == "population" ~ variable_labels["population"],
+    Variable == "gender" ~ variable_labels["gender"],
+    Variable == "sampling_season" ~ variable_labels["sampling_season"],
+    TRUE ~ Variable  # Keep the original Variable name if not found in the variable_labels
+  ))
+
+# Define the desired order of variables
+variable_order <- c("Smoking status" ,"Season of sampling","Age (years)","Sex", "Population")
+
+# Convert the Variable column to a factor with the specified order
+perm_NP_OP_all$Variable <- factor(perm_NP_OP_all$Variable, levels = variable_order)
+
+# Create the heatmap plot with the number of participants in the title
+hm_populations <- ggplot(perm_NP_OP_all, aes(x = Population, y = Variable, fill = R2)) +
+  geom_tile() +
+  scale_fill_gradient2(low = carto_pal(7, "Earth")[1],
+                       mid = carto_pal(7, "Earth")[4],
+                       high = carto_pal(7, "Earth")[7],
+                       limits = c(0, 0.05),
+                       na.value = carto_pal(7, "Earth")[7]) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "right",
+        legend.key.height = grid::unit(0.7, "cm"),
+        legend.key.width = grid::unit(0.2, "cm"),
+        plot.background = element_blank(),
+        axis.title.y = element_blank(),
+        axis.title.x = element_text(face = "bold"),
+        strip.background = element_rect(fill = "#2F4858", color = "#2F4858", size = 1, linetype = "solid"),
+        strip.text = element_text(size = 12, face = "bold", color = "white", hjust = 0.5, vjust = 0.5))+ 
+  geom_text(aes(label = ifelse(p_value < 0.05, "***", ifelse(p_value < 0.1, "**", ifelse(p_value < 0.25, "*", "")))), color = "white", size = 4, vjust = 0.8) +
+  labs(fill = "R2") +
+  guides(fill = guide_colourbar(title.position = "top", title.hjust = 0.5)) +
+  facet_wrap(~ Niche, scales = "free_y", nrow = 2, strip.position = "right") +
+  ggtitle("Population")+
+  theme(plot.title = element_textbox_simple(
+    size = 12, 
+    face = "bold", 
+    color = "white", 
+    hjust = 1, 
+    vjust = 0.5,
+    fill = "#2F4858", 
+    padding = margin(5, 5, 5, 5),
+    margin = margin(10, 0, 10, 0), 
+  ))
+
+
+
+# Save the combined plot
+ggsave(
+  "../Output/Beta_diversity/Multivariable_PERMANOVAs/Populations_NP_OP_multivarPERM.svg",
+  plot = hm_populations,
+  device = "svg",
+  width = 3.5,
+  height = 5 
+)
+```
+## Goat farm exposure on CP
+```{r}
+# Create data frames for the results of the PERMANOVA
+perm_OP_exp_CP_GF <- data.frame(Niche = "OP", Population = "CP/GF", Variable = rownames(permanova_result_OP_exp_CP_GF), R2 = permanova_result_OP_exp_CP_GF$R2, p_value = permanova_result_OP_exp_CP_GF$`Pr(>F)`)
+perm_NP_exp_CP_GF <- data.frame(Niche = "NP", Population = "CP/GF", Variable = rownames(permanova_result_NP_exp_CP_GF), R2 = permanova_result_NP_exp_CP_GF$R2, p_value = permanova_result_NP_exp_CP_GF$`Pr(>F)`)
+# Remove rows where Variable is equal to "Residual" or "Total" from perm_CP
+perm_OP_exp_CP_GF <- subset(perm_OP_exp_CP_GF, !(Variable %in% c("Residual", "Total")))
+perm_NP_exp_CP_GF <- subset(perm_NP_exp_CP_GF, !(Variable %in% c("Residual", "Total")))
+# Combine the results into a single data frame
+perm_OP_NP_exp_CP_GF <- bind_rows(perm_OP_exp_CP_GF, perm_NP_exp_CP_GF)
+
+# Get the number of participants for OP and NP niches
+num_participants_NP <- nrow(NP_complete_ps$m_sub)
+num_participants_OP <- nrow(OP_complete_ps$m_sub)
+
+# Define labels for variables
+variable_labels <- c("smoked_ever" = "Smoking status",
+                     "age" = "Age (years)",
+                     "GoatFarmExposureCategory" = "Goat farm exposure category",
+                     "gender" = "Sex",
+                     "sampling_season" = "Season of sampling")
+
+# Apply labels to the Variable column in perm_OP_NP_all dataframe
+perm_OP_NP_exp_CP_GF <- perm_OP_NP_exp_CP_GF %>%
+  mutate(Variable = case_when(
+    Variable == "smoked_ever" ~ variable_labels["smoked_ever"],
+    Variable == "age" ~ variable_labels["age"],
+    Variable == "GoatFarmExposureCategory" ~ variable_labels["GoatFarmExposureCategory"],
+    Variable == "gender" ~ variable_labels["gender"],
+    Variable == "sampling_season" ~ variable_labels["sampling_season"],
+    TRUE ~ Variable  # Keep the original Variable name if not found in the variable_labels
+  ))
+
+
+# Define the desired order of variables
+variable_order_CP <- c("Smoking status" ,"Season of sampling","Age (years)", "Sex", "Goat farm exposure category")
+
+# Convert the Variable column to a factor with the specified order
+perm_OP_NP_exp_CP_GF$Variable <- factor(perm_OP_NP_exp_CP_GF$Variable, levels = variable_order_CP)
+
+# Create the heatmap plot with the number of participants in the title
+hm_CP_GF_populations <- ggplot(perm_OP_NP_exp_CP_GF, aes(x = Population, y = Variable, fill = R2)) +
+  geom_tile() +
+  scale_fill_gradient2(low = carto_pal(7, "Earth")[1],
+                       mid = carto_pal(7, "Earth")[4],
+                       high = carto_pal(7, "Earth")[7],
+                       limits = c(0, 0.05),
+                       na.value = carto_pal(7, "Earth")[7]) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "right",
+        legend.key.height = grid::unit(0.7, "cm"),
+        legend.key.width = grid::unit(0.2, "cm"),
+        plot.background = element_blank(),
+        axis.title.y = element_blank(),
+        axis.title.x = element_text(face = "bold"),
+        strip.background = element_rect(fill = "#2F4858", color = "#2F4858", size = 1, linetype = "solid"),
+        strip.text = element_text(size = 12, face = "bold", color = "white", hjust = 0.5, vjust = 0.5),
+        plot.title = element_text(size = 10)) + 
+  geom_text(aes(label = ifelse(p_value < 0.05, "***", ifelse(p_value < 0.1, "**", ifelse(p_value < 0.25, "*", "")))), color = "white", size = 4, vjust = 0.8) +
+  labs(fill = "R2") +
+  guides(fill = guide_colourbar(title.position = "top", title.hjust = 0.5)) +
+  facet_wrap(~ Niche, scales = "free_y", nrow = 2, strip.position = "right") +
+  ggtitle("Farm exposure (CP/GF)") +
+  theme(plot.title = element_textbox_simple(
+    size = 12, 
+    face = "bold", 
+    color = "white", 
+    hjust = 1, 
+    vjust = 0.5,
+    fill = "#2F4858", 
+    padding = margin(5, 5, 5, 5),
+    margin = margin(10, 0, 10, 0), 
+  ))
+
+
+# Show the plot
+print(hm_CP_GF_populations)
+
+# Save the combined plot
+ggsave(
+  "../Output/Beta_diversity/Multivariable_PERMANOVAs/CP_GF_multivarPERM.svg",
+  plot = hm_CP_GF_populations,
+  device = "svg",
+  width = 5,
+  height = 5 
+)
+
+```
+## Goat farm exposure on GP
+```{r}
+# Create data frames for the results of the PERMANOVA
+perm_OP_exp_GP_GF <- data.frame(Niche = "OP", Population = "GP/GF", Variable = rownames(permanova_result_OP_exp_GP_GF), R2 = permanova_result_OP_exp_GP_GF$R2, p_value = permanova_result_OP_exp_GP_GF$`Pr(>F)`)
+perm_NP_exp_GP_GF <- data.frame(Niche = "NP", Population = "GP/GF", Variable = rownames(permanova_result_NP_exp_GP_GF), R2 = permanova_result_NP_exp_GP_GF$R2, p_value = permanova_result_NP_exp_GP_GF$`Pr(>F)`)
+# Remove rows where Variable is equal to "Residual" or "Total" from perm_GP
+perm_OP_exp_GP_GF <- subset(perm_OP_exp_GP_GF, !(Variable %in% c("Residual", "Total")))
+perm_NP_exp_GP_GF <- subset(perm_NP_exp_GP_GF, !(Variable %in% c("Residual", "Total")))
+# Combine the results into a single data frame
+perm_OP_NP_exp_GP_GF <- bind_rows(perm_OP_exp_GP_GF, perm_NP_exp_GP_GF)
+
+# Get the number of participants for OP and NP niches
+num_participants_NP <- nrow(NP_complete_ps$m_sub)
+num_participants_OP <- nrow(OP_complete_ps$m_sub)
+
+# Define labels for variables
+variable_labels <- c("smoked_ever" = "Smoking status",
+                     "age" = "Age (years)",
+                     "GoatFarmExposureCategory" = "Goat farm exposure category",
+                     "gender" = "Sex",
+                     "sampling_season" = "Season of sampling")
+
+# Apply labels to the Variable column in perm_OP_NP_all dataframe
+perm_OP_NP_exp_GP_GF <- perm_OP_NP_exp_GP_GF %>%
+  mutate(Variable = case_when(
+    Variable == "smoked_ever" ~ variable_labels["smoked_ever"],
+    Variable == "age" ~ variable_labels["age"],
+    Variable == "GoatFarmExposureCategory" ~ variable_labels["GoatFarmExposureCategory"],
+    Variable == "gender" ~ variable_labels["gender"],
+    Variable == "sampling_season" ~ variable_labels["sampling_season"],
+    TRUE ~ Variable  # Keep the original Variable name if not found in the variable_labels
+  ))
+
+# Define the desired order of variables
+variable_order_GP <- c("Smoking status" ,"Season of sampling","Age (years)", "Sex", "Goat farm exposure category")
+
+# Convert the Variable column to a factor with the specified order
+perm_OP_NP_exp_GP_GF$Variable <- factor(perm_OP_NP_exp_GP_GF$Variable, levels = variable_order_GP)
+
+# Create the heatmap plot with the number of participants in the title
+hm_GP_GF_populations <- ggplot(perm_OP_NP_exp_GP_GF, aes(x = Population, y = Variable, fill = R2)) +
+  geom_tile() +
+  scale_fill_gradient2(low = carto_pal(7, "Earth")[1],
+                       mid = carto_pal(7, "Earth")[4],
+                       high = carto_pal(7, "Earth")[7],
+                       limits = c(0, 0.05),
+                       na.value = carto_pal(7, "Earth")[7]) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "right",
+        legend.key.height = grid::unit(0.7, "cm"),
+        legend.key.width = grid::unit(0.2, "cm"),
+        plot.background = element_blank(),
+        axis.title.y = element_blank(),
+        axis.title.x = element_text(face = "bold"),
+        strip.background = element_rect(fill = "#2F4858", color = "#2F4858", size = 1, linetype = "solid"),
+        strip.text = element_text(size = 12, face = "bold", color = "white", hjust = 0.5, vjust = 0.5),
+        plot.title = element_text(size = 12)) +  # Adjusted title size here
+  geom_text(aes(label = ifelse(p_value < 0.05, "***", ifelse(p_value < 0.1, "**", ifelse(p_value < 0.25, "*", "")))), color = "white", size = 4, vjust = 0.8) +
+  labs(fill = "R2") +
+  guides(fill = guide_colourbar(title.position = "top", title.hjust = 0.5)) +
+  facet_wrap(~ Niche, scales = "free_y", nrow = 2, strip.position = "right") +
+  ggtitle("Farm exposure (GP/GF)")+
+  theme(plot.title = element_textbox_simple(
+    size = 12, 
+    face = "bold", 
+    color = "white", 
+    hjust = 1, 
+    vjust = 0.5,
+    fill = "#2F4858", 
+    padding = margin(5, 5, 5, 5),
+    margin = margin(10, 0, 10, 0), 
+  ))
+
+
+
+# Show the plot
+print(hm_GP_GF_populations)
+
+# Save the combined plot
+ggsave(
+  "../Output/Beta_diversity/Multivariable_PERMANOVAs/GP_GF_multivarPERM.svg",
+  plot = hm_GP_GF_populations,
+  device = "svg",
+  width = 5,
+  height = 5 
+)
+```
+
+## Chicken farm exposure on CP 
+```{r}
+# Create data frames for the results of the PERMANOVA
+perm_OP_chicken_CP <- data.frame(Niche = "OP", Population = "CP", Variable = rownames(permanova_result_OP_chicken_CP), R2 = permanova_result_OP_chicken_CP$R2, p_value = permanova_result_OP_chicken_CP$`Pr(>F)`)
+perm_NP_chicken_CP <- data.frame(Niche = "NP", Population = "CP", Variable = rownames(permanova_result_NP_chicken_CP), R2 = permanova_result_NP_chicken_CP$R2, p_value = permanova_result_NP_chicken_CP$`Pr(>F)`)
+# Remove rows where Variable is equal to "Residual" or "Total" from perm_CP
+perm_OP_chicken_CP <- subset(perm_OP_chicken_CP, !(Variable %in% c("Residual", "Total")))
+perm_NP_chicken_CP <- subset(perm_NP_chicken_CP, !(Variable %in% c("Residual", "Total")))
+# Combine the results into a single data frame
+perm_OP_NP_chicken_CP <- bind_rows(perm_OP_chicken_CP, perm_NP_chicken_CP)
+
+# Define labels for variables
+variable_labels_chicken <- c("smoked_ever" = "Smoking status",
+                     "age" = "Age (years)",
+                     "ChickenFarmExposureCategory" = "Chicken farm exposure category",
+                     "gender" = "Sex",
+                     "sampling_season" = "Season of sampling")
+
+# Apply labels to the Variable column in perm_OP_NP_all dataframe
+perm_OP_NP_chicken_CP <- perm_OP_NP_chicken_CP %>%
+  mutate(Variable = case_when(
+    Variable == "smoked_ever" ~ variable_labels_chicken["smoked_ever"],
+    Variable == "age" ~ variable_labels_chicken["age"],
+    Variable == "ChickenFarmExposureCategory" ~ variable_labels_chicken["ChickenFarmExposureCategory"],
+    Variable == "gender" ~ variable_labels_chicken["gender"],
+    Variable == "sampling_season" ~ variable_labels_chicken["sampling_season"],
+    TRUE ~ Variable  # Keep the original Variable name if not found in the variable_labels
+  ))
+
+
+# Define the desired order of variables
+variable_order_chicken_CP <- c("Smoking status" ,"Season of sampling","Age (years)", "Sex", "Chicken farm exposure category")
+
+# Convert the Variable column to a factor with the specified order
+perm_OP_NP_chicken_CP$Variable <- factor(perm_OP_NP_chicken_CP$Variable, levels = variable_order_chicken_CP)
+
+# Create the heatmap plot with the number of participants in the title
+hm_chicken_CP <- ggplot(perm_OP_NP_chicken_CP, aes(x = Population, y = Variable, fill = R2)) +
+  geom_tile() +
+  scale_fill_gradient2(low = carto_pal(7, "Earth")[1],
+                       mid = carto_pal(7, "Earth")[4],
+                       high = carto_pal(7, "Earth")[7],
+                       limits = c(0, 0.05),
+                       na.value = carto_pal(7, "Earth")[7]) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "right",
+        legend.key.height = grid::unit(0.7, "cm"),
+        legend.key.width = grid::unit(0.2, "cm"),
+        plot.background = element_blank(),
+        axis.title.y = element_blank(),
+        axis.title.x = element_text(face = "bold"),
+        strip.background = element_rect(fill = "#2F4858", color = "#2F4858", size = 1, linetype = "solid"),
+        strip.text = element_text(size = 12, face = "bold", color = "white", hjust = 0.5, vjust = 0.5),
+        plot.title = element_text(size = 10)) + 
+  geom_text(aes(label = ifelse(p_value < 0.05, "***", ifelse(p_value < 0.1, "**", ifelse(p_value < 0.25, "*", "")))), color = "white", size = 4, vjust = 0.8) +
+  labs(fill = "R2") +
+  guides(fill = guide_colourbar(title.position = "top", title.hjust = 0.5)) +
+  facet_wrap(~ Niche, scales = "free_y", nrow = 2, strip.position = "right") +
+  ggtitle("Chicken farm exposure (CP)") +
+  theme(plot.title = element_textbox_simple(
+    size = 12, 
+    face = "bold", 
+    color = "white", 
+    hjust = 1, 
+    vjust = 0.5,
+    fill = "#2F4858", 
+    padding = margin(5, 5, 5, 5),
+    margin = margin(10, 0, 10, 0), 
+  ))
+
+
+# Show the plot
+print(hm_chicken_CP)
+
+# Save the combined plot
+ggsave(
+  "../Output/Beta_diversity/Multivariable_PERMANOVAs/Chicken_CPmultivarPERM.svg",
+  plot = hm_chicken_CP,
+  device = "svg",
+  width = 5,
+  height = 5 
+)
+
+```
+## Chicken farm exposure on GP 
+```{r}
+# Create data frames for the results of the PERMANOVA
+perm_OP_chicken_GP <- data.frame(Niche = "OP", Population = "GP", Variable = rownames(permanova_result_OP_chicken_GP), R2 = permanova_result_OP_chicken_GP$R2, p_value = permanova_result_OP_chicken_GP$`Pr(>F)`)
+perm_NP_chicken_GP <- data.frame(Niche = "NP", Population = "GP", Variable = rownames(permanova_result_NP_chicken_GP), R2 = permanova_result_NP_chicken_GP$R2, p_value = permanova_result_NP_chicken_GP$`Pr(>F)`)
+# Remove rows where Variable is equal to "Residual" or "Total" from perm_GP
+perm_OP_chicken_GP <- subset(perm_OP_chicken_GP, !(Variable %in% c("Residual", "Total")))
+perm_NP_chicken_GP <- subset(perm_NP_chicken_GP, !(Variable %in% c("Residual", "Total")))
+# Combine the results into a single data frame
+perm_OP_NP_chicken_GP <- bind_rows(perm_OP_chicken_GP, perm_NP_chicken_GP)
+
+# Define labels for variables
+variable_labels_chicken <- c("smoked_ever" = "Smoking status",
+                             "age" = "Age (years)",
+                             "ChickenFarmExposureCategory" = "Chicken farm exposure category",
+                             "gender" = "Sex",
+                             "sampling_season" = "Season of sampling")
+
+# Apply labels to the Variable column in perm_OP_NP_all dataframe
+perm_OP_NP_chicken_GP <- perm_OP_NP_chicken_GP %>%
+  mutate(Variable = case_when(
+    Variable == "smoked_ever" ~ variable_labels_chicken["smoked_ever"],
+    Variable == "age" ~ variable_labels_chicken["age"],
+    Variable == "ChickenFarmExposureCategory" ~ variable_labels_chicken["ChickenFarmExposureCategory"],
+    Variable == "gender" ~ variable_labels_chicken["gender"],
+    Variable == "sampling_season" ~ variable_labels_chicken["sampling_season"],
+    TRUE ~ Variable  # Keep the original Variable name if not found in the variable_labels
+  ))
+
+
+# Define the desired order of variables
+variable_order_chicken_GP <- c("Smoking status" ,"Season of sampling","Age (years)", "Sex", "Chicken farm exposure category")
+
+# Convert the Variable column to a factor with the specified order
+perm_OP_NP_chicken_GP$Variable <- factor(perm_OP_NP_chicken_GP$Variable, levels = variable_order_chicken_GP)
+
+# Create the heatmap plot with the number of participants in the title
+hm_chicken_GP <- ggplot(perm_OP_NP_chicken_GP, aes(x = Population, y = Variable, fill = R2)) +
+  geom_tile() +
+  scale_fill_gradient2(low = carto_pal(7, "Earth")[1],
+                       mid = carto_pal(7, "Earth")[4],
+                       high = carto_pal(7, "Earth")[7],
+                       limits = c(0, 0.05),
+                       na.value = carto_pal(7, "Earth")[7]) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "right",
+        legend.key.height = grid::unit(0.7, "cm"),
+        legend.key.width = grid::unit(0.2, "cm"),
+        plot.background = element_blank(),
+        axis.title.y = element_blank(),
+        axis.title.x = element_text(face = "bold"),
+        strip.background = element_rect(fill = "#2F4858", color = "#2F4858", size = 1, linetype = "solid"),
+        strip.text = element_text(size = 12, face = "bold", color = "white", hjust = 0.5, vjust = 0.5),
+        plot.title = element_text(size = 10)) + 
+  geom_text(aes(label = ifelse(p_value < 0.05, "***", ifelse(p_value < 0.1, "**", ifelse(p_value < 0.25, "*", "")))), color = "white", size = 4, vjust = 0.8) +
+  labs(fill = "R2") +
+  guides(fill = guide_colourbar(title.position = "top", title.hjust = 0.5)) +
+  facet_wrap(~ Niche, scales = "free_y", nrow = 2, strip.position = "right") +
+  ggtitle("Chicken farm exposure (GP)") +
+  theme(plot.title = element_textbox_simple(
+    size = 12, 
+    face = "bold", 
+    color = "white", 
+    hjust = 1, 
+    vjust = 0.5,
+    fill = "#2F4858", 
+    padding = margin(5, 5, 5, 5),
+    margin = margin(10, 0, 10, 0), 
+  ))
+
+
+# Show the plot
+print(hm_chicken_GP)
+
+# Save the combined plot
+ggsave(
+  "../Output/Beta_diversity/Multivariable_PERMANOVAs/Chicken_GPmultivarPERM.svg",
+  plot = hm_chicken_GP,
+  device = "svg",
+  width = 5,
+  height = 5 
+)
+
+```
+## Chicken farm exposure on NP (CP and GP in heatmap)
+```{r}
+# Combine goat farm and chicken farm exposure data
+perm_OP_chicken_CP <- data.frame(Niche = "OP", Population = "CP", Variable = rownames(permanova_result_OP_chicken_CP), R2 = permanova_result_OP_chicken_CP$R2, p_value = permanova_result_OP_chicken_CP$`Pr(>F)`)
+perm_NP_chicken_CP <- data.frame(Niche = "NP", Population = "CP", Variable = rownames(permanova_result_NP_chicken_CP), R2 = permanova_result_NP_chicken_CP$R2, p_value = permanova_result_NP_chicken_CP$`Pr(>F)`)
+
+perm_OP_chicken_GP <- data.frame(Niche = "OP", Population = "GP", Variable = rownames(permanova_result_OP_chicken_GP), R2 = permanova_result_OP_chicken_GP$R2, p_value = permanova_result_OP_chicken_GP$`Pr(>F)`)
+perm_NP_chicken_GP <- data.frame(Niche = "NP", Population = "GP", Variable = rownames(permanova_result_NP_chicken_GP), R2 = permanova_result_NP_chicken_GP$R2, p_value = permanova_result_NP_chicken_GP$`Pr(>F)`)
+
+# Remove residuals and totals
+perm_OP_chicken_CP <- subset(perm_OP_chicken_CP, !(Variable %in% c("Residual", "Total")))
+perm_NP_chicken_CP <- subset(perm_NP_chicken_CP, !(Variable %in% c("Residual", "Total")))
+
+perm_OP_chicken_GP <- subset(perm_OP_chicken_GP, !(Variable %in% c("Residual", "Total")))
+perm_NP_chicken_GP <- subset(perm_NP_chicken_GP, !(Variable %in% c("Residual", "Total")))
+
+
+# Combine data frames
+perm_chicken_combined <- bind_rows(perm_OP_chicken_CP, perm_NP_chicken_CP, perm_OP_chicken_GP, perm_NP_chicken_GP)
+
+# Define variable labels
+variable_labels_chicken <- c("smoked_ever" = "Smoking status",
+                     "age" = "Age (years)",
+                     "ChickenFarmExposureCategory" = "Chicken farm exposure category",
+                     "gender" = "Sex",
+                     "sampling_season" = "Season of sampling")
+
+# Apply labels to the Variable column
+perm_chicken_combined <- perm_chicken_combined %>%
+  mutate(Variable = case_when(
+    Variable == "smoked_ever" ~ variable_labels["smoked_ever"],
+    Variable == "age" ~ variable_labels["age"],
+    Variable == "ChickenFarmExposureCategory" ~ variable_labels["ChickenFarmExposureCategory"],
+    Variable == "gender" ~ variable_labels["gender"],
+    Variable == "sampling_season" ~ variable_labels["sampling_season"],
+    TRUE ~ Variable  # Keep the original Variable name if not found in the variable_labels
+  ))
+
+# Define the desired order of variables
+variable_order_chicken <- c("Smoking status", "Season of sampling", "Age (years)", "Sex", "Chicken farm exposure category")
+
+# Convert the Variable column to a factor with the specified order
+perm_chicken_combined$Variable <- factor(perm_chicken_combined$Variable, levels = variable_order_chicken)
+
+# Create the combined heatmap plot
+hm_combined_chicken <- ggplot(perm_chicken_combined, aes(x = Population, y = Variable, fill = R2)) +
+  geom_tile() +
+  scale_fill_gradient2(low = carto_pal(7, "Earth")[1],
+                       mid = carto_pal(7, "Earth")[4],
+                       high = carto_pal(7, "Earth")[7],
+                       limits = c(0, 0.05),
+                       na.value = carto_pal(7, "Earth")[7]) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "right",
+        legend.key.height = grid::unit(0.7, "cm"),
+        legend.key.width = grid::unit(0.2, "cm"),
+        plot.background = element_blank(),
+        axis.title.y = element_blank(),
+        axis.title.x = element_text(face = "bold"),
+        strip.background = element_rect(fill = "#2F4858", color = "#2F4858", size = 1, linetype = "solid"),
+        strip.text = element_text(size = 12, face = "bold", color = "white", hjust = 0.5, vjust = 0.5),
+        plot.title = element_text(size = 12)) + 
+  geom_text(aes(label = ifelse(p_value < 0.05, "***", ifelse(p_value < 0.1, "**", ifelse(p_value < 0.25, "*", "")))), color = "white", size = 4, vjust = 0.8) +
+  labs(fill = "R2") +
+  guides(fill = guide_colourbar(title.position = "top", title.hjust = 0.5)) +
+  facet_wrap(~ Niche, scales = "free_y", nrow = 2, strip.position = "right") +
+  ggtitle("Chicken farm exposure multivariable PERMANOVA") +
+  theme(plot.title = element_textbox_simple(
+    size = 12, 
+    face = "bold", 
+    color = "white", 
+    hjust = 1, 
+    vjust = 0.5,
+    fill = "#2F4858", 
+    padding = margin(5, 5, 5, 5),
+    margin = margin(10, 0, 10, 0), 
+  ))
+
+# Show the plot
+print(hm_combined_chicken)
+
+# Save the combined plot
+ggsave(
+  "../Output/Beta_diversity/Multivariable_PERMANOVAs/Chicken_farm_exposure_combined_multivarPERM.svg",
+  plot = hm_combined_chicken,
+  device = "svg",
+  width = 8,
+  height = 5 
+)
+
+```
+
+
+# PCoAs
+## NP vs OP
+```{r}
+theme_set(theme_bw())
+theme_update(axis.text.x = element_text(angle = 45, hjust=1),
+             strip.text = element_text(colour = 'white'),
+             strip.background =element_rect(fill="#2F4858", color = "#2F4858"))
+
+ordination_NP_OP <- ordinate(combined_NP_OP_ps, method = "PCoA", distance = "bray")
+eigenvalues_raw_NP_OP <- ordination_NP_OP$values$Eigenvalues
+eigenvalues_relative_NP_OP <- eigenvalues_raw_NP_OP / sum(eigenvalues_raw_NP_OP) * 100
+var_explained_PCo1_NP_OP <- round(eigenvalues_relative_NP_OP[1], 1)
+var_explained_PCo2_NP_OP <- round(eigenvalues_relative_NP_OP[2], 1)
+
+
+x_label_NP_OP <- paste("PCo1 [", var_explained_PCo1_NP_OP, "%]", sep = "")
+y_label_NP_OP <- paste("PCo2 [", var_explained_PCo2_NP_OP, "%]", sep = "")
+
+
+color_palette_niche <- c("NP" = "#E78AC3", "OP" = "#5ba8ff")
+
+# Generate the plot
+PCoA_population_NP_OP <- plot_ordination(
+  combined_NP_OP_ps, ordination_NP_OP, type = "samples", color = "niche"
+) +
+  geom_point(aes(fill = niche, color = niche), shape = 21, size = 2, stroke = 0.5, alpha = 0.8) + 
+  scale_shape_girafe_filled() +
+  scale_fill_manual(values = color_palette_niche,
+                    name = "Sample location",
+                    labels = c("Nasopharynx", "Oropharynx")) + # Renamed fill legend
+  scale_color_manual(values = color_palette_niche,
+                     name = "Sample location",
+                     labels = c("Nasopharynx", "Oropharynx")) + # Renamed color legend
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, color = "black"),
+    axis.text.y = element_text(color = "black"),
+    strip.text = element_text(colour = 'white'),
+    strip.background = element_rect(fill = "#2F4858", color = "#2F4858"),
+    axis.text = element_text(size = 20),
+    axis.title = element_text(size = 20),
+    legend.text =  element_text(size = 15),
+    legend.title = element_text(size = 15),
+    plot.title = element_text(hjust = 0.5),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_rect(color = "black", fill = NA, size = 1)
+  ) +
+  labs(
+    x = x_label_NP_OP,
+    y = y_label_NP_OP,
+    color = "Voorbeeldlocatie",
+    fill = "Voorbeeldlocatie"  # Rename the legend title
+  ) +
+  annotate("text", x = 0.05, y = -0.53, label = bquote(italic(R)^2 == .(round(permanova_result_NP_OP$R2[rownames(permanova_result_NP_OP) == "niche"], 3))), size = 6, hjust = 0, color = "black") +
+  annotate("text", x = 0.05, y = -0.62, label = bquote(italic(p)~"value" == .(round(permanova_result_NP_OP$`Pr(>F)`[rownames(permanova_result_NP_OP) == "niche"], 3))), size = 6, hjust = 0, color = "black") +
+  stat_ellipse(aes(colour = niche), size = 1, show.legend = FALSE) +
+  guides(color = guide_legend(override.aes = list(size = 8))) 
+
+PCoA_population_NP_OP
+ggsave("../Output/Beta_diversity/PCoAs/PCoA_niche_NP_OP.svg", PCoA_population_NP_OP, device = "svg", width  = 8, height = 6)
+```
+## Population 
+### NP
+```{r}
+ordination_NP_pop <- ordinate(ps_NP_miseq_filt_RA, method = "PCoA", distance = "bray")
+eigenvalues_raw <- ordination_NP_pop$values$Eigenvalues
+eigenvalues_relative <- eigenvalues_raw / sum(eigenvalues_raw) * 100
+var_explained_PCo1 <- round(eigenvalues_relative[1], 1)
+var_explained_PCo2 <- round(eigenvalues_relative[2], 1)
+
+
+x_label_pop <- paste("PCo1 [", var_explained_PCo1, "%]", sep = "")
+y_label_pop <- paste("PCo1 [", var_explained_PCo2, "%]", sep = "")
+
+color_palette_pop <- c("CP" = "#66C2A5", "GF" = "#FC8D62", "GP" = "#8DA0CB")
+
+PCoA_population_NP_miseq_1and2 <- plot_ordination(
+  ps_NP_miseq_filt_RA, ordination_NP_pop, type = "samples", color = "population"
+) +
+  geom_point(aes(fill = population, color = population), shape = 21, size = 2, stroke = 0.5, alpha = 0.8) + 
+  scale_shape_girafe_filled() +
+  scale_fill_manual(values = color_palette_pop,
+                    name = "Study population",
+                    labels = c("CP", "GF", "GP")) + 
+  scale_color_manual(values = color_palette_pop,
+                     name = "Study population",
+                    labels = c("CP", "GF", "GP")) +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, color = "black"),
+    axis.text.y = element_text(color = "black"),
+    strip.text = element_text(colour = 'white'),
+    strip.background = element_rect(fill = "#2F4858", color = "#2F4858"),
+    axis.text = element_text(size = 20),
+    axis.title = element_text(size = 20),
+    legend.text =  element_text(size = 15),
+    legend.title = element_text(size = 15),
+    plot.title = element_text(hjust = 0.5),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_rect(color = "black", fill = NA, size = 1)
+  ) +
+  labs(
+    x = x_label_pop,
+    y = y_label_pop,
+    color = "Study population",
+    fill = "Study population" 
+  ) +
+  annotate("text", x = 0.27, y = -0.55, label = bquote(italic(R)^2 == .(round(permanova_result_NP_miseq_all$R2[rownames(permanova_result_NP_miseq_all) == "population"], 3))), size = 6, hjust = 0, color = "black") +
+  annotate("text", x = 0.27, y = -0.62, label = bquote(italic(p)~"value" == .(round(permanova_result_NP_miseq_all$`Pr(>F)`[rownames(permanova_result_NP_miseq_all) == "population"], 3))), size = 6, hjust = 0, color = "black") +
+  stat_ellipse(aes(colour = population), size = 1, show.legend = FALSE) +
+  guides(color = guide_legend(override.aes = list(size = 8))) # Adjust the size of the legend key
+
+print(PCoA_population_NP_miseq_1and2)
+
+ggsave("../Output/Beta_diversity/PCoAs/PCoA_NP_population.svg", PCoA_population_NP_miseq_1and2,device = "svg", width  = 8, height = 6)
+```
+### OP
+```{r}
+ordination_OP_pop <- ordinate(ps_OP_miseq_filt_RA, method = "PCoA", distance = "bray")
+eigenvalues_raw <- ordination_OP_pop$values$Eigenvalues
+eigenvalues_relative <- eigenvalues_raw / sum(eigenvalues_raw) * 100
+var_explained_PCo1 <- round(eigenvalues_relative[1], 1)
+var_explained_PCo2 <- round(eigenvalues_relative[2], 1)
+
+x_label_pop <- paste("PCo1 [", var_explained_PCo1, "%]", sep = "")
+y_label_pop <- paste("PCo1 [", var_explained_PCo2, "%]", sep = "")
+
+
+color_palette_pop <- c("CP" = "#66C2A5", "GF" = "#FC8D62", "GP" = "#8DA0CB")
+
+PCoA_population_OP_miseq_1and2 <- plot_ordination(
+  ps_OP_miseq_filt_RA, ordination_OP_pop, type = "samples", color = "population"
+) +
+  geom_point(aes(fill = population, color = population), shape = 21, size = 2, stroke = 0.5, alpha = 0.8) + 
+  scale_shape_girafe_filled() +
+  scale_fill_manual(values = color_palette_pop,
+                    name = "Study population",
+                    labels = c("CP", "GF", "GP")) + 
+  scale_color_manual(values = color_palette_pop,
+                     name = "Study population",
+                     labels = c("CP", "GF", "GP")) +
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, color = "black"),
+    axis.text.y = element_text(color = "black"),
+    strip.text = element_text(colour = 'white'),
+    strip.background = element_rect(fill = "#2F4858", color = "#2F4858"),
+    axis.text = element_text(size = 20),
+    axis.title = element_text(size = 20),
+    legend.text =  element_text(size = 15),
+    legend.title = element_text(size = 15),
+    plot.title = element_text(hjust = 0.5),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_rect(color = "black", fill = NA, size = 1)
+  ) +
+  labs(
+    x = x_label_pop,
+    y = y_label_pop,
+    color = "Study population",
+    fill = "Study population" 
+  ) +
+  annotate("text", x = 0.14, y = -0.49, label = bquote(italic(R)^2 == .(round(permanova_result_OP_miseq_all$R2[rownames(permanova_result_OP_miseq_all) == "population"], 3))), size = 6, hjust = 0, color = "black") +
+  annotate("text", x = 0.14, y = -0.56, label = bquote(italic(p)~"value" == .(round(permanova_result_OP_miseq_all$`Pr(>F)`[rownames(permanova_result_OP_miseq_all) == "population"], 3))), size = 6, hjust = 0, color = "black") +
+  stat_ellipse(aes(colour = population), size = 1, show.legend = FALSE) +
+  guides(color = guide_legend(override.aes = list(size = 8)))
+
+PCoA_population_OP_miseq_1and2
+ggsave("../Output/Beta_diversity/PCoAs/PCoA_OP_population.svg",PCoA_population_OP_miseq_1and2,device = "svg", width  = 8, height = 6)
+```
+## Goat farm exposure on CP and GF
+### NP 
+```{r}
+# Goat farm exposure on the control population 
+## NP
+ordination_CPGF_NP <- ordinate(ps_NP_CP_GF_filt_RA, method = "PCoA", distance = "bray")
+eigenvalues_raw_CPGF_NP <- ordination_CPGF_NP$values$Eigenvalues
+eigenvalues_relative_CPGF_NP <- eigenvalues_raw_CPGF_NP / sum(eigenvalues_raw_CPGF_NP) * 100
+var_explained_PCo1_CPGF_NP <- round(eigenvalues_relative_CPGF_NP[1], 1)
+var_explained_PCo2_CPGF_NP <- round(eigenvalues_relative_CPGF_NP[2], 1)
+
+x_label_CPGF_NP <- paste("PCo1 [", var_explained_PCo1_CPGF_NP, "%]", sep = "")
+y_label_CPGF_NP <- paste("PCo1 [", var_explained_PCo2_CPGF_NP, "%]", sep = "")
+
+ps_NP_CP_GF_filt_RA@sam_data$population
+sample_data(ps_NP_CP_GF_filt_RA)$GoatFarmExposureCategory <- factor(
+  sample_data(ps_NP_CP_GF_filt_RA)$GoatFarmExposureCategory,
+  levels = c( ">2000m", "1000-2000m", "<1000m", "Goat farmer")
+)
+
+color_palette_CPGF<- c(">2000m" = "#b6dcdd", "1000-2000m" = "#93cec3", "<1000m" = "#1aa780", "Goat farmer" = "#FC8D62")
+
+PCoA_population_NP_CPGF_goat_expo <- plot_ordination(
+  ps_NP_CP_GF_filt_RA, ordination_CPGF_NP, type = "samples", color = "GoatFarmExposureCategory"
+) +
+  geom_point(aes(fill = GoatFarmExposureCategory, color = GoatFarmExposureCategory), shape = 21, size = 2, stroke = 0.5, alpha = 0.8) + 
+  scale_shape_girafe_filled() +
+  scale_fill_manual(values = color_palette_CPGF,
+                    name = "Distance to nearest \ngoat farm") + 
+  scale_color_manual(values = color_palette_CPGF,
+                     name = "Distance to nearest \ngoat farm") + 
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, color = "black"),
+    axis.text.y = element_text(color = "black"),
+    strip.text = element_text(colour = 'white'),
+    strip.background = element_rect(fill = "#2F4858", color = "#2F4858"),
+    axis.text = element_text(size = 20),
+    axis.title = element_text(size = 20),
+    legend.text =  element_text(size = 15),
+    legend.title = element_text(size = 15),
+    plot.title = element_text(hjust = 0.5),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_rect(color = "black", fill = NA, size = 1)
+  ) +
+  labs(
+    x = x_label_CPGF_NP,
+    y = y_label_CPGF_NP,
+    color = "Distance to nearest \ngoat farm",
+    fill = "Distance to nearest \ngoat farm"  # Rename the legend title
+  ) +
+  annotate("text", x = 0.3, y = -0.52, label = bquote(italic(R)^2 == .(round(permanova_result_NP_exp_CP_GF$R2[rownames(permanova_result_NP_exp_CP_GF) == "GoatFarmExposureCategory"], 3))), size = 6, hjust = 0, color = "black") +
+  annotate("text", x = 0.3, y = -0.60, label = bquote(italic(p)~"value" == .(round(permanova_result_NP_exp_CP_GF$`Pr(>F)`[rownames(permanova_result_NP_exp_CP_GF) == "GoatFarmExposureCategory"], 3))), size = 6, hjust = 0, color = "black") +
+  stat_ellipse(aes(colour = GoatFarmExposureCategory, fill = GoatFarmExposureCategory), size = 1, show.legend = FALSE) +
+  guides(color = guide_legend(override.aes = list(size = 8))) # Adjust the size of the legend key
+
+PCoA_population_NP_CPGF_goat_expo
+
+ggsave("../Output/Beta_diversity/PCoAs/PCoA_NP_CPGF_goat_exposure.svg", PCoA_population_NP_CPGF_goat_expo,device = "svg", width  = 8, height = 6)
+```
+### OP 
+```{r}
+# Goat farm exposure on the control population 
+## OP 
+ordination_CPGF_OP <- ordinate(ps_OP_CP_GF_filt_RA, method = "PCoA", distance = "bray")
+eigenvalues_raw_CPGF_OP <- ordination_CPGF_OP$values$Eigenvalues
+eigenvalues_relative_CPGF_OP <- eigenvalues_raw_CPGF_OP / sum(eigenvalues_raw_CPGF_OP) * 100
+var_explained_PCo1_CPGF_OP <- round(eigenvalues_relative_CPGF_OP[1], 1)
+var_explained_PCo2_CPGF_OP <- round(eigenvalues_relative_CPGF_OP[2], 1)
+
+x_label_CPGF_OP <- paste("PCo1 [", var_explained_PCo1_CPGF_OP, "%]", sep = "")
+y_label_CPGF_OP <- paste("PCo1 [", var_explained_PCo2_CPGF_OP, "%]", sep = "")
+
+ps_OP_CP_GF_filt_RA@sam_data$population
+sample_data(ps_OP_CP_GF_filt_RA)$GoatFarmExposureCategory <- factor(
+  sample_data(ps_OP_CP_GF_filt_RA)$GoatFarmExposureCategory,
+  levels = c( ">2000m", "1000-2000m", "<1000m", "Goat farmer")
+)
+
+color_palette_CPGF<- c(">2000m" = "#b6dcdd", "1000-2000m" = "#93cec3", "<1000m" = "#1aa780", "Goat farmer" = "#FC8D62")
+
+PCoA_population_OP_CPGF_goat_expo <- plot_ordination(
+  ps_OP_CP_GF_filt_RA, ordination_CPGF_OP, type = "samples", color = "GoatFarmExposureCategory"
+) +
+  geom_point(aes(fill = GoatFarmExposureCategory, color = GoatFarmExposureCategory), shape = 21, size = 2, stroke = 0.5, alpha = 0.8) + # Adjust stroke if needed
+  scale_shape_girafe_filled() +
+  scale_fill_manual(values = color_palette_CPGF,
+                    name = "Distance to nearest \ngoat farm") + # Renamed fill legend
+  scale_color_manual(values = color_palette_CPGF,
+                     name = "Distance to nearest \ngoat farm") + # Renamed color legend
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, color = "black"),
+    axis.text.y = element_text(color = "black"),
+    strip.text = element_text(colour = 'white'),
+    strip.background = element_rect(fill = "#2F4858", color = "#2F4858"),
+    axis.text = element_text(size = 20),
+    axis.title = element_text(size = 20),
+    legend.text =  element_text(size = 15),
+    legend.title = element_text(size = 15),
+    plot.title = element_text(hjust = 0.5),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_rect(color = "black", fill = NA, size = 1)
+  ) +
+  labs(
+    x = x_label_CPGF_OP,
+    y = y_label_CPGF_OP,
+    color = "Distance to nearest \ngoat farm",
+    fill = "Distance to nearest \ngoat farm"  # Rename the legend title
+  ) +
+  annotate("text", x = 0.15, y = -0.38, label = bquote(italic(R)^2 == .(round(permanova_result_OP_exp_CP_GF$R2[rownames(permanova_result_OP_exp_CP_GF) == "GoatFarmExposureCategory"], 3))), size = 6, hjust = 0, color = "black") +
+  annotate("text", x = 0.15, y = -0.45, label = bquote(italic(p)~"value" == .(round(permanova_result_OP_exp_CP_GF$`Pr(>F)`[rownames(permanova_result_OP_exp_CP_GF) == "GoatFarmExposureCategory"], 3))), size = 6, hjust = 0, color = "black") +
+  stat_ellipse(aes(colour = GoatFarmExposureCategory, fill = GoatFarmExposureCategory), size = 1, show.legend = FALSE) +
+  guides(color = guide_legend(override.aes = list(size = 8))) # Adjust the size of the legend key
+
+PCoA_population_OP_CPGF_goat_expo
+
+ggsave("../Output/Beta_diversity/PCoAs/PCoA_OP_CPGF_goat_exposure.svg", PCoA_population_OP_CPGF_goat_expo, device = "svg", width  = 8, height = 6)
+```
+## Goat farm exposure on CP only
+### NP
+```{r}
+# Goat farm exposure on the control population 
+## NP
+ordination_CP_NP <- ordinate(ps_NP_CP_filt_RA, method = "PCoA", distance = "bray")
+eigenvalues_raw_CP_NP <- ordination_CP_NP$values$Eigenvalues
+eigenvalues_relative_CP_NP <- eigenvalues_raw_CP_NP / sum(eigenvalues_raw_CP_NP) * 100
+var_explained_PCo1_CP_NP <- round(eigenvalues_relative_CP_NP[1], 1)
+var_explained_PCo2_CP_NP <- round(eigenvalues_relative_CP_NP[2], 1)
+
+x_label_CP_NP <- paste("PCo1 [", var_explained_PCo1_CP_NP, "%]", sep = "")
+y_label_CP_NP <- paste("PCo2 [", var_explained_PCo2_CP_NP, "%]", sep = "")
+
+ps_NP_CP_filt_RA@sam_data$population
+sample_data(ps_NP_CP_filt_RA)$GoatFarmExposureCategory <- factor(
+  sample_data(ps_NP_CP_filt_RA)$GoatFarmExposureCategory,
+  levels = c( ">2000m", "1000-2000m", "<1000m", "Goat farmer")
+)
+
+color_palette_CP <- c(">2000m" = "#b6dcdd", "1000-2000m" = "#93cec3", "<1000m" = "#1aa780")
+#add8e6
+
+
+PCoA_population_NP_CP_goat_expo <- plot_ordination(
+  ps_NP_CP_filt_RA, ordination_CP_NP, type = "samples", color = "GoatFarmExposureCategory"
+) +
+  geom_point(aes(fill = GoatFarmExposureCategory, color = GoatFarmExposureCategory), shape = 21, size = 2, stroke = 0.5, alpha = 0.8) + 
+  scale_shape_girafe_filled() +
+  scale_fill_manual(values = color_palette_CP,
+                    name = "Distance to nearest \ngoat farm") + 
+  scale_color_manual(values = color_palette_CP,
+                     name = "Distance to nearest \ngoat farm") + 
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, color = "black"),
+    axis.text.y = element_text(color = "black"),
+    strip.text = element_text(colour = 'white'),
+    strip.background = element_rect(fill = "#2F4858", color = "#2F4858"),
+    axis.text = element_text(size = 20),
+    axis.title = element_text(size = 20),
+    legend.text =  element_text(size = 15),
+    legend.title = element_text(size = 15),
+    plot.title = element_text(hjust = 0.5),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_rect(color = "black", fill = NA, size = 1)
+  ) +
+  labs(
+    x = x_label_CP_NP,
+    y = y_label_CP_NP,
+    color = "Distance to nearest \ngoat farm",
+    fill = "Distance to nearest \ngoat farm"  # Rename the legend title
+  ) +
+  annotate("text", x = 0.22, y = -0.58, label = bquote(italic(R)^2 == .(round(permanova_result_NP_goat_CP$R2[rownames(permanova_result_NP_goat_CP) == "GoatFarmExposureCategory"], 3))), size = 6, hjust = 0, color = "black") +
+  annotate("text", x = 0.22, y = -0.66, label = bquote(italic(p)~"value" == .(round(permanova_result_NP_goat_CP$`Pr(>F)`[rownames(permanova_result_NP_goat_CP) == "GoatFarmExposureCategory"], 3))), size = 6, hjust = 0, color = "black") +
+  stat_ellipse(aes(colour = GoatFarmExposureCategory, fill = GoatFarmExposureCategory), size = 1, show.legend = FALSE) +
+  guides(color = guide_legend(override.aes = list(size = 8))) # Adjust the size of the legend key
+
+PCoA_population_NP_CP_goat_expo
+
+ggsave("../Output/Beta_diversity/PCoAs/PCoA_NP_CP_goat_exposure.svg", PCoA_population_NP_CP_goat_expo, device = "svg", width  = 8, height = 6)
+```
+### OP 
+```{r}
+# Goat farm exposure on the control population 
+## OP 
+ordination_CP_OP <- ordinate(ps_OP_CP_filt_RA, method = "PCoA", distance = "bray")
+eigenvalues_raw_CP_OP <- ordination_CP_OP$values$Eigenvalues
+eigenvalues_relative_CP_OP <- eigenvalues_raw_CP_OP / sum(eigenvalues_raw_CP_OP) * 100
+var_explained_PCo1_CP_OP <- round(eigenvalues_relative_CP_OP[1], 1)
+var_explained_PCo2_CP_OP <- round(eigenvalues_relative_CP_OP[2], 1)
+
+x_label_CP_OP <- paste("PCo1 [", var_explained_PCo1_CP_OP, "%]", sep = "")
+y_label_CP_OP <- paste("PCo1 [", var_explained_PCo2_CP_OP, "%]", sep = "")
+
+ps_OP_CP_filt_RA@sam_data$population
+sample_data(ps_OP_CP_filt_RA)$GoatFarmExposureCategory <- factor(
+  sample_data(ps_OP_CP_filt_RA)$GoatFarmExposureCategory,
+  levels = c( ">2000m", "1000-2000m", "<1000m")
+)
+
+color_palette_CP<- c(">2000m" = "#b6dcdd", "1000-2000m" = "#93cec3", "<1000m" = "#1aa780")
+
+PCoA_population_OP_CP_goat_expo <- plot_ordination(
+  ps_OP_CP_filt_RA, ordination_CP_OP, type = "samples", color = "GoatFarmExposureCategory"
+) +
+  geom_point(aes(fill = GoatFarmExposureCategory, color = GoatFarmExposureCategory), shape = 21, size = 2, stroke = 0.5, alpha = 0.8) + # Adjust stroke if needed
+  scale_shape_girafe_filled() +
+  scale_fill_manual(values = color_palette_CP,
+                    name = "Distance to nearest \ngoat farm") + # Renamed fill legend
+  scale_color_manual(values = color_palette_CP,
+                     name = "Distance to nearest \ngoat farm") + # Renamed color legend
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, color = "black"),
+    axis.text.y = element_text(color = "black"),
+    strip.text = element_text(colour = 'white'),
+    strip.background = element_rect(fill = "#2F4858", color = "#2F4858"),
+    axis.text = element_text(size = 20),
+    axis.title = element_text(size = 20),
+    legend.text =  element_text(size = 15),
+    legend.title = element_text(size = 15),
+    plot.title = element_text(hjust = 0.5),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_rect(color = "black", fill = NA, size = 1)
+  ) +
+  labs(
+    x = x_label_CP_OP,
+    y = y_label_CP_OP,
+    color = "Distance to nearest \ngoat farm",
+    fill = "Distance to nearest \ngoat farm"  # Rename the legend title
+  ) +
+  annotate("text", x = 0.15, y = -0.4, label = bquote(italic(R)^2 == .(round(permanova_result_OP_goat_CP$R2[rownames(permanova_result_OP_goat_CP) == "GoatFarmExposureCategory"], 3))), size = 6, hjust = 0, color = "black") +
+  annotate("text", x = 0.15, y = -0.46, label = bquote(italic(p)~"value" == .(round(permanova_result_OP_goat_CP$`Pr(>F)`[rownames(permanova_result_OP_goat_CP) == "GoatFarmExposureCategory"], 3))), size = 6, hjust = 0, color = "black") +
+  stat_ellipse(aes(colour = GoatFarmExposureCategory, fill = GoatFarmExposureCategory), size = 1, show.legend = FALSE) +
+  guides(color = guide_legend(override.aes = list(size = 8))) # Adjust the size of the legend key
+
+PCoA_population_OP_CP_goat_expo
+
+ggsave("../Output/Beta_diversity/PCoAs/PCoA_OP_CP_goat_exposure.svg", PCoA_population_OP_CP_goat_expo, device = "svg", width  = 8, height = 6)
+```
+
+## Goat farm exposure on GP and GF
+### NP
+```{r}
+ordination_GPGF_NP <- ordinate(ps_NP_GP_GF_filt_RA, method = "PCoA", distance = "bray")
+eigenvalues_raw_GPGF_NP <- ordination_GPGF_NP$values$Eigenvalues
+eigenvalues_relative_GPGF_NP <- eigenvalues_raw_GPGF_NP / sum(eigenvalues_raw_GPGF_NP) * 100
+var_explained_PCo1_GPGF_NP <- round(eigenvalues_relative_GPGF_NP[1], 1)
+var_explained_PCo2_GPGF_NP <- round(eigenvalues_relative_GPGF_NP[2], 1)
+
+x_label_GPGF_NP <- paste("PCo1 [", var_explained_PCo1_GPGF_NP, "%]", sep = "")
+y_label_GPGF_NP <- paste("PCo1 [", var_explained_PCo2_GPGF_NP, "%]", sep = "")
+
+sample_data(ps_NP_GP_GF_filt_RA)$GoatFarmExposureCategory <- factor(
+  sample_data(ps_NP_GP_GF_filt_RA)$GoatFarmExposureCategory,
+  levels = c( ">2000m", "<2000m", "Goat farmer")
+)
+
+color_palette_GPGF<- c(">2000m" = "#a99fd3", "<2000m" = "#6a58b3", "Goat farmer" = "#FC8D62")
+
+PCoA_NP_GPGF_goat_expo <- plot_ordination(
+  ps_NP_GP_GF_filt_RA, ordination_GPGF_NP, type = "samples", color = "GoatFarmExposureCategory"
+) +
+  geom_point(aes(fill = GoatFarmExposureCategory, color = GoatFarmExposureCategory), shape = 21, size = 2, stroke = 0.5, alpha = 0.8) + # Adjust stroke if needed
+  scale_shape_girafe_filled() +
+  scale_fill_manual(values = color_palette_GPGF,
+                    name = "Distance to nearest \ngoat farm") + # Renamed fill legend
+  scale_color_manual(values = color_palette_GPGF,
+                     name = "Distance to nearest \ngoat farm") + # Renamed color legend
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, color = "black"),
+    axis.text.y = element_text(color = "black"),
+    strip.text = element_text(colour = 'white'),
+    strip.background = element_rect(fill = "#2F4858", color = "#2F4858"),
+    axis.text = element_text(size = 20),
+    axis.title = element_text(size = 20),
+    legend.text =  element_text(size = 15),
+    legend.title = element_text(size = 15),
+    plot.title = element_text(hjust = 0.5),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_rect(color = "black", fill = NA, size = 1)
+  ) +
+  labs(
+    x = x_label_GPGF_NP,
+    y = y_label_GPGF_NP,
+    color = "Distance to nearest \ngoat farm",
+    fill = "Distance to nearest \ngoat farm" 
+  ) +
+  annotate("text", x = 0.26, y = -0.74, label = bquote(italic(R)^2 == .(round(permanova_result_NP_exp_GP_GF$R2[rownames(permanova_result_NP_exp_GP_GF) == "GoatFarmExposureCategory"], 3))), size = 6, hjust = 0, color = "black") +
+  annotate("text", x = 0.26, y = -0.82, label = bquote(italic(p)~"value" == .(round(permanova_result_NP_exp_GP_GF$`Pr(>F)`[rownames(permanova_result_NP_exp_GP_GF) == "GoatFarmExposureCategory"], 3))), size = 6, hjust = 0, color = "black") +
+  stat_ellipse(aes(colour = GoatFarmExposureCategory, fill = GoatFarmExposureCategory), size = 1, show.legend = FALSE) +
+  guides(color = guide_legend(override.aes = list(size = 8))) 
+
+
+PCoA_NP_GPGF_goat_expo
+ggsave("../Output/Beta_diversity/PCoAs/PCoA_NP_GPGF_goat_exposure.svg", PCoA_NP_GPGF_goat_expo, device = "svg", width  = 8, height = 6)
+```
+
+### OP
+```{r}
+ordination_GPGF_OP <- ordinate(ps_OP_GP_GF_filt_RA, method = "PCoA", distance = "bray")
+eigenvalues_raw_GPGF_OP <- ordination_GPGF_OP$values$Eigenvalues
+eigenvalues_relative_GPGF_OP <- eigenvalues_raw_GPGF_OP / sum(eigenvalues_raw_GPGF_OP) * 100
+var_explained_PCo1_GPGF_OP <- round(eigenvalues_relative_GPGF_OP[1], 1)
+var_explained_PCo2_GPGF_OP <- round(eigenvalues_relative_GPGF_OP[2], 1)
+
+x_label_GPGF_OP <- paste("PCo1 [", var_explained_PCo1_GPGF_OP, "%]", sep = "")
+y_label_GPGF_OP <- paste("PCo1 [", var_explained_PCo2_GPGF_OP, "%]", sep = "")
+
+sample_data(ps_OP_GP_GF_filt_RA)$GoatFarmExposureCategory <- factor(
+  sample_data(ps_OP_GP_GF_filt_RA)$GoatFarmExposureCategory,
+  levels = c( ">2000m", "<2000m", "Goat farmer")
+)
+
+color_palette_GPGF<- c(">2000m" = "#a99fd3", "<2000m" = "#6a58b3", "Goat farmer" = "#FC8D62")
+
+
+# Generate the plot
+PCoA_population_OP_GPGF_goat_expo <- plot_ordination(
+  ps_OP_GP_GF_filt_RA, ordination_GPGF_OP, type = "samples", color = "GoatFarmExposureCategory"
+) +
+  geom_point(aes(fill = GoatFarmExposureCategory, color = GoatFarmExposureCategory), shape = 21, size = 2, stroke = 0.5, alpha = 0.8) + # Adjust stroke if needed
+  scale_shape_girafe_filled() +
+  scale_fill_manual(values = color_palette_GPGF,
+                    name = "Distance to nearest \ngoat farm") + # Renamed fill legend
+  scale_color_manual(values = color_palette_GPGF,
+                     name = "Distance to nearest \ngoat farm") + # Renamed color legend
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, color = "black"),
+    axis.text.y = element_text(color = "black"),
+    strip.text = element_text(colour = 'white'),
+    strip.background = element_rect(fill = "#2F4858", color = "#2F4858"),
+    axis.text = element_text(size = 20),
+    axis.title = element_text(size = 20),
+    legend.text =  element_text(size = 15),
+    legend.title = element_text(size = 15),
+    plot.title = element_text(hjust = 0.5),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_rect(color = "black", fill = NA, size = 1)
+  ) +
+  labs(
+    x = x_label_GPGF_OP,
+    y = y_label_GPGF_OP,
+    color = "Distance to nearest \ngoat farm",
+    fill = "Distance to nearest \ngoat farm"  # Rename the legend title
+  ) +
+  annotate("text", x = 0.15, y = -0.53, label = bquote(italic(R)^2 == .(round(permanova_result_OP_exp_GP_GF$R2[rownames(permanova_result_OP_exp_GP_GF) == "GoatFarmExposureCategory"], 3))), size = 6, hjust = 0, color = "black") +
+  annotate("text", x = 0.15, y = -0.6, label = bquote(italic(p)~"value" == .(round(permanova_result_OP_exp_GP_GF$`Pr(>F)`[rownames(permanova_result_OP_exp_GP_GF) == "GoatFarmExposureCategory"], 3))), size = 6, hjust = 0, color = "black") +
+  stat_ellipse(aes(colour = GoatFarmExposureCategory, fill = GoatFarmExposureCategory), size = 1, show.legend = FALSE) +
+  guides(color = guide_legend(override.aes = list(size = 8))) # Adjust the size of the legend key
+
+
+PCoA_population_OP_GPGF_goat_expo
+ggsave("../Output/Beta_diversity/PCoAs/PCoA_OP_GPGF_goat_exposure.svg", PCoA_population_OP_GPGF_goat_expo,device = "svg", width  = 8, height = 6)
+```
+
+## Goat farm exposure on GP only 
+### NP
+```{r}
+ordination_GP_NP <- ordinate(ps_NP_GP_filt_RA, method = "PCoA", distance = "bray")
+eigenvalues_raw_GP_NP <- ordination_GP_NP$values$Eigenvalues
+eigenvalues_relative_GP_NP <- eigenvalues_raw_GP_NP / sum(eigenvalues_raw_GP_NP) * 100
+var_explained_PCo1_GP_NP <- round(eigenvalues_relative_GP_NP[1], 1)
+var_explained_PCo2_GP_NP <- round(eigenvalues_relative_GP_NP[2], 1)
+
+x_label_GP_NP <- paste("PCo1 [", var_explained_PCo1_GP_NP, "%]", sep = "")
+y_label_GP_NP <- paste("PCo2 [", var_explained_PCo2_GP_NP, "%]", sep = "")
+
+sample_data(ps_NP_GP_filt_RA)$GoatFarmExposureCategory <- factor(
+  sample_data(ps_NP_GP_filt_RA)$GoatFarmExposureCategory,
+  levels = c( ">2000m", "<2000m")
+)
+
+color_palette_GP<- c(">2000m" = "#a99fd3", "<2000m" = "#6a58b3")
+
+PCoA_NP_GP_goat_expo <- plot_ordination(
+  ps_NP_GP_filt_RA, ordination_GP_NP, type = "samples", color = "GoatFarmExposureCategory"
+) +
+  geom_point(aes(fill = GoatFarmExposureCategory, color = GoatFarmExposureCategory), shape = 21, size = 2, stroke = 0.5, alpha = 0.8) + # Adjust stroke if needed
+  scale_shape_girafe_filled() +
+  scale_fill_manual(values = color_palette_GP,
+                    name = "Distance to nearest \ngoat farm") + # Renamed fill legend
+  scale_color_manual(values = color_palette_GP,
+                     name = "Distance to nearest \ngoat farm") + # Renamed color legend
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, color = "black"),
+    axis.text.y = element_text(color = "black"),
+    strip.text = element_text(colour = 'white'),
+    strip.background = element_rect(fill = "#2F4858", color = "#2F4858"),
+    axis.text = element_text(size = 20),
+    axis.title = element_text(size = 20),
+    legend.text =  element_text(size = 15),
+    legend.title = element_text(size = 15),
+    plot.title = element_text(hjust = 0.5),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_rect(color = "black", fill = NA, size = 1)
+  ) +
+  labs(
+    x = x_label_GP_NP,
+    y = y_label_GP_NP,
+    color = "Distance to nearest \ngoat farm",
+    fill = "Distance to nearest \ngoat farm" 
+  ) +
+  annotate("text", x = 0.27, y = -0.54, label = bquote(italic(R)^2 == .(round(permanova_result_NP_goat_GP$R2[rownames(permanova_result_NP_goat_GP) == "GoatFarmExposureCategory"], 3))), size = 6, hjust = 0, color = "black") +
+  annotate("text", x = 0.27, y = -0.62, label = bquote(italic(p)~"value" == .(round(permanova_result_NP_goat_GP$`Pr(>F)`[rownames(permanova_result_NP_goat_GP) == "GoatFarmExposureCategory"], 3))), size = 6, hjust = 0, color = "black") +
+  stat_ellipse(aes(colour = GoatFarmExposureCategory, fill = GoatFarmExposureCategory), size = 1, show.legend = FALSE) +
+  guides(color = guide_legend(override.aes = list(size = 8))) 
+
+
+PCoA_NP_GP_goat_expo
+ggsave("../Output/Beta_diversity/PCoAs/PCoA_NP_GP_goat_exposure.svg", PCoA_NP_GP_goat_expo,device = "svg", width  = 8, height = 6)
+```
+### OP
+```{r}
+ordination_GP_OP <- ordinate(ps_OP_GP_filt_RA, method = "PCoA", distance = "bray")
+eigenvalues_raw_GP_OP <- ordination_GP_OP$values$Eigenvalues
+eigenvalues_relative_GP_OP <- eigenvalues_raw_GP_OP / sum(eigenvalues_raw_GP_OP) * 100
+var_explained_PCo1_GP_OP <- round(eigenvalues_relative_GP_OP[1], 1)
+var_explained_PCo2_GP_OP <- round(eigenvalues_relative_GP_OP[2], 1)
+
+x_label_GP_OP <- paste("PCo1 [", var_explained_PCo1_GP_OP, "%]", sep = "")
+y_label_GP_OP <- paste("PCo2 [", var_explained_PCo2_GP_OP, "%]", sep = "")
+
+sample_data(ps_OP_GP_filt_RA)$GoatFarmExposureCategory <- factor(
+  sample_data(ps_OP_GP_filt_RA)$GoatFarmExposureCategory,
+  levels = c( ">2000m", "<2000m")
+)
+
+color_palette_GP<- c(">2000m" = "#a99fd3", "<2000m" = "#6a58b3")
+
+PCoA_OP_GP_goat_expo <- plot_ordination(
+  ps_OP_GP_filt_RA, ordination_GP_OP, type = "samples", color = "GoatFarmExposureCategory"
+) +
+  geom_point(aes(fill = GoatFarmExposureCategory, color = GoatFarmExposureCategory), shape = 21, size = 2, stroke = 0.5, alpha = 0.8) + # Adjust stroke if needed
+  scale_shape_girafe_filled() +
+  scale_fill_manual(values = color_palette_GP,
+                    name = "Distance to nearest \ngoat farm") + # Renamed fill legend
+  scale_color_manual(values = color_palette_GP,
+                     name = "Distance to nearest \ngoat farm") + # Renamed color legend
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, color = "black"),
+    axis.text.y = element_text(color = "black"),
+    strip.text = element_text(colour = 'white'),
+    strip.background = element_rect(fill = "#2F4858", color = "#2F4858"),
+    axis.text = element_text(size = 20),
+    axis.title = element_text(size = 20),
+    legend.text =  element_text(size = 15),
+    legend.title = element_text(size = 15),
+    plot.title = element_text(hjust = 0.5),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_rect(color = "black", fill = NA, size = 1)
+  ) +
+  labs(
+    x = x_label_GP_OP,
+    y = y_label_GP_OP,
+    color = "Distance to nearest \ngoat farm",
+    fill = "Distance to nearest \ngoat farm" 
+  ) +
+  annotate("text", x = 0.18, y = -0.54, label = bquote(italic(R)^2 == .(round(permanova_result_OP_goat_GP$R2[rownames(permanova_result_OP_goat_GP) == "GoatFarmExposureCategory"], 3))), size = 6, hjust = 0, color = "black") +
+  annotate("text", x = 0.18, y = -0.62, label = bquote(italic(p)~"value" == .(round(permanova_result_OP_goat_GP$`Pr(>F)`[rownames(permanova_result_OP_goat_GP) == "GoatFarmExposureCategory"], 3))), size = 6, hjust = 0, color = "black") +
+  stat_ellipse(aes(colour = GoatFarmExposureCategory, fill = GoatFarmExposureCategory), size = 1, show.legend = FALSE) +
+  guides(color = guide_legend(override.aes = list(size = 8))) 
+
+
+PCoA_OP_GP_goat_expo
+ggsave("../Output/Beta_diversity/PCoAs/PCoA_OP_GP_goat_exposure.svg", PCoA_OP_GP_goat_expo, device = "svg", width  = 8, height = 6)
+```
+## Chicken farm exposure on CP only
+### NP
+```{r}
+# Chicken farm exposure on the control population 
+## NP
+ordination_CP_NP_chicken <- ordinate(ps_NP_CP_filt_RA, method = "PCoA", distance = "bray")
+eigenvalues_raw_CP_NP_chicken <- ordination_CP_NP_chicken$values$Eigenvalues
+eigenvalues_relative_CP_NP_chicken <- eigenvalues_raw_CP_NP_chicken / sum(eigenvalues_raw_CP_NP_chicken) * 100
+var_explained_PCo1_CP_NP_chicken <- round(eigenvalues_relative_CP_NP_chicken[1], 1)
+var_explained_PCo2_CP_NP_chicken <- round(eigenvalues_relative_CP_NP_chicken[2], 1)
+
+x_label_CP_NP_chicken <- paste("PCo1 [", var_explained_PCo1_CP_NP_chicken, "%]", sep = "")
+y_label_CP_NP_chicken <- paste("PCo2 [", var_explained_PCo2_CP_NP_chicken, "%]", sep = "")
+
+sample_data(ps_NP_CP_filt_RA)$ChickenFarmExposureCategory <- factor(
+  sample_data(ps_NP_CP_filt_RA)$ChickenFarmExposureCategory,
+  levels = c( ">2000m", "1000-2000m", "<1000m")
+)
+
+color_palette_CP <- c(">2000m" = "#b6dcdd", "1000-2000m" = "#93cec3", "<1000m" = "#1aa780")
+#add8e6
+
+PCoA_population_NP_CP_chicken <- plot_ordination(
+  ps_NP_CP_filt_RA, ordination_CP_NP_chicken, type = "samples", color = "ChickenFarmExposureCategory"
+) +
+  geom_point(aes(fill = ChickenFarmExposureCategory, color = ChickenFarmExposureCategory), shape = 21, size = 2, stroke = 0.5, alpha = 0.8) + 
+  scale_shape_girafe_filled() +
+  scale_fill_manual(values = color_palette_CP,
+                    name = "Distance to nearest \nChicken farm") + 
+  scale_color_manual(values = color_palette_CP,
+                     name = "Distance to nearest \nChicken farm") + 
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, color = "black"),
+    axis.text.y = element_text(color = "black"),
+    strip.text = element_text(colour = 'white'),
+    strip.background = element_rect(fill = "#2F4858", color = "#2F4858"),
+    axis.text = element_text(size = 20),
+    axis.title = element_text(size = 20),
+    legend.text =  element_text(size = 15),
+    legend.title = element_text(size = 15),
+    plot.title = element_text(hjust = 0.5),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_rect(color = "black", fill = NA, size = 1)
+  ) +
+  labs(
+    x = x_label_CP_NP_chicken,
+    y = y_label_CP_NP_chicken,
+    color = "Distance to nearest \nChicken farm",
+    fill = "Distance to nearest \nChicken farm"  # Rename the legend title
+  ) +
+  annotate("text", x = 0.22, y = -0.58, label = bquote(italic(R)^2 == .(round(permanova_result_NP_chicken_CP$R2[rownames(permanova_result_NP_chicken_CP) == "ChickenFarmExposureCategory"], 3))), size = 6, hjust = 0, color = "black") +
+  annotate("text", x = 0.22, y = -0.66, label = bquote(italic(p)~"value" == .(round(permanova_result_NP_chicken_CP$`Pr(>F)`[rownames(permanova_result_NP_chicken_CP) == "ChickenFarmExposureCategory"], 3))), size = 6, hjust = 0, color = "black") +
+  stat_ellipse(aes(colour = ChickenFarmExposureCategory, fill = ChickenFarmExposureCategory), size = 1, show.legend = FALSE) +
+  guides(color = guide_legend(override.aes = list(size = 8))) # Adjust the size of the legend key
+
+PCoA_population_NP_CP_chicken
+
+ggsave("../Output/Beta_diversity/PCoAs/PCoA_NP_CP_chicken_exposure.svg", PCoA_population_NP_CP_chicken,device = "svg", width  = 8, height = 6)
+```
+### OP
+```{r}
+# Chicken farm exposure on the control population 
+## OP
+ordination_CP_OP_chicken <- ordinate(ps_OP_CP_filt_RA, method = "PCoA", distance = "bray")
+eigenvalues_raw_CP_OP_chicken <- ordination_CP_OP_chicken$values$Eigenvalues
+eigenvalues_relative_CP_OP_chicken <- eigenvalues_raw_CP_OP_chicken / sum(eigenvalues_raw_CP_OP_chicken) * 100
+var_explained_PCo1_CP_OP_chicken <- round(eigenvalues_relative_CP_OP_chicken[1], 1)
+var_explained_PCo2_CP_OP_chicken <- round(eigenvalues_relative_CP_OP_chicken[2], 1)
+
+x_label_CP_OP_chicken <- paste("PCo1 [", var_explained_PCo1_CP_OP_chicken, "%]", sep = "")
+y_label_CP_OP_chicken <- paste("PCo2 [", var_explained_PCo2_CP_OP_chicken, "%]", sep = "")
+
+sample_data(ps_OP_CP_filt_RA)$ChickenFarmExposureCategory <- factor(
+  sample_data(ps_OP_CP_filt_RA)$ChickenFarmExposureCategory,
+  levels = c( ">2000m", "1000-2000m", "<1000m")
+)
+
+color_palette_CP <- c(">2000m" = "#b6dcdd", "1000-2000m" = "#93cec3", "<1000m" = "#1aa780")
+#add8e6
+
+PCoA_population_OP_CP_chicken <- plot_ordination(
+  ps_OP_CP_filt_RA, ordination_CP_OP_chicken, type = "samples", color = "ChickenFarmExposureCategory"
+) +
+  geom_point(aes(fill = ChickenFarmExposureCategory, color = ChickenFarmExposureCategory), shape = 21, size = 2, stroke = 0.5, alpha = 0.8) + 
+  scale_shape_girafe_filled() +
+  scale_fill_manual(values = color_palette_CP,
+                    name = "Distance to nearest \nChicken farm") + 
+  scale_color_manual(values = color_palette_CP,
+                     name = "Distance to nearest \nChicken farm") + 
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, color = "black"),
+    axis.text.y = element_text(color = "black"),
+    strip.text = element_text(colour = 'white'),
+    strip.background = element_rect(fill = "#2F4858", color = "#2F4858"),
+    axis.text = element_text(size = 20),
+    axis.title = element_text(size = 20),
+    legend.text =  element_text(size = 15),
+    legend.title = element_text(size = 15),
+    plot.title = element_text(hjust = 0.5),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_rect(color = "black", fill = NA, size = 1)
+  ) +
+  labs(
+    x = x_label_CP_OP_chicken,
+    y = y_label_CP_OP_chicken,
+    color = "Distance to nearest \nChicken farm",
+    fill = "Distance to nearest \nChicken farm"  # Rename the legend title
+  ) +
+  annotate("text", x = 0.18, y = -0.4, label = bquote(italic(R)^2 == .(round(permanova_result_OP_chicken_CP$R2[rownames(permanova_result_OP_chicken_CP) == "ChickenFarmExposureCategory"], 3))), size = 6, hjust = 0, color = "black") +
+  annotate("text", x = 0.18, y = -0.46, label = bquote(italic(p)~"value" == .(round(permanova_result_OP_chicken_CP$`Pr(>F)`[rownames(permanova_result_OP_chicken_CP) == "ChickenFarmExposureCategory"], 3))), size = 6, hjust = 0, color = "black") +
+  stat_ellipse(aes(colour = ChickenFarmExposureCategory, fill = ChickenFarmExposureCategory), size = 1, show.legend = FALSE) +
+  guides(color = guide_legend(override.aes = list(size = 8))) # Adjust the size of the legend key
+
+PCoA_population_OP_CP_chicken
+
+ggsave("../Output/Beta_diversity/PCoAs/PCoA_OP_CP_chicken_exposure.svg", PCoA_population_OP_CP_chicken,device = "svg", width  = 8, height = 6)
+```
+## Chicken farm exposure on GP only 
+### NP
+```{r}
+ordination_GP_NP_chicken <- ordinate(ps_NP_GP_filt_RA, method = "PCoA", distance = "bray")
+eigenvalues_raw_GP_NP_chicken <- ordination_GP_NP_chicken$values$Eigenvalues
+eigenvalues_relative_GP_NP_chicken <- eigenvalues_raw_GP_NP_chicken / sum(eigenvalues_raw_GP_NP_chicken) * 100
+var_explained_PCo1_GP_NP_chicken <- round(eigenvalues_relative_GP_NP_chicken[1], 1)
+var_explained_PCo2_GP_NP_chicken <- round(eigenvalues_relative_GP_NP_chicken[2], 1)
+
+x_label_GP_NP_chicken <- paste("PCo1 [", var_explained_PCo1_GP_NP_chicken, "%]", sep = "")
+y_label_GP_NP_chicken <- paste("PCo2 [", var_explained_PCo2_GP_NP_chicken, "%]", sep = "")
+
+sample_data(ps_NP_GP_filt_RA)$GoatFarmExposureCategory <- factor(
+  sample_data(ps_NP_GP_filt_RA)$GoatFarmExposureCategory,
+  levels = c( ">2000m", "<2000m")
+)
+
+color_palette_GP<- c(">2000m" = "#a99fd3", "<2000m" = "#6a58b3")
+
+PCoA_population_NP_GP_chicken <- plot_ordination(
+  ps_NP_GP_filt_RA, ordination_GP_NP_chicken, type = "samples", color = "ChickenFarmExposureCategory"
+) +
+  geom_point(aes(fill = ChickenFarmExposureCategory, color = ChickenFarmExposureCategory), shape = 21, size = 2, stroke = 0.5, alpha = 0.8) + 
+  scale_shape_girafe_filled() +
+  scale_fill_manual(values = color_palette_GP,
+                    name = "Distance to nearest \nChicken farm") + 
+  scale_color_manual(values = color_palette_GP,
+                     name = "Distance to nearest \nChicken farm") + 
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, color = "black"),
+    axis.text.y = element_text(color = "black"),
+    strip.text = element_text(colour = 'white'),
+    strip.background = element_rect(fill = "#2F4858", color = "#2F4858"),
+    axis.text = element_text(size = 20),
+    axis.title = element_text(size = 20),
+    legend.text =  element_text(size = 15),
+    legend.title = element_text(size = 15),
+    plot.title = element_text(hjust = 0.5),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_rect(color = "black", fill = NA, size = 1)
+  ) +
+  labs(
+    x = x_label_GP_NP_chicken,
+    y = y_label_GP_NP_chicken,
+    color = "Distance to nearest \nChicken farm",
+    fill = "Distance to nearest \nChicken farm"  # Rename the legend title
+  ) +
+  annotate("text", x = 0.27, y = -0.54, label = bquote(italic(R)^2 == .(round(permanova_result_NP_chicken_GP$R2[rownames(permanova_result_NP_chicken_GP) == "ChickenFarmExposureCategory"], 3))), size = 6, hjust = 0, color = "black") +
+  annotate("text", x = 0.27, y = -0.62, label = bquote(italic(p)~"value" == .(round(permanova_result_NP_chicken_GP$`Pr(>F)`[rownames(permanova_result_NP_chicken_GP) == "ChickenFarmExposureCategory"], 3))), size = 6, hjust = 0, color = "black") +
+  stat_ellipse(aes(colour = ChickenFarmExposureCategory, fill = ChickenFarmExposureCategory), size = 1, show.legend = FALSE) +
+  guides(color = guide_legend(override.aes = list(size = 8))) # Adjust the size of the legend key
+
+PCoA_population_NP_GP_chicken
+
+ggsave("../Output/Beta_diversity/PCoAs/PCoA_NP_GP_chicken_exposure.svg", PCoA_population_NP_GP_chicken,device = "svg", width  = 8, height = 6)
+```
+### OP
+```{r}
+ordination_GP_OP_chicken <- ordinate(ps_OP_GP_filt_RA, method = "PCoA", distance = "bray")
+eigenvalues_raw_GP_OP_chicken <- ordination_GP_OP_chicken$values$Eigenvalues
+eigenvalues_relative_GP_OP_chicken <- eigenvalues_raw_GP_OP_chicken / sum(eigenvalues_raw_GP_OP_chicken) * 100
+var_explained_PCo1_GP_OP_chicken <- round(eigenvalues_relative_GP_OP_chicken[1], 1)
+var_explained_PCo2_GP_OP_chicken <- round(eigenvalues_relative_GP_OP_chicken[2], 1)
+
+x_label_GP_OP_chicken <- paste("PCo1 [", var_explained_PCo1_GP_OP_chicken, "%]", sep = "")
+y_label_GP_OP_chicken <- paste("PCo2 [", var_explained_PCo2_GP_OP_chicken, "%]", sep = "")
+
+sample_data(ps_OP_GP_filt_RA)$GoatFarmExposureCategory <- factor(
+  sample_data(ps_OP_GP_filt_RA)$GoatFarmExposureCategory,
+  levels = c( ">2000m", "<2000m")
+)
+
+color_palette_GP<- c(">2000m" = "#a99fd3", "<2000m" = "#6a58b3")
+
+PCoA_population_OP_GP_chicken <- plot_ordination(
+  ps_OP_GP_filt_RA, ordination_GP_OP_chicken, type = "samples", color = "ChickenFarmExposureCategory"
+) +
+  geom_point(aes(fill = ChickenFarmExposureCategory, color = ChickenFarmExposureCategory), shape = 21, size = 2, stroke = 0.5, alpha = 0.8) + 
+  scale_shape_girafe_filled() +
+  scale_fill_manual(values = color_palette_GP,
+                    name = "Distance to nearest \nChicken farm") + 
+  scale_color_manual(values = color_palette_GP,
+                     name = "Distance to nearest \nChicken farm") + 
+  theme_bw() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, color = "black"),
+    axis.text.y = element_text(color = "black"),
+    strip.text = element_text(colour = 'white'),
+    strip.background = element_rect(fill = "#2F4858", color = "#2F4858"),
+    axis.text = element_text(size = 20),
+    axis.title = element_text(size = 20),
+    legend.text =  element_text(size = 15),
+    legend.title = element_text(size = 15),
+    plot.title = element_text(hjust = 0.5),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.border = element_rect(color = "black", fill = NA, size = 1)
+  ) +
+  labs(
+    x = x_label_GP_OP_chicken,
+    y = y_label_GP_OP_chicken,
+    color = "Distance to nearest \nChicken farm",
+    fill = "Distance to nearest \nChicken farm"  # Rename the legend title
+  ) +
+  annotate("text", x = 0.15, y = -0.52, label = bquote(italic(R)^2 == .(round(permanova_result_OP_chicken_GP$R2[rownames(permanova_result_OP_chicken_GP) == "ChickenFarmExposureCategory"], 3))), size = 6, hjust = 0, color = "black") +
+  annotate("text", x = 0.15, y = -0.60, label = bquote(italic(p)~"value" == .(round(permanova_result_OP_chicken_GP$`Pr(>F)`[rownames(permanova_result_OP_chicken_GP) == "ChickenFarmExposureCategory"], 3))), size = 6, hjust = 0, color = "black") +
+  stat_ellipse(aes(colour = ChickenFarmExposureCategory, fill = ChickenFarmExposureCategory), size = 1, show.legend = FALSE) +
+  guides(color = guide_legend(override.aes = list(size = 8))) # Adjust the size of the legend key
+
+PCoA_population_OP_GP_chicken
+
+ggsave("../Output/Beta_diversity/PCoAs/PCoA_OP_GP_chicken_exposure.svg", PCoA_population_OP_GP_chicken,device = "svg", width  = 8, height = 6)
+```
+# Hellinger transformation
+# Nasopharynx
+### Goat farm exposure on CP
+```{r}
+# Subset the NP ps object to contain only CP samples
+ps_NP_CP_GF_filt_RA <- subset_samples(ps_NP_filt_RA, population != "GP")
+
+# Prepare the data to conduct the analyses on the entire dataset
+NP_CP_GF_otu_tab <- as.data.frame(otu_table(ps_NP_CP_GF_filt_RA)) %>% t()
+NP_CP_GF_meta_df <- meta_to_df(ps_NP_CP_GF_filt_RA)
+
+# Hellinger Transformation
+hellinger_transformed_otu_tab_NP <- decostand(NP_CP_GF_otu_tab, method = "hellinger")
+
+# Generate a Bray-Curtis distance matrix using the Hellinger-transformed data
+BC_dist_NP_CP_GF_hell <- vegdist(hellinger_transformed_otu_tab_NP, method = "bray")
+BC_ord_NP_CP_GF_hell <- BC_dist_NP_CP_GF_hell %>% as.matrix()
+
+# Variables for multivariable PERMANOVA for all populations together
+vars_exp_CP_GF <- c("GoatFarmExposureCategory", "gender", "age", "smoked_ever", "sampling_season")
+
+# Check completeness of variables for CP & GF
+completeness_CP_GF <- colSums(!is.na(NP_CP_GF_meta_df[, vars_exp_CP_GF]))
+print(completeness_CP_GF)
+
+# Prepare data for PERMANOVA analysis
+NP_CP_GF_complete_ps_hell <- NA_remove(BC_ord_NP_CP_GF_hell, meta_to_df(ps_NP_CP_GF_filt_RA), vars_exp_CP_GF)
+# Print the number of rows removed
+print(NP_CP_GF_complete_ps_hell$rows_removed)
+
+# Run adonis2 with the specified variables
+permanova_result_NP_exp_CP_GF_hell <- adonis2(NP_CP_GF_complete_ps_hell$ord_sub ~ ., permutations = 999, data = NP_CP_GF_complete_ps_hell$m_sub[, vars_exp_CP_GF])
+print(permanova_result_NP_exp_CP_GF_hell)
+
+# Perform pairwise PERMANOVA tests
+pairwise_permanova_NP_exp_CP_GF_hell <- pairwise.adonis2(NP_CP_GF_complete_ps_hell$ord_sub ~ ., data = NP_CP_GF_complete_ps_hell$m_sub[, vars_exp_CP_GF], permutations = 999, method = "bray")
+print(pairwise_permanova_NP_exp_CP_GF_hell)
+
+```
+### Goat farm exposure on GP
+```{r}
+# Subset the NP ps object to contain only GP samples
+ps_NP_GP_GF_filt_RA <- subset_samples(ps_NP_filt_RA, population != "CP")
+# Prepare the data to conduct the analyses on the entire dataset
+NP_GP_GF_otu_tab <- as.data.frame(otu_table(ps_NP_GP_GF_filt_RA)) %>% t()
+NP_GP_GF_meta_df <- meta_to_df(ps_NP_GP_GF_filt_RA)
+
+# Hellinger Transformation
+hellinger_transformed_otu_tab_NP <- decostand(NP_GP_GF_otu_tab, method = "hellinger")
+
+# Generate a Bray-Curtis distance matrix using the Hellinger-transformed data
+BC_dist_NP_GP_GF_hell <- vegdist(hellinger_transformed_otu_tab_NP, method = "bray")
+BC_ord_NP_GP_GF_hell <- BC_dist_NP_GP_GF_hell %>% as.matrix()
+
+# Variables for multivariable PERMANOVA for all populations together
+vars_exp_GP_GF <- c("GoatFarmExposureCategory", "gender", "age", "smoked_ever", "sampling_season")
+
+# Check completeness of variables for GP & GF
+completeness_GP_GF <- colSums(!is.na(NP_GP_GF_meta_df[, vars_exp_GP_GF]))
+print(completeness_GP_GF)
+
+# Prepare data for PERMANOVA analysis
+NP_GP_GF_complete_ps_hell <- NA_remove(BC_ord_NP_GP_GF_hell, meta_to_df(ps_NP_GP_GF_filt_RA), vars_exp_GP_GF)
+# Print the number of rows removed
+print(NP_GP_GF_complete_ps_hell$rows_removed)
+
+# Run adonis2 with the specified variables
+permanova_result_NP_exp_GP_GF_hell <- adonis2(NP_GP_GF_complete_ps_hell$ord_sub ~ ., permutations = 999, data = NP_GP_GF_complete_ps_hell$m_sub[, vars_exp_GP_GF])
+print(permanova_result_NP_exp_GP_GF_hell)
+
+# Perform pairwise PERMANOVA tests
+pairwise_permanova_NP_exp_GP_GF_hell <- pairwise.adonis2(NP_GP_GF_complete_ps_hell$ord_sub ~ ., data = NP_GP_GF_complete_ps_hell$m_sub[, vars_exp_GP_GF], permutations = 999, method = "bray")
+print(pairwise_permanova_NP_exp_GP_GF_hell)
+
+```
+## Oropharynx
+### Goat farm exposure on the CP 
+```{r}
+# Subset the OP ps object to contain only CP samples
+ps_OP_CP_GF_filt_RA <- subset_samples(ps_OP_filt_RA, population != "GP")
+
+# Prepare the data to conduct the analyses on the entire dataset
+OP_CP_GF_otu_tab <- as.data.frame(otu_table(ps_OP_CP_GF_filt_RA)) %>% t()
+OP_CP_GF_meta_df <- meta_to_df(ps_OP_CP_GF_filt_RA)
+
+# Hellinger Transformation
+hellinger_transformed_otu_tab <- decostand(OP_CP_GF_otu_tab, method = "hellinger")
+
+# Generate a Bray-Curtis distance matrix using the Hellinger-transformed data
+BC_dist_OP_CP_GF_hell <- vegdist(hellinger_transformed_otu_tab, method = "bray")
+BC_ord_OP_CP_GF_hell <- BC_dist_OP_CP_GF_hell %>% as.matrix()
+
+# Variables for multivariable PERMANOVA for all populations together
+vars_exp_CP_GF <- c("GoatFarmExposureCategory", "gender", "age", "smoked_ever", "sampling_season")
+
+# Check completeness of variables for CP & GF
+completeness_CP_GF <- colSums(!is.na(OP_CP_GF_meta_df[, vars_exp_CP_GF]))
+print(completeness_CP_GF)
+
+# Prepare data for PERMANOVA analysis
+OP_CP_GF_complete_ps_hell <- NA_remove(BC_ord_OP_CP_GF_hell, meta_to_df(ps_OP_CP_GF_filt_RA), vars_exp_CP_GF)
+# Print the number of rows removed
+print(OP_CP_GF_complete_ps_hell$rows_removed)
+
+# Run adonis2 with the specified variables
+permanova_result_OP_exp_CP_GF_hell <- adonis2(OP_CP_GF_complete_ps_hell$ord_sub ~ ., permutations = 999, data = OP_CP_GF_complete_ps_hell$m_sub[, vars_exp_CP_GF])
+print(permanova_result_OP_exp_CP_GF_hell)
+
+# Perform pairwise PERMANOVA tests
+pairwise_permanova_OP_exp_CP_GF_hell <- pairwise.adonis2(OP_CP_GF_complete_ps_hell$ord_sub ~ ., data = OP_CP_GF_complete_ps_hell$m_sub[, vars_exp_CP_GF], permutations = 999, method = "bray")
+print(pairwise_permanova_OP_exp_CP_GF_hell)
+```
+### Goat farm exposure on the GP 
+```{r}
+# Subset the OP ps object to contain only GP samples
+ps_OP_GP_GF_filt_RA <- subset_samples(ps_OP_filt_RA, population != "CP")
+
+# Prepare the data to conduct the analyses on the entire dataset
+OP_GP_GF_otu_tab <- as.data.frame(otu_table(ps_OP_GP_GF_filt_RA)) %>% t()
+OP_GP_GF_meta_df <- meta_to_df(ps_OP_GP_GF_filt_RA)
+
+# Hellinger Transformation
+hellinger_transformed_otu_tab <- decostand(OP_GP_GF_otu_tab, method = "hellinger")
+
+# Generate a Bray-Curtis distance matrix using the Hellinger-transformed data
+BC_dist_OP_GP_GF_hell <- vegdist(hellinger_transformed_otu_tab, method = "bray")
+BC_ord_OP_GP_GF_hell <- BC_dist_OP_GP_GF_hell %>% as.matrix()
+
+# Variables for multivariable PERMANOVA for all populations together
+vars_exp_GP_GF <- c("GoatFarmExposureCategory", "gender", "age", "smoked_ever", "sampling_season")
+
+# Check completeness of variables for GP & GF
+completeness_GP_GF <- colSums(!is.na(OP_GP_GF_meta_df[, vars_exp_GP_GF]))
+print(completeness_GP_GF)
+
+# Prepare data for PERMANOVA analysis
+OP_GP_GF_complete_ps_hell <- NA_remove(BC_ord_OP_GP_GF_hell, meta_to_df(ps_OP_GP_GF_filt_RA), vars_exp_GP_GF)
+# Print the number of rows removed
+print(OP_GP_GF_complete_ps_hell$rows_removed)
+
+# Run adonis2 with the specified variables
+permanova_result_OP_exp_GP_GF_hell <- adonis2(OP_GP_GF_complete_ps_hell$ord_sub ~ ., permutations = 999, data = OP_GP_GF_complete_ps_hell$m_sub[, vars_exp_GP_GF])
+print(permanova_result_OP_exp_GP_GF_hell)
+
+# Perform pairwise PERMANOVA tests
+pairwise_permanova_OP_exp_GP_GF_hell <- pairwise.adonis2(OP_GP_GF_complete_ps_hell$ord_sub ~ ., data = OP_GP_GF_complete_ps_hell$m_sub[, vars_exp_GP_GF], permutations = 999, method = "bray")
+print(pairwise_permanova_OP_exp_GP_GF_hell)
+```
+
