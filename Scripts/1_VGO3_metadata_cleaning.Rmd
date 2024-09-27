@@ -2,7 +2,6 @@
 title: "Harmonising VGO3 population metadata"
 author: "Beatrice Cornu Hewitt" 
 date: "`r Sys.time()`"
-output: html_document
 ---
 
 # Packages
@@ -32,6 +31,7 @@ field_q <- field_q %>%
   rename(ID=fuhbid) %>% 
   select(-X)
 field_q$ID <- as.character(field_q$ID)
+length(unique(field_q$ID)) # 969 in the home visit questionnaire
 
 # 2: Field form 
 field_f <- read.csv("O:/DGK/IRAS/EEPI/Projects/VGO/VGO3_2tm3_4__gezondheid/Data/controle_populatie/Data_analyse/VGO3_CP_R_project/Cleaned data/VGO-3_CP_fieldform_20220909.csv")
@@ -39,11 +39,15 @@ field_f <- field_f %>%
   rename(ID=fuhbid) %>% 
   select(-X) 
 field_f$ID <- as.character(field_f$ID)
+length(unique(field_f$ID)) # 969 visited at home 
+
+length(unique(field_f$ID[field_f$fuhbfspirodone == "1"])) # 922 with spirometry done
+length(unique(field_f$ID[field_f$fuhbfserumdone == "1"])) # 930 with serum done
 
 # 3: Online questionnaire
 OQ <- read.xlsx("O:/DGK/IRAS/EEPI/Projects/VGO/VGO3_2tm3_4__gezondheid/Data/controle_populatie/Data_analyse/VGO3_CP_R_project/Cleaned data/VGO3_CP_OnlineQuest_joined_not_cleaned_20221017.xlsx")
 OQ$ID <- as.character(OQ$ID) # Change ID from numeric to character variable
-
+length(unique(OQ$ID)) # 969 visited at home 
 
 # 3 datasets to extract info from: field_f, field_q and OQ
 # Variable names: 'fuhb...' means from the field_q or field_f datasets, 'fu...' means from the OQ
@@ -84,6 +88,10 @@ CP_metadata_all <- merge(merged_df, OQ, by = "ID", all.x = TRUE, suffixes = c(""
 
 # Exclude duplicate columns - some columns are the same in the field_f, field_q and OQ
 CP_metadata_all_filt <- CP_metadata_all[!duplicated(colnames(CP_metadata_all))] # 235 variables remaining
+CP_metadata_all_filt %>%
+  filter(fuhbforodone == "0" & fuhbfnasodone == "0") %>%
+  summarise(unique_id_count = n_distinct(ID)) # 6 without OP or NP done
+
 ```
 ## CP data cleaning
 ```{r}
@@ -237,10 +245,7 @@ CP_metadata_final$population <- "CP"
 VGO3_CP_metadata_clean <- CP_metadata_final
 
 ```
-## Save CP metadata
-```{r}
-write.csv(VGO3_CP_metadata_clean, "../Output/Metadata/Metadata_per_population/VGO3_CP_metadata_clean.csv")
-```
+
 ## CP multiplex metadata (for Inge)
 ```{r}
 # 200 CP who had multiplex testing 
@@ -747,10 +752,6 @@ VGO3_GF_metadata_clean <- metadatagf[, !(names(metadatagf) %in% c("fughbbdate",
   "X.acenocoumarol....MH..vragenlijst.uit.december..dus.niet.alle.gegevens.die.hier.moeten.worden.ingevuld.zijn.aanwezig."))]
 ```
 
-## Save GF metadata
-```{r}
-write.csv(VGO3_GF_metadata_clean, "../Output/Metadata/Metadata_per_population/VGO3_GF_metadata_clean.csv")
-```
 
 # PNEUMONIA PATIENTS
 ## GP data input
@@ -825,10 +826,7 @@ VGO3_GP_metadata_clean$eerste_ziektedag <- as.Date(VGO3_GP_metadata_clean$eerste
 VGO3_GP_metadata_clean$population <- "GP"
 ```
 
-## Save GP metadata
-```{r}
-write.csv(VGO3_GP_metadata_clean, "../Output/Metadata/Metadata_per_population/VGO3_GP_metadata_clean.csv")
-```
+
 
 # Rename metadata columns
 ```{r}
@@ -1343,6 +1341,7 @@ head(VGO3_GP_metadata_clean)
 head(VGO3_CP_metadata_clean)
 head(VGO3_GF_metadata_clean)
 head(VGO3_GP_metadata_clean)
+
 ```
 
 # Metadata join for CP, GF and GP
@@ -1386,7 +1385,7 @@ write.csv(VGO3_metadata_all, "../Output/Metadata/VGO3_metadata_all.csv")
 ```{r}
 # Livestock computations were performed with RVO 2021 data provided by Ben Bom 
 # Some participants have foreign land - take this into account later on
-RVO2021_livestock_exp <- read.csv("../Input/Livestock_computations/RVO2021_computations_max10km_new.csv")
+RVO2021_livestock_exp <- read.csv("../Input/Livestock_computations/RVO2021_computations_max10km.csv")
 
 # change the name of column ID to VGO3_ID to match with VGO3_metadata_all
 RVO2021_livestock_exp <- RVO2021_livestock_exp %>%
@@ -1529,121 +1528,274 @@ sum(VGO3_metadata_all_livestock_nodups$population=="GP") # 108 (duplicates remov
 sum(VGO3_metadata_all_livestock_nodups$population=="CP") # 969
 sum(VGO3_metadata_all_livestock_nodups$population=="GF") # 100
 
-# Plots of goat and poultry farm exposure
-
-# Calculate counts for chicken farm exposure
-chicken_farm_exposure_counts <- VGO3_metadata_all_livestock_nodups %>%
-  filter(!is.na(ChickenFarmExposureCategory)) %>%
-  group_by(population, ChickenFarmExposureCategory) %>%
-  summarise(count = n(), .groups = 'drop')
-
-# Calculate counts for goat farm exposure
-goat_farm_exposure_counts <- VGO3_metadata_all_livestock_nodups %>%
-  filter(!is.na(GoatFarmExposureCategory)) %>%
-  group_by(population, GoatFarmExposureCategory) %>%
-  summarise(count = n(), .groups = 'drop')
-# Filter and plot chicken farm exposure for CP population
-# Define color palette
-color_palette <- c("CP" = "#66C2A5", "GP" = "#8DA0CB")
-
-# Filter and plot chicken farm exposure for CP population
-chicken_farm_exposure_cp <- chicken_farm_exposure_counts %>%
-  filter(population == "CP" & ChickenFarmExposureCategory %in% valid_categories_chicken$CP)
-
-chicken_plot_cp <- ggplot(chicken_farm_exposure_cp, aes(x = ChickenFarmExposureCategory, y = count, fill = population)) +
-  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
-  geom_text(aes(label = count), position = position_dodge(width = 0.9), vjust = -0.5) +
-  labs(title = "Chicken farm exposure categories \nfor control population",
-       x = "Chicken farm exposure category",
-       y = "Count",
-       fill = "Population") +
-  scale_fill_manual(values = color_palette) +
-  theme_minimal() +
-  theme(
-    plot.title = element_text(size = 16, face = "bold"),           # Title size
-    axis.title.x = element_text(size = 16),                        # X-axis title size
-    axis.title.y = element_text(size = 16),                        # Y-axis title size
-    axis.text.x = element_text(size = 16, angle = 45, hjust = 1),  # X-axis text size and angle
-    axis.text.y = element_text(size = 16),                         # Y-axis text size
-    legend.title = element_text(size = 16),                        # Legend title size
-    legend.text = element_text(size = 16)                           # Legend text size
-  )
-
-# Filter and plot chicken farm exposure for GP population
-chicken_farm_exposure_gp <- chicken_farm_exposure_counts %>%
-  filter(population == "GP" & ChickenFarmExposureCategory %in% valid_categories_chicken$GP)
-
-chicken_plot_gp <- ggplot(chicken_farm_exposure_gp, aes(x = ChickenFarmExposureCategory, y = count, fill = population)) +
-  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
-  geom_text(aes(label = count), position = position_dodge(width = 0.9), vjust = -0.5) +
-  labs(title = "Chicken farm exposure categories \nfor pneumonia patients",
-       x = "Chicken farm exposure category",
-       y = "Count",
-       fill = "Population") +
-  scale_fill_manual(values = color_palette) +
-  theme_minimal() +
-  theme(
-    plot.title = element_text(size = 16, face = "bold"),           # Title size
-    axis.title.x = element_text(size = 16),                        # X-axis title size
-    axis.title.y = element_text(size = 16),                        # Y-axis title size
-    axis.text.x = element_text(size = 16, angle = 45, hjust = 1),  # X-axis text size and angle
-    axis.text.y = element_text(size = 16),                         # Y-axis text size
-    legend.title = element_text(size = 16),                        # Legend title size
-    legend.text = element_text(size = 16)                           # Legend text size
-  )
-
-# Filter and plot goat farm exposure for CP population
-goat_farm_exposure_cp <- goat_farm_exposure_counts %>%
-  filter(population == "CP" & GoatFarmExposureCategory %in% valid_categories_goat$CP)
-
-goat_plot_cp <- ggplot(goat_farm_exposure_cp, aes(x = GoatFarmExposureCategory, y = count, fill = population)) +
-  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
-  geom_text(aes(label = count), position = position_dodge(width = 0.9), vjust = -0.5) +
-  labs(title = "Goat farm exposure categories \nfor control population",
-       x = "Goat farm exposure category",
-       y = "Count",
-       fill = "Population") +
-  scale_fill_manual(values = color_palette) +
-  theme_minimal() +
-  theme(
-    plot.title = element_text(size = 16, face = "bold"),           # Title size
-    axis.title.x = element_text(size = 16),                        # X-axis title size
-    axis.title.y = element_text(size = 16),                        # Y-axis title size
-    axis.text.x = element_text(size = 16, angle = 45, hjust = 1),  # X-axis text size and angle
-    axis.text.y = element_text(size = 16),                         # Y-axis text size
-    legend.title = element_text(size = 16),                        # Legend title size
-    legend.text = element_text(size = 16)                           # Legend text size
-  )
-
-# Filter and plot goat farm exposure for GP population
-goat_farm_exposure_gp <- goat_farm_exposure_counts %>%
-  filter(population == "GP" & GoatFarmExposureCategory %in% valid_categories_goat$GP)
-
-goat_plot_gp <- ggplot(goat_farm_exposure_gp, aes(x = GoatFarmExposureCategory, y = count, fill = population)) +
-  geom_bar(stat = "identity", position = position_dodge(width = 0.9)) +
-  geom_text(aes(label = count), position = position_dodge(width = 0.9), vjust = -0.5) +
-  labs(title = "Goat farm exposure categories \nfor pneumonia patients",
-       x = "Goat farm exposure category",
-       y = "Count",
-       fill = "Population") +
-  scale_fill_manual(values = color_palette) +
-  theme_minimal() +
-  theme(
-    plot.title = element_text(size = 16, face = "bold"),           # Title size
-    axis.title.x = element_text(size = 16),                        # X-axis title size
-    axis.title.y = element_text(size = 16),                        # Y-axis title size
-    axis.text.x = element_text(size = 16, angle = 45, hjust = 1),  # X-axis text size and angle
-    axis.text.y = element_text(size = 16),                         # Y-axis text size
-    legend.title = element_text(size = 16),                        # Legend title size
-    legend.text = element_text(size = 16)                           # Legend text size
-  )
-
-ggsave("../Output/Participant_descriptives/Chicken_farm_categories_CP.svg", chicken_plot_cp, width = 6, height = 8)
-ggsave("../Output/Participant_descriptives/Chicken_farm_categories_GP.svg", chicken_plot_gp,width = 6, height = 8)
-ggsave("../Output/Participant_descriptives/Goat_farm_categories_CP.svg", goat_plot_cp, width = 6, height = 8)
-ggsave("../Output/Participant_descriptives/Goat_farm_categories_GP.svg", goat_plot_gp, width = 6, height = 8)
-
+VGO3_metadata_all_livestock_nodups
 ```
+
+# Check population descriptives (for report - all 969 control participants)
+```{r, echo=TRUE, message=FALSE, warning=FALSE}
+VGO3_metadata_all_livestock_nodups %>%
+  filter(population == "CP") %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))
+# Season
+VGO3_metadata_all_livestock_nodups %>%
+  filter(population == "CP") %>%
+  group_by(sampling_season) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))
+# Gender
+VGO3_metadata_all_livestock_nodups %>%
+  filter(population == "CP") %>%
+  group_by(gender) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))
+# Smoking
+VGO3_metadata_all_livestock_nodups %>%
+  filter(population == "CP") %>%
+  group_by(smoked_ever) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))
+# Asthma
+VGO3_metadata_all_livestock_nodups %>%
+  filter(population == "CP") %>%
+  group_by(asthma_ever) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))
+# COPD/emphysema 
+VGO3_metadata_all_livestock_nodups %>%
+  filter(population == "CP") %>%
+  group_by(COPD_emphysema_diag) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))
+
+# abroad 
+VGO3_metadata_all_livestock_nodups %>%
+  filter(population == "CP") %>%
+  group_by(abroad_lastmth) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))
+
+# pneumococcal vaccine 
+VGO3_metadata_all_livestock_nodups %>%
+  filter(population == "CP") %>%
+  group_by(pneumococcal_vacc) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))
+
+# Flu vaccine 
+VGO3_metadata_all_livestock_nodups %>%
+  filter(population == "CP") %>%
+  group_by(flu_vacc) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))
+
+# Immune def 
+VGO3_metadata_all_livestock_nodups %>%
+  filter(population == "CP") %>%
+  group_by(imm_def) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))
+
+# age
+VGO3_metadata_all_livestock_nodups %>%
+  filter(population == "CP") %>%
+  summarise(
+    total_rows = n(),
+    missing_age = sum(is.na(age))
+  )
+str(VGO3_metadata_all_livestock_nodups$age)
+VGO3_metadata_all_livestock_nodups$age <- as.numeric(VGO3_metadata_all_livestock_nodups$age)
+
+VGO3_metadata_all_livestock_nodups %>%
+  filter(population == "CP") %>%
+  summarise(mean_age = mean(age, na.rm = TRUE))
+
+# Number within 2000m of a goat farm
+VGO3_metadata_all_livestock_nodups %>%
+    filter(population == "CP") %>%
+  filter(GoatFarmExposureCategory %in% c("<1000m", "1000-2000m")) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))
+
+# Number within 1000m of a goat farm
+VGO3_metadata_all_livestock_nodups %>%
+  filter(population == "CP") %>%
+  filter(GoatFarmExposureCategory %in% c("<1000m")) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))
+
+# Number within 500m of a goat farm
+VGO3_metadata_all_livestock_nodups %>%
+  filter(population == "CP") %>%
+  filter(GoatFarmwithin500m == 1) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))
+
+# Any animal contact
+VGO3_metadata_all_livestock_nodups %>%
+  filter(population == "CP") %>%
+  group_by(animal_contact_lastmth) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))
+
+
+# All animals listed in questionnaire
+VGO3_metadata_all_livestock_nodups %>%
+  filter(population == "CP") %>%
+  filter(
+    dog_contact_lastmth == 1 |
+    cat_contact_lastmth == 1 |
+    rodent_contact_lastmth == 1 |
+    bird_contact_lastmth == 1 |
+    chicken_contact_lastmth == 1 |
+    cow_contact_lastmth == 1 |
+    pig_contact_lastmth == 1 |
+    sheep_contact_lastmth == 1 |
+    goat_contact_lastmth == 1 |
+    horse_contact_lastmth == 1 |
+    otheranim_contact_lastmth == !NA |
+    animal_contact_lastmth == 1
+  ) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID)) 
+
+# Companion animal contact - defined as dogs, cats, horses, 
+VGO3_metadata_all_livestock_nodups %>%
+  filter(population == "CP") %>%
+  filter(
+    dog_contact_lastmth == 1 |
+    cat_contact_lastmth == 1 |
+    rodent_contact_lastmth == 1 |
+    bird_contact_lastmth == 1
+  ) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))
+
+# Livestock animal contact - defined as chickens, cows, pigs, sheep, goats, horses
+VGO3_metadata_all_livestock_nodups %>%
+  filter(population == "CP") %>%
+  filter(
+    chicken_contact_lastmth == 1 |
+    cow_contact_lastmth == 1 |
+    pig_contact_lastmth == 1 |
+    sheep_contact_lastmth == 1 |
+    goat_contact_lastmth == 1 |
+    horse_contact_lastmth == 1
+  ) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))
+
+
+# General health score 
+VGO3_metadata_all_livestock_nodups %>%
+  filter(population == "CP") %>%
+  group_by(health_status) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))
+VGO3_metadata_all_livestock_nodups_nohealthscore <- VGO3_metadata_all_livestock_nodups
+
+VGO3_metadata_all_livestock_nodups_nohealthscore %>%
+  filter(population == "CP") %>%
+  summarise(
+    total_rows = n(),
+    missing_health_status = sum(is.na(health_status))
+  )
+str(VGO3_metadata_all_livestock_nodups_nohealthscore$health_status)
+VGO3_metadata_all_livestock_nodups_nohealthscore$health_status <- as.numeric(VGO3_metadata_all_livestock_nodups_nohealthscore$health_status)
+
+
+VGO3_metadata_all_livestock_nodups_nohealthscore %>%
+  filter(population == "CP") %>%
+  summarise(
+    mean_health_score = mean(health_status, na.rm = TRUE),
+    max_health_score = max(health_status, na.rm = TRUE),
+    min_health_score = min(health_status, na.rm = TRUE)
+  )
+
+
+# Pnuemonia in last year 
+VGO3_metadata_all_livestock_nodups %>%
+  filter(population == "CP") %>%
+  group_by(pneumonia_lastyr) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))%>%
+  mutate(percentage_of_total = (unique_id_count / sum(unique_id_count)) * 100)
+
+# Pnuemonia in last 3 years
+VGO3_metadata_all_livestock_nodups %>%
+  filter(population == "CP") %>%
+  group_by(pneumonia_last3yr) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))%>%
+  mutate(percentage_of_total = (unique_id_count / sum(unique_id_count)) * 100)
+
+# Antibiotics last year
+VGO3_metadata_all_livestock_nodups %>%
+  filter(population == "CP") %>%
+  group_by(antibiotics_lastyr) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))%>%
+  mutate(percentage_of_total = (unique_id_count / sum(unique_id_count)) * 100)
+
+# Antacids last year
+VGO3_metadata_all_livestock_nodups %>%
+  filter(population == "CP") %>%
+  group_by(antacids_lastyr) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))%>%
+  mutate(percentage_of_total = (unique_id_count / sum(unique_id_count)) * 100)
+
+# Lung medication last year
+VGO3_metadata_all_livestock_nodups %>%
+  filter(population == "CP") %>%
+  group_by(lung_med) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))%>%
+  mutate(percentage_of_total = (unique_id_count / sum(unique_id_count)) * 100)
+
+# beta blocker medication last year
+VGO3_metadata_all_livestock_nodups %>%
+  filter(population == "CP") %>%
+  group_by(beta_blockers) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))%>%
+  mutate(percentage_of_total = (unique_id_count / sum(unique_id_count)) * 100)
+
+# SOB
+VGO3_metadata_all_livestock_nodups %>%
+  filter(population == "CP") %>%
+  group_by(SOB_rest_lastyr) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))%>%
+  mutate(percentage_of_total = (unique_id_count / sum(unique_id_count)) * 100)
+
+# Daily coughing
+VGO3_metadata_all_livestock_nodups %>%
+  filter(population == "CP") %>%
+  group_by(cough_daily_3mperyr) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))%>%
+  mutate(percentage_of_total = (unique_id_count / sum(unique_id_count)) * 100)
+
+# Daily phlegm
+VGO3_metadata_all_livestock_nodups %>%
+  filter(population == "CP") %>%
+  group_by(phlegm_daily_3mperyr) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))%>%
+  mutate(percentage_of_total = (unique_id_count / sum(unique_id_count)) * 100)
+
+# nasal allergy
+VGO3_metadata_all_livestock_nodups %>%
+  filter(population == "CP") %>%
+  group_by(nasal_allergy) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))%>%
+  mutate(percentage_of_total = (unique_id_count / sum(unique_id_count)) * 100)
+
+# wheezing last year 
+VGO3_metadata_all_livestock_nodups %>%
+  filter(population == "CP") %>%
+  group_by(wheezing_lastyr) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))%>%
+  mutate(percentage_of_total = (unique_id_count / sum(unique_id_count)) * 100)
+
+
+# retired
+VGO3_metadata_all_livestock_nodups %>%
+  filter(population == "CP") %>%
+  group_by(retired) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))%>%
+  mutate(percentage_of_total = (unique_id_count / sum(unique_id_count)) * 100)
+
+
+# covid19
+VGO3_metadata_all_livestock_nodups %>%
+  filter(population == "CP") %>%
+  group_by(covid19) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))%>%
+  mutate(percentage_of_total = (unique_id_count / sum(unique_id_count)) * 100)
+
+# resp infec
+VGO3_metadata_all_livestock_nodups %>%
+  filter(population == "CP") %>%
+  group_by(acute_resp_infec_lastyr) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))%>%
+  mutate(percentage_of_total = (unique_id_count / sum(unique_id_count)) * 100)
+```
+
 # Lab metadata from Mari-Lee (16S rRNA sequencing)
 ```{r}
 VGO3_metadata_all_livestock_forjoin <- VGO3_metadata_all_livestock
@@ -1698,8 +1850,6 @@ combined_df_forjoin <- combined_df
 
 # Merge the rows based on VGO3_ID and niche 
 # Convert the current VGO3_ID values for the GP to their VGO study number (retrieved from the original VGO3_GP_metadata provided by Inge Roof) - Unilabnummer is the participant number from the RIVM and VGO_studienr is the VGO3 participant ID that we want
-
-# SOMETHING GOING WRONG HERE
 VGO3_GP_metadata$Unilabnummer <- as.character(VGO3_GP_metadata$Unilabnummer)
 VGO3_GP_metadata$population <- "GP" 
 
@@ -1717,6 +1867,7 @@ VGO3_metadata_all_lab <- combined_df_forjoin  %>%
 
 # Find the rows in VGO3_lab_metadata that are not present in VGO3_lab_general_meta_1 or VGO3_lab_general_meta_2
 VGO3_lab_missingrows <- anti_join(VGO3_lab_metadata, VGO3_metadata_all_lab, by = "assay_sample") # 577 rows which don't have participant metadata
+VGO3_lab_missingrows$sample_id
 # Combine the dataframes
 VGO3_metadata_lab_metadata <- bind_rows(VGO3_metadata_all_lab, VGO3_lab_missingrows)
 ```
