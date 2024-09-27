@@ -1,0 +1,16 @@
+---
+title: "Alpha diversity"
+author: "Beatrice Cornu Hewitt" 
+date: "`r Sys.time()`"
+---
+# Packages
+```{r}
+
+```
+
+# Read in the phyloseq object
+```{r}
+# N.B this will be updated once I add the RF-modelled concentrations to the sam_data too
+ps_complete <- readRDS("../Output/Phyloseq/ps_complete.rds")
+```
+
