@@ -1,0 +1,904 @@
+---
+title: "Applying exposure models"
+author: "Beatrice Cornu Hewitt" 
+date: "`r Sys.time()`"
+---
+# Packages
+```{r}
+library(mltools); library(ranger); library(mlr3); library(tuneRanger); library(openxlsx); library(dplyr); library(writexl); library(MLmetrics); library(randomForestSRC); library(mlr3); library(mlr); library(mlrMBO); library(ggplot2); library(writexl)
+```
+# Data 
+```{r}
+ps_complete <- readRDS("../Output/Phyloseq/ps_complete.rds")
+# Livestock variables for the participants are not winsorized or scaled
+rownames(ps_complete@sam_data)
+
+# There are some differences in the names of the variables in the ps sample_data compared to the variables used for the RF model: 
+# Clean up variable names in the ps object 
+original_variable_names <- names(sample_data(ps_complete))
+# Copy over the ps object 
+ps_complete_KRD <- ps_complete
+# Remove 'KRD_' string from the sample data variable names in the copied phyloseq object
+sample_data(ps_complete_KRD) <- sample_data(ps_complete_KRD)
+names(sample_data(ps_complete_KRD)) <- gsub("KRD_", "", names(sample_data(ps_complete_KRD)))
+
+# Check the updated variable names
+print(names(sample_data(ps_complete_KRD)))
+
+
+
+# CONTINUE _ missing the sheep variables from KRD 2022 data
+
+# Extract the sam data from the ps
+sample_data_df <- data.frame(sample_data(ps_complete_KRD))
+# Create a named vector for the column renaming
+new_names <- c(
+  "AllFarm.1000m" = "nAnyFarm_1000m",
+  "AllFarm.250m" = "nAnyFarm_250m",
+  "AllFarm.3000m" = "nAnyFarm_3000m",
+  "AllFarm.500m" = "nAnyFarm_500m",
+  "CattleFarm.1000m" = "nCattleFarm.1000m",
+  "CattleFarm.3000m" = "nCattleFarm.3000m",
+  "CattleFarm.500m" = "nCattleFarm.500m",
+  "GoatFarm.3000m" = "nGoatFarm.3000m",
+  "HorseFarm.1000m" = "nHopoFarm.1000m",
+  "HorseFarm.3000m" = "nHopoFarm.3000m",
+  "MinDistAnyFarm.INV" = "MindistAnyFarm.INV",
+  "MinDistAnyFarm.NEG" = "MindistAnyFarm.NEG",
+  "MindistCows5.INV" = "MindistCattleFarm5.INV",
+  "MindistCows5.NEG" = "MindistCattleFarm5.NEG",
+  "MindistGoats50.INV" = "MindistGoatFarm50.INV",
+  "MindistGoats50.NEG" = "MindistGoatFarm50.NEG",
+  "MindistHorses5.INV" = "MindistHopoFarm5.INV",
+  "MindistHorses5.NEG" = "MindistHopoFarm5.NEG",
+  "MindistPigs15.INV" = "MindistPigFarm15.INV",
+  "MindistPigs15.NEG" = "MindistPigFarm15.NEG",
+  "MindistPoultry250.INV" = "MindistPoultryFarm250.INV",
+  "MindistPoultry250.NEG" = "MindistPoultryFarm250.NEG",
+  "nAnyFarmWghtDist.1000m.sum" = "nAnyFarmWghtDist_1000m",
+  "nAnyFarmWghtDist.3000m.sum" = "nAnyFarmWghtDist_3000m",
+  "nCattleFarmWghtDist.1000m.sum" = "nCattleFarmWghtDist.1000m.sum",
+  "nCattleFarmWghtDist.3000m.sum" = "nCattleFarmWghtDist.3000m.sum",
+  "ncows.1000m" = "nCows.1000m",
+  "ncows.3000m" = "nCows.3000m",
+  "ncows.500m" = "nCows.500m",
+  "ncowsWghtDist.1000m.sum" = "nCowsWghtDist.1000m.sum",
+  "ncowsWghtDist.3000m.sum" = "nCowsWghtDist.3000m.sum",
+  "nGoatFarmWghtDist.3000m.sum" = "nGoatFarmWghtDist.3000m.sum",
+  "ngoats.3000m" = "nGoats.3000m",
+  "ngoatsWghtDist.3000m.sum" = "nGoatsWghtDist.3000m.sum",
+  "nHorseFarmWghtDist.1000m.sum" = "nHopoFarmWghtDist.1000m.sum",
+  "nHorseFarmWghtDist.3000m.sum" = "nHopoFarmWghtDist.3000m.sum",
+  "nhorses.1000m" = "nHopo.1000m",
+  "nhorses.3000m" = "nHopo.3000m",
+  "nhorses.500m" = "nHopo.500m",
+  "nhorsesWghtDist.1000m.sum" = "nHopoWghtDist.1000m.sum",
+  "nhorsesWghtDist.3000m.sum" = "nHopoWghtDist.3000m.sum",
+  "nPigFarmWghtDist.1000m.sum" = "nPigFarmWghtDist.1000m.sum",
+  "nPigFarmWghtDist.3000m.sum" = "nPigFarmWghtDist.3000m.sum",
+  "npigs.1000m" = "nPigs.1000m",
+  "npigs.3000m" = "nPigs.3000m",
+  "npigs.500m" = "nPigs.500m",
+  "npigsWghtDist.1000m.sum" = "nPigsWghtDist.1000m.sum",
+  "npigsWghtDist.3000m.sum" = "nPigsWghtDist.3000m.sum",
+  "npoultry.1000m" = "nPoultry.1000m",
+  "npoultry.3000m" = "nPoultry.3000m",
+  "npoultry.500m" = "nPoultry.500m",
+  "nPoultryFarmWghtDist.1000m.sum" = "nPoultryFarmWghtDist.1000m.sum",
+  "nPoultryFarmWghtDist.3000m.sum" = "nPoultryFarmWghtDist.3000m.sum",
+  "npoultryWghtDist.1000m.sum" = "nPoultryWghtDist.1000m.sum",
+  "npoultryWghtDist.3000m.sum" = "nPoultryWghtDist.3000m.sum",
+  "PigFarm.1000m" = "nPigFarm.1000m",
+  "PigFarm.3000m" = "nPigFarm.3000m",
+  "PigFarm.500m" = "nPigFarm.500m",
+  "PoultryFarm.1000m" = "nPoultryFarm.1000m",
+  "PoultryFarm.3000m" = "nPoultryFarm.3000m",
+  "PoultryFarm.500m" = "nPoultryFarm.500m"
+)
+
+# Check original column names in sample_data_df
+original_colnames <- colnames(sample_data_df)
+# Filter new_names to only those present in sample_data_df
+valid_names <- new_names[names(new_names) %in% original_colnames]
+# Rename columns in sample_data_df
+sample_data_df <- sample_data_df %>% rename(!!!valid_names)
+```
+
+Using the models developed in Cornu Hewitt et al. 2024, we estimate each partipant's exposure to E. coli, Staphylococcus spp., tetW and mecA ARGs - we apply the best performing model for each microbial marker
+- All of these models were constructed on winsorised and scaled predictor variables. 
+- The winsorisation is fine, but the 10th-90th percentile range scaling is an issue because the range in the residential addresses will be different to that of the input training sites 
+- Therefore in order to apply the models, I need to remove the scaling of the variables and re-run the RF models. Re-training on unscaled predictors does not affect the performance or the internal structure of the model since decision trees rely on the relative ordering of feature values for making splits.
+- Then use these models 
+
+# Re-training RF models with unscaled predictor variables
+# Prepare the data for all models
+```{r}
+# Read in the E. coli, staph, tetW and mecA measurements (temporal variation adjusted, and averaged per site)
+microbial_measurements <- read.csv("../Input/RF_models/VGOB1_BioA_SiteAv.csv")
+names(microbial_measurements)
+# remove column labelled 'x' so that the first column is now the location ID
+microbial_measurements$X <- NULL
+
+# Read in the exposure variables. Each predictor in this csv file has at least 20 non-zeros
+input_variables <- read.csv("../Input/RF_models/VGOB1_ExpoV_Adj_KeptN20.csv")
+names(input_variables)
+# remove column labelled 'x' so that the first column is now the location ID
+input_variables$X <- NULL
+
+# Make all variables that are currently negative positive, and reverse the inversion of the variables that are currently inversed
+input_variables_corrected <- input_variables
+# Apply the transformations: Multiply all columns ending with .NEG by -1, and  Un-inverse all columns ending with .INV
+input_variables_corrected <- input_variables_corrected %>%
+  mutate(across(ends_with(".NEG"), ~ . * -1)) %>%
+  mutate(across(ends_with(".INV"), ~ 1 / .))
+# remove column labelled 'x' so that the first column is now the location ID
+input_variables_corrected$X <- NULL
+
+# Winsorize variables
+input_variables_corrected_wins <- input_variables_corrected
+input_variables_corrected_wins[, 2:140] <- apply(input_variables_corrected_wins[, 2:140], 2, function(x) {
+  pmin(x, quantile(x, 0.95, na.rm = TRUE))
+})
+
+# Now make variables negative and inversed again
+# Apply the transformations: Multiply all columns ending with .NEG by -1, and inverse all columns ending with .INV
+input_variables_corrected_wins <- input_variables_corrected_wins %>%
+  mutate(across(ends_with(".NEG"), ~ . * -1)) %>%
+  mutate(across(ends_with(".INV"), ~ 1 / .))
+
+# Merge microbial measurements with the predictor variables
+variables_measurements <- merge(microbial_measurements, input_variables_corrected_wins, by="Loc_ID", all=TRUE)
+str(variables_measurements, list.len=ncol(variables_measurements)) # all numeric except Loc_ID
+
+# remove column labelled 'LocID' so that the first column is now the location ID
+variables_measurements$Loc_ID <- NULL
+```
+
+# E. coli RF model (level 2)
+## Prepare data 
+```{r}
+# List of variables to keep for level 2 E. coli model
+# CONTINUE HERE WHEN HAVE SHEEP VARIABLES - NEED TO RENAME THESE TOO IN THIS SCRIPT
+
+variables_Ecoli_RF2 <- c("ecoli_copiespm3.ln.diffmeth.mean", "MindistPigs15.NEG", 
+    "MindistPoultry250.NEG", "MindistCows5.NEG", 
+    "MindistHorses5.NEG", "MindistGoats50.NEG", 
+    "MindistSheep50.NEG", "MinDistAnyFarm.NEG", 
+    "MindistPigs15.INV", "MindistPoultry250.INV", 
+    "MindistCows5.INV", "MindistHorses5.INV", 
+    "MindistGoats50.INV", "MindistSheep50.INV", 
+    "MinDistAnyFarm.INV", "npigs.500m", 
+    "npoultry.500m", "ncows.500m", 
+    "nhorses.500m", "npigs.1000m", 
+    "npoultry.1000m", "ncows.1000m", 
+    "nhorses.1000m", "nsheep.1000m", 
+    "npigs.3000m", "npoultry.3000m", 
+    "ncows.3000m", "nhorses.3000m", 
+    "ngoats.3000m", "nsheep.3000m", 
+    "AllFarm.250m", "AllFarm.500m", 
+    "AllFarm.1000m", "AllFarm.3000m", 
+    "PigFarm.500m", "PoultryFarm.500m", 
+    "CattleFarm.500m", "PigFarm.1000m", 
+    "PoultryFarm.1000m", "CattleFarm.1000m", 
+    "HorseFarm.1000m", "PigFarm.3000m", 
+    "PoultryFarm.3000m", "CattleFarm.3000m", 
+    "HorseFarm.3000m", "GoatFarm.3000m", 
+    "SheepFarm.3000m", "npigsWghtDist.1000m.sum", 
+    "npoultryWghtDist.1000m.sum", "ncowsWghtDist.1000m.sum", 
+    "nhorsesWghtDist.1000m.sum", "nsheepWghtDist.1000m.sum", 
+    "npigsWghtDist.3000m.sum", "npoultryWghtDist.3000m.sum", 
+    "ncowsWghtDist.3000m.sum", "nhorsesWghtDist.3000m.sum", 
+    "ngoatsWghtDist.3000m.sum", "nsheepWghtDist.3000m.sum", 
+    "nAnyFarmWghtDist.1000m.sum", "nPigFarmWghtDist.1000m.sum", 
+    "nPoultryFarmWghtDist.1000m.sum", "nCattleFarmWghtDist.1000m.sum", 
+    "nHorseFarmWghtDist.1000m.sum", "nAnyFarmWghtDist.3000m.sum", 
+    "nPigFarmWghtDist.3000m.sum", "nPoultryFarmWghtDist.3000m.sum", 
+    "nCattleFarmWghtDist.3000m.sum", "nHorseFarmWghtDist.3000m.sum", 
+    "nGoatFarmWghtDist.3000m.sum", "nSheepFarmWghtDist.3000m.sum"
+)
+
+# Select only those columns from the dataset
+variables_Ecoli_RF2 <- variables_measurements %>%
+  select(any_of(variables_Ecoli_RF2))
+
+# Check the resulting data
+head(variables_Ecoli_RF2) # 69 input variables, 1 output variable (E. coli)
+```
+## Retrain the model with unscaled predictors
+```{r}
+# Assuming `variables_Ecoli_RF2` is the dataset with the preprocessed, winsorized features.
+# Prepare cross-validation structure
+mat<-matrix(ncol=1,nrow=10)
+mtry_ecoliRF_winsor<-list(mat,mat,mat,mat,mat,mat,mat,mat,mat,mat)
+min.node.size_ecoliRF_winsor<-list(mat,mat,mat,mat,mat,mat,mat,mat,mat,mat)
+sample.fraction_ecoliRF_winsor<-list(mat,mat,mat,mat,mat,mat,mat,mat,mat,mat)
+rsq_ecoliRF_winsor <-list(mat,mat,mat,mat,mat,mat,mat,mat,mat,mat)
+rsq_inner_ecoliRF_winsor<-list(mat,mat,mat,mat,mat,mat,mat,mat,mat,mat)
+
+# Cross-validation (10 folds)
+cv_outer <- folds(x = variables_Ecoli_RF2$ecoli_copiespm3.ln.diffmeth.mean, nfolds = 10, stratified = FALSE, seed = 42)
+
+#### INNER LOOP ####
+for(i in 1:10) {
+  training_outer <- variables_Ecoli_RF2[cv_outer != i, ]
+  test_outer <- variables_Ecoli_RF2[cv_outer == i, ]
+  
+  cv_inner <- folds(x = training_outer$ecoli_copiespm3.ln.diffmeth.mean, nfolds = 10, stratified = FALSE, seed = 42)
+  
+  for(m in 1:10) {
+    training_inner <- training_outer[cv_inner != m, ]
+    validation_inner <- training_outer[cv_inner == m, ]
+    
+    # Task definition
+    tsk_ecoliRF_winsor <- makeRegrTask(data = training_inner, target = "ecoli_copiespm3.ln.diffmeth.mean")
+    path_ecoliRF_winsor <- tempfile()
+    
+    # Tune hyperparameters (without scaling)
+    res_ecoliRF_winsor <- tuneRanger(tsk_ecoliRF_winsor, measure = list(rsq), num.trees = 500, build.final.model = TRUE, save.file.path = path_ecoliRF_winsor)
+    
+    # Store tuned parameters
+    mtry_ecoliRF_winsor[[i]][m] <- res_ecoliRF_winsor$recommended.pars$mtry
+    min.node.size_ecoliRF_winsor[[i]][m] <- res_ecoliRF_winsor$recommended.pars$min.node.size
+    sample.fraction_ecoliRF_winsor[[i]][m] <- res_ecoliRF_winsor$recommended.pars$sample.fraction
+    rsq_ecoliRF_winsor[[i]][m] <- res_ecoliRF_winsor$recommended.pars$rsq
+    
+    # Train model with best parameters
+    model_inner_ecoliRF_winsor <- ranger(ecoli_copiespm3.ln.diffmeth.mean ~ ., 
+                                         data = training_inner, 
+                                         seed = 42,
+                                         mtry = mtry_ecoliRF_winsor[[i]][m],
+                                         min.node.size = min.node.size_ecoliRF_winsor[[i]][m],
+                                         sample.fraction = sample.fraction_ecoliRF_winsor[[i]][m],
+                                         num.trees = 500,
+                                         importance = "impurity",
+                                         objective = "regression")
+    
+    # Predict on validation set
+    preds_inner <- predict(model_inner_ecoliRF_winsor, data = validation_inner)
+    
+    # Evaluate performance
+    rsq_inner_ecoliRF_winsor[[i]][m] <- mlr3measures::rsq(truth = validation_inner$ecoli_copiespm3.ln.diffmeth.mean, response = preds_inner$predictions)
+  }
+}
+
+# Find the best performing model
+best_rsquared_index <- which.max(unlist(rsq_inner_ecoliRF_winsor))
+best_outer <- ceiling(best_rsquared_index / 10)
+best_inner <- best_rsquared_index %% 10
+
+cat("Best R^2: ", rsq_inner_ecoliRF_winsor[[best_outer]][best_inner], "\n")
+cat("Best mtry: ", mtry_ecoliRF_winsor[[best_outer]][best_inner], "\n")
+cat("Best sample.fraction: ", sample.fraction_ecoliRF_winsor[[best_outer]][best_inner], "\n")
+cat("Best min.node.size: ", min.node.size_ecoliRF_winsor[[best_outer]][best_inner], "\n")
+
+#### OUTER LOOP ####
+rsq_outer_ecoliRF_winsor <- list()
+rmse_outer_ecoliRF_winsor <- list()
+all_preds_outer_ecoliRF_winsor <- list()
+all_actuals_outer_ecoliRF_winsor <- list()
+
+for(i in 1:10) {
+  training_outer <- variables_Ecoli_RF2[cv_outer != i, ]
+  test_outer <- variables_Ecoli_RF2[cv_outer == i, ]
+  
+  model_outer <- ranger(ecoli_copiespm3.ln.diffmeth.mean ~ ., 
+                        data = training_outer, 
+                        seed = 42,
+                        mtry = mtry_ecoliRF_winsor[[best_outer]][best_inner],
+                        sample.fraction = sample.fraction_ecoliRF_winsor[[best_outer]][best_inner],
+                        min.node.size = min.node.size_ecoliRF_winsor[[best_outer]][best_inner],
+                        num.trees = 500,
+                        importance = "impurity")
+  
+  preds_outer <- predict(model_outer, data = test_outer)
+  
+  # Store metrics
+  rsq_outer_ecoliRF_winsor[[i]] <- mlr3measures::rsq(truth = test_outer$ecoli_copiespm3.ln.diffmeth.mean, response = preds_outer$predictions)
+  rmse_outer_ecoliRF_winsor[[i]] <- mlr3measures::rmse(truth = test_outer$ecoli_copiespm3.ln.diffmeth.mean, response = preds_outer$predictions)
+  
+  all_preds_outer_ecoliRF_winsor[[i]] <- preds_outer$predictions
+  all_actuals_outer_ecoliRF_winsor[[i]] <- test_outer$ecoli_copiespm3.ln.diffmeth.mean
+}
+
+# Combine all predictions and actual values
+all_preds <- unlist(all_preds_outer_ecoliRF_winsor)
+all_actuals <- unlist(all_actuals_outer_ecoliRF_winsor)
+
+# Calculate overall R^2 and RMSE
+rsq_overall <- lm(all_actuals ~ all_preds)
+cat("Overall R^2: ", summary(rsq_overall)$r.squared, "\n") # Overall R^2:  0.386008 - this is the 10-fold CV R2
+
+rmse_overall <- sqrt(mean((all_actuals - all_preds)^2))
+cat("Overall RMSE: ", rmse_overall, "\n") # Overall RMSE:  0.5337129 
+
+# Save final model on the entire dataset with the best hyperparameters
+RF_ecoli_wins <- ranger(ecoli_copiespm3.ln.diffmeth.mean ~ ., 
+                      data = variables_Ecoli_RF2, 
+                      seed = 42,
+                      mtry = mtry_ecoliRF_winsor[[best_outer]][best_inner],
+                      sample.fraction = sample.fraction_ecoliRF_winsor[[best_outer]][best_inner],
+                      min.node.size = min.node.size_ecoliRF_winsor[[best_outer]][best_inner],
+                      num.trees = 500,
+                      importance = "impurity")
+
+saveRDS(RF_ecoli_wins, file = "../Output/RF_models/final_model_ecoliRF_wins.rds")
+
+```
+## Predict concentrations at VGO3 residential addresses
+```{r}
+# Check the names of the variables in the RF model
+RF_ecoli_wins$forest$independent.variable.names
+
+
+# CONTINUE HERE WHEN HAVE SHEEP VARIABLES
+# Use E. coli model to predict residential exposures
+ecoli_RF_estimates <- ranger::predict(final_model_ecoliRF2_500trees, data = sample_data_df) 
+ecoli_RF_estimates <- predict(final_model_ecoliRF2_500trees, data = sample_data(ps_complete_new_varnames))
+final_model_ecoliRF2_500trees$variable.importance
+```
+### CONTINUE HERE
+# Staph RF model (level 1)
+## Prepare data
+```{r}
+# List of variables to keep for level 2 E. coli model
+variables_staph_RF1 <- c(
+    "staph_copiespm3.ln.diffmeth.mean",  "MinDistAnyFarm.NEG", "MinDistAnyFarm.INV", "AllFarm.250m", 
+    "AllFarm.500m", "AllFarm.1000m", "AllFarm.3000m", "nAnyFarmWghtDist.1000m.sum", "nAnyFarmWghtDist.3000m.sum")
+
+# Select only those columns from the dataset
+variables_staph_RF1 <- variables_measurements %>%
+  select(any_of(variables_staph_RF1))
+
+# Check the resulting data
+head(variables_staph_RF1) # 8 input variables, 1 output variable (Staph)
+```
+## Retrain the model with unscaled predictors
+```{r}
+mat<-matrix(ncol=1,nrow=10)
+mtry_staphRF1_500trees<-list(mat,mat,mat,mat,mat,mat,mat,mat,mat,mat)
+min_node_size_staphRF1_500trees<-list(mat,mat,mat,mat,mat,mat,mat,mat,mat,mat)
+sample_fraction_staphRF1_500trees<-list(mat,mat,mat,mat,mat,mat,mat,mat,mat,mat)
+rsq_staphRF1_500trees <-list(mat,mat,mat,mat,mat,mat,mat,mat,mat,mat)
+rsq_inner_staphRF1_500trees<-list(mat,mat,mat,mat,mat,mat,mat,mat,mat,mat)
+
+cv_outer_staphRF1_500trees <- folds(x=variables_staph_RF1$staph_copiespm3.ln.diffmeth.mean, nfolds = 10, stratified = FALSE, seed = 42) 
+
+#### INNER LOOP ####
+for(i in 1:10)
+{
+  training_outer_staph_RF1_500trees <- variables_staph_RF1[cv_outer_staphRF1_500trees != i, ]
+  test_outer_staph_RF1_500trees <- variables_staph_RF1[cv_outer_staphRF1_500trees == i, ]
+  
+  cv_inner_staphRF1_500trees <- folds(x = training_outer_staph_RF1_500trees$staph_copiespm3.ln.diffmeth.mean, nfolds = 10, stratified = FALSE, seed = 42)
+  
+  for(m in 1:10) {
+    training_inner_staphRF1_500trees <- training_outer_staph_RF1_500trees[cv_inner_staphRF1_500trees != m, ]
+    validation_inner_staphRF1_500trees <- training_outer_staph_RF1_500trees[cv_inner_staphRF1_500trees == m, ]
+    
+    tsk_staphRF1_500trees <- makeRegrTask(data = training_inner_staphRF1_500trees, target = "staph_copiespm3.ln.diffmeth.mean")
+    path_staphRF1_500trees <- tempfile()
+    res_staphRF1_500trees <- tuneRanger(tsk_staphRF1_500trees, measure=list(rsq), num.trees=500, build.final.model=TRUE, save.file.path=path_staphRF1_500trees)
+    
+    mtry_staphRF1_500trees[[i]][m]<- res_staphRF1_500trees$recommended.pars$mtry
+    min_node_size_staphRF1_500trees[[i]][m]<- res_staphRF1_500trees$recommended.pars$min.node.size
+    sample_fraction_staphRF1_500trees[[i]][m]<- res_staphRF1_500trees$recommended.pars$sample.fraction
+    rsq_staphRF1_500trees[[i]][m] <- res_staphRF1_500trees$recommended.pars$rsq
+    
+    model_inner_staphRF1_500trees <- ranger(staph_copiespm3.ln.diffmeth.mean~., 
+                                            data = training_inner_staphRF1_500trees, seed=42,
+                                            mtry = mtry_staphRF1_500trees[[i]][m],
+                                            min.node.size = min_node_size_staphRF1_500trees[[i]][m],
+                                            sample.fraction = sample_fraction_staphRF1_500trees[[i]][m],
+                                            num.trees = 500,
+                                            importance = "impurity",
+                                            objective = "regression")
+    
+    preds_inner_staphRF1_500trees <- predict(model_inner_staphRF1_500trees, data = validation_inner_staphRF1_500trees)
+    
+    rsq_inner_staphRF1_500trees[[i]][m]<-mlr3measures::rsq(truth=validation_inner_staphRF1_500trees$staph_copiespm3.ln.diffmeth.mean, response=preds_inner_staphRF1_500trees$predictions)  
+  }
+}
+
+# Now determine which outer loop iteration and inner loop iteration gave the best R-squared value, and print this. 
+unlist(rsq_inner_staphRF1_500trees) # This converts the 10 lists that we have into a vector
+which.max(unlist(rsq_inner_staphRF1_500trees)) # 35 is the row in the list with the highest R2 value of all 100 iterations (10 outer and 10 inner folds) - this corresponds to outer iteration 4 and inner iteration 5
+rsq_inner_staphRF1_500trees[[4]][5] # to double check that this is the correct one selected
+mtry_staphRF1_500trees[[4]][5] # best mtry_staphRF1_500trees = 17
+sample_fraction_staphRF1_500trees[[4]][5] # best sample_fraction_staphRF1_500trees = 0.6081014
+min_node_size_staphRF1_500trees[[4]][5] # best min_node_size_staphRF1_500trees = 5
+
+
+#### OUTER LOOP ####
+rsq_outer_staphRF1_500trees <- list()
+rmse_outer_staphRF1_500trees <- list()
+all_preds_outer_staphRF1_500trees <- list()
+all_actuals_outer_staphRF1_500trees <- list()
+
+for(i in 1:10) {
+  training_outer_staphRF1_500trees <- variables_staph_RF1[cv_outer_staphRF1_500trees != i, ]
+  test_outer_staphRF1_500trees <- variables_staph_RF1[cv_outer_staphRF1_500trees == i, ]  
+  
+  model_outer_staphRF1_500trees <- ranger(staph_copiespm3.ln.diffmeth.mean ~ ., 
+                                          data = training_outer_staphRF1_500trees, 
+                                          seed = 42,
+                                          mtry = 17 ,
+                                          sample.fraction = 0.6081014,
+                                          min.node.size = 5,
+                                          num.trees = 500,
+                                          importance = "impurity")
+  
+  preds_outer_staphRF1_500trees <- predict(model_outer_staphRF1_500trees, data = test_outer_staphRF1_500trees)
+  
+  rsq_outer_staphRF1_500trees[[i]] <- mlr3measures::rsq(truth = test_outer_staphRF1_500trees$staph_copiespm3.ln.diffmeth.mean, response = preds_outer_staphRF1_500trees$predictions) # these are the r-squared values for each of the 10 models in the 10 folds
+  
+  rmse_outer_staphRF1_500trees[[i]] <- mlr3measures::rmse(truth = test_outer_staphRF1_500trees$staph_copiespm3.ln.diffmeth.mean, response = preds_outer_staphRF1_500trees$predictions) # these are the rmse values for each of the 10 models in the 10 folds
+  
+  all_preds_outer_staphRF1_500trees[[i]] <- preds_outer_staphRF1_500trees$predictions
+  all_actuals_outer_staphRF1_500trees[[i]] <- test_outer_staphRF1_500trees$staph_copiespm3.ln.diffmeth.mean
+}
+
+# Combine the predictions and actual values from all iterations
+all_preds_staphRF1_500trees <- unlist(all_preds_outer_staphRF1_500trees)
+all_actuals_staphRF1_500trees <- unlist(all_actuals_outer_staphRF1_500trees)
+
+# Compute the overall 10-fold CV R-squared by regressing the combined predictions against the combined actual values
+rsq_overall_staphRF1_500trees <- lm(all_actuals_staphRF1_500trees~all_preds_staphRF1_500trees)
+summary(rsq_overall_staphRF1_500trees)$r.squared # R-squared = 0.3838619
+
+# Compute the overall 10-fold CV RMSE 
+rmse_overall_staphRF1_500trees <- sqrt(mean((all_actuals_staphRF1_500trees - all_preds_staphRF1_500trees)^2))
+rmse_overall_staphRF1_500trees # RMSE = 0.5359968
+
+#### Entire dataset ####
+# Train the entire dataset with the best hyperparameters - this will give us the training model R-squared
+final_model_staphRF1_500trees <- ranger(staph_copiespm3.ln.diffmeth.mean~., 
+                                        data = variables_staph_RF1, 
+                                        seed= 42,
+                                        mtry = 17 ,
+                                        sample.fraction = 0.6081014,
+                                        min.node.size = 5,
+                                        num.trees = 500,
+                                        importance = "impurity")
+
+# Make predictions using this final (training) model
+preds_finalmodel_staphRF1_500trees <- predict(final_model_staphRF1_500trees, data = variables_staph_RF1)$predictions
+
+# Compute the training model R-squared by regressing predictions against actual values
+rsq_finalmodel_staphRF1_500trees_lm <- lm(variables_staph_RF1$staph_copiespm3.ln.diffmeth.mean ~ preds_finalmodel_staphRF1_500trees)
+summary(rsq_finalmodel_staphRF1_500trees_lm)$r.squared # training model R-squared = 0.864842
+
+# Compute the training model RMSE 
+rmse_finalmodel_staphRF1_500trees <- sqrt(mean((variables_staph_RF1$staph_copiespm3.ln.diffmeth.mean - preds_finalmodel_staphRF1_500trees)^2))
+rmse_finalmodel_staphRF1_500trees # RMSE = 0.3112296
+
+# Compute variable importance
+importance(final_model_staphRF1_500trees)
+var_imp_staphRF1_500trees <- importance(final_model_staphRF1_500trees)
+var_importance_top5_staphRF1_500trees <- var_imp_staphRF1_500trees[rev(order(var_imp_staphRF1_500trees))][1:5]
+var_importance_top5_staphRF1_500trees_df <- data.frame(Variable = names(var_importance_top5_staphRF1_500trees), Importance = var_importance_top5_staphRF1_500trees)
+write_xlsx(var_importance_top5_staphRF1_500trees_df,"Output_files//var_importance_top5_staphRF1_500trees_df.xlsx")
+
+# Create a dataframe with predictions and actual values and save as an excel file
+staphRF1_500trees_preds_obs <- data.frame(
+  Predictions_staphRF1_500trees = preds_finalmodel_staphRF1_500trees,
+  Actual_values_staphRF1_500trees = variables_staph_RF1$staph_copiespm3.ln.diffmeth.mean
+)
+
+write_xlsx(staphRF1_500trees_preds_obs,"Output_files//staphRF1_500trees_preds_obs.xlsx")
+
+# Save the model for later use 
+saveRDS(final_model_staphRF1_500trees, file = "Output_files/RF_models/final_model_staphRF1_500trees.rds")
+
+```
+## Predict concentrations at VGO3 residential addresses
+```{r}
+staph_RF_estimates <- predict(final_model_staphRF1_500trees, sample_data(ps_complete))
+
+```
+
+
+# tetW RF model (level 2)
+## Prepare data
+```{r}
+# List of variables to keep for level 2 E. coli model
+variables_tetw_RF2 <- c("tetw_copiespm3.ln.diffmeth.mean", "MindistPigs15.NEG", 
+    "MindistPoultry250.NEG", "MindistCows5.NEG", 
+    "MindistHorses5.NEG", "MindistGoats50.NEG", 
+    "MindistSheep50.NEG", "MinDistAnyFarm.NEG", 
+    "MindistPigs15.INV", "MindistPoultry250.INV", 
+    "MindistCows5.INV", "MindistHorses5.INV", 
+    "MindistGoats50.INV", "MindistSheep50.INV", 
+    "MinDistAnyFarm.INV", "npigs.500m", 
+    "npoultry.500m", "ncows.500m", 
+    "nhorses.500m", "npigs.1000m", 
+    "npoultry.1000m", "ncows.1000m", 
+    "nhorses.1000m", "nsheep.1000m", 
+    "npigs.3000m", "npoultry.3000m", 
+    "ncows.3000m", "nhorses.3000m", 
+    "ngoats.3000m", "nsheep.3000m", 
+    "AllFarm.250m", "AllFarm.500m", 
+    "AllFarm.1000m", "AllFarm.3000m", 
+    "PigFarm.500m", "PoultryFarm.500m", 
+    "CattleFarm.500m", "PigFarm.1000m", 
+    "PoultryFarm.1000m", "CattleFarm.1000m", 
+    "HorseFarm.1000m", "PigFarm.3000m", 
+    "PoultryFarm.3000m", "CattleFarm.3000m", 
+    "HorseFarm.3000m", "GoatFarm.3000m", 
+    "SheepFarm.3000m", "npigsWghtDist.1000m.sum", 
+    "npoultryWghtDist.1000m.sum", "ncowsWghtDist.1000m.sum", 
+    "nhorsesWghtDist.1000m.sum", "nsheepWghtDist.1000m.sum", 
+    "npigsWghtDist.3000m.sum", "npoultryWghtDist.3000m.sum", 
+    "ncowsWghtDist.3000m.sum", "nhorsesWghtDist.3000m.sum", 
+    "ngoatsWghtDist.3000m.sum", "nsheepWghtDist.3000m.sum", 
+    "nAnyFarmWghtDist.1000m.sum", "nPigFarmWghtDist.1000m.sum", 
+    "nPoultryFarmWghtDist.1000m.sum", "nCattleFarmWghtDist.1000m.sum", 
+    "nHorseFarmWghtDist.1000m.sum", "nAnyFarmWghtDist.3000m.sum", 
+    "nPigFarmWghtDist.3000m.sum", "nPoultryFarmWghtDist.3000m.sum", 
+    "nCattleFarmWghtDist.3000m.sum", "nHorseFarmWghtDist.3000m.sum", 
+    "nGoatFarmWghtDist.3000m.sum", "nSheepFarmWghtDist.3000m.sum"
+)
+
+# Select only those columns from the dataset
+variables_tetw_RF2 <- variables_measurements %>%
+  select(any_of(variables_tetw_RF2))
+
+# Check the resulting data
+head(variables_tetw_RF2) # 69 input variables, 1 output variable (tetW)
+```
+## Retrain the model with unscaled predictors
+```{r}
+mat<-matrix(ncol=1,nrow=10)
+mtry_tetwRF2_500trees<-list(mat,mat,mat,mat,mat,mat,mat,mat,mat,mat)
+min_node_size_tetwRF2_500trees<-list(mat,mat,mat,mat,mat,mat,mat,mat,mat,mat)
+sample_fraction_tetwRF2_500trees<-list(mat,mat,mat,mat,mat,mat,mat,mat,mat,mat)
+rsq_tetwRF2_500trees <-list(mat,mat,mat,mat,mat,mat,mat,mat,mat,mat)
+rsq_inner_tetwRF2_500trees<-list(mat,mat,mat,mat,mat,mat,mat,mat,mat,mat)
+
+cv_outer_tetwRF2_500trees <- folds(x=variables_tetw_RF2$tetw_copiespm3.ln.diffmeth.mean, nfolds = 10, stratified = FALSE, seed = 42) 
+
+#### INNER LOOP ####
+for(i in 1:10)
+{
+  training_outer_tetw_RF2_500trees <- variables_tetw_RF2[cv_outer_tetwRF2_500trees != i, ]
+  test_outer_tetw_RF2_500trees <- variables_tetw_RF2[cv_outer_tetwRF2_500trees == i, ]
+  
+  cv_inner_tetwRF2_500trees <- folds(x = training_outer_tetw_RF2_500trees$tetw_copiespm3.ln.diffmeth.mean, nfolds = 10, stratified = FALSE, seed = 42)
+  
+  for(m in 1:10) {
+    training_inner_tetwRF2_500trees <- training_outer_tetw_RF2_500trees[cv_inner_tetwRF2_500trees != m, ]
+    validation_inner_tetwRF2_500trees <- training_outer_tetw_RF2_500trees[cv_inner_tetwRF2_500trees == m, ]
+    
+    tsk_tetwRF2_500trees <- makeRegrTask(data = training_inner_tetwRF2_500trees, target = "tetw_copiespm3.ln.diffmeth.mean")
+    path_tetwRF2_500trees <- tempfile()
+    res_tetwRF2_500trees <- tuneRanger(tsk_tetwRF2_500trees, measure=list(rsq), num.trees=500, build.final.model=TRUE, save.file.path=path_tetwRF2_500trees)
+    
+    mtry_tetwRF2_500trees[[i]][m]<- res_tetwRF2_500trees$recommended.pars$mtry
+    min_node_size_tetwRF2_500trees[[i]][m]<- res_tetwRF2_500trees$recommended.pars$min.node.size
+    sample_fraction_tetwRF2_500trees[[i]][m]<- res_tetwRF2_500trees$recommended.pars$sample.fraction
+    rsq_tetwRF2_500trees[[i]][m] <- res_tetwRF2_500trees$recommended.pars$rsq
+    
+    model_inner_tetwRF2_500trees <- ranger(tetw_copiespm3.ln.diffmeth.mean~., 
+                                            data = training_inner_tetwRF2_500trees, seed=42,
+                                            mtry = mtry_tetwRF2_500trees[[i]][m],
+                                            min.node.size = min_node_size_tetwRF2_500trees[[i]][m],
+                                            sample.fraction = sample_fraction_tetwRF2_500trees[[i]][m],
+                                            num.trees = 500,
+                                            importance = "impurity",
+                                            objective = "regression")
+    
+    preds_inner_tetwRF2_500trees <- predict(model_inner_tetwRF2_500trees, data = validation_inner_tetwRF2_500trees)
+    
+    rsq_inner_tetwRF2_500trees[[i]][m]<-mlr3measures::rsq(truth=validation_inner_tetwRF2_500trees$tetw_copiespm3.ln.diffmeth.mean, response=preds_inner_tetwRF2_500trees$predictions)  
+  }
+}
+
+# Now determine which outer loop iteration and inner loop iteration gave the best R-squared value, and print this. 
+unlist(rsq_inner_tetwRF2_500trees) # This converts the 10 lists that we have into a vector
+which.max(unlist(rsq_inner_tetwRF2_500trees)) # 35 is the row in the list with the highest R2 value of all 100 iterations (10 outer and 10 inner folds) - this corresponds to outer iteration 4 and inner iteration 5
+rsq_inner_tetwRF2_500trees[[4]][5] # to double check that this is the correct one selected
+mtry_tetwRF2_500trees[[4]][5] # best mtry_tetwRF2_500trees = 17
+sample_fraction_tetwRF2_500trees[[4]][5] # best sample_fraction_tetwRF2_500trees = 0.6081014
+min_node_size_tetwRF2_500trees[[4]][5] # best min_node_size_tetwRF2_500trees = 5
+
+
+#### OUTER LOOP ####
+rsq_outer_tetwRF2_500trees <- list()
+rmse_outer_tetwRF2_500trees <- list()
+all_preds_outer_tetwRF2_500trees <- list()
+all_actuals_outer_tetwRF2_500trees <- list()
+
+for(i in 1:10) {
+  training_outer_tetwRF2_500trees <- variables_tetw_RF2[cv_outer_tetwRF2_500trees != i, ]
+  test_outer_tetwRF2_500trees <- variables_tetw_RF2[cv_outer_tetwRF2_500trees == i, ]  
+  
+  model_outer_tetwRF2_500trees <- ranger(tetw_copiespm3.ln.diffmeth.mean ~ ., 
+                                          data = training_outer_tetwRF2_500trees, 
+                                          seed = 42,
+                                          mtry = 17 ,
+                                          sample.fraction = 0.6081014,
+                                          min.node.size = 5,
+                                          num.trees = 500,
+                                          importance = "impurity")
+  
+  preds_outer_tetwRF2_500trees <- predict(model_outer_tetwRF2_500trees, data = test_outer_tetwRF2_500trees)
+  
+  rsq_outer_tetwRF2_500trees[[i]] <- mlr3measures::rsq(truth = test_outer_tetwRF2_500trees$tetw_copiespm3.ln.diffmeth.mean, response = preds_outer_tetwRF2_500trees$predictions) # these are the r-squared values for each of the 10 models in the 10 folds
+  
+  rmse_outer_tetwRF2_500trees[[i]] <- mlr3measures::rmse(truth = test_outer_tetwRF2_500trees$tetw_copiespm3.ln.diffmeth.mean, response = preds_outer_tetwRF2_500trees$predictions) # these are the rmse values for each of the 10 models in the 10 folds
+  
+  all_preds_outer_tetwRF2_500trees[[i]] <- preds_outer_tetwRF2_500trees$predictions
+  all_actuals_outer_tetwRF2_500trees[[i]] <- test_outer_tetwRF2_500trees$tetw_copiespm3.ln.diffmeth.mean
+}
+
+# Combine the predictions and actual values from all iterations
+all_preds_tetwRF2_500trees <- unlist(all_preds_outer_tetwRF2_500trees)
+all_actuals_tetwRF2_500trees <- unlist(all_actuals_outer_tetwRF2_500trees)
+
+# Compute the overall 10-fold CV R-squared by regressing the combined predictions against the combined actual values
+rsq_overall_tetwRF2_500trees <- lm(all_actuals_tetwRF2_500trees~all_preds_tetwRF2_500trees)
+summary(rsq_overall_tetwRF2_500trees)$r.squared # R-squared = 0.3838619
+
+# Compute the overall 10-fold CV RMSE 
+rmse_overall_tetwRF2_500trees <- sqrt(mean((all_actuals_tetwRF2_500trees - all_preds_tetwRF2_500trees)^2))
+rmse_overall_tetwRF2_500trees # RMSE = 0.5359968
+
+#### Entire dataset ####
+# Train the entire dataset with the best hyperparameters - this will give us the training model R-squared
+final_model_tetwRF2_500trees <- ranger(tetw_copiespm3.ln.diffmeth.mean~., 
+                                        data = variables_tetw_RF2, 
+                                        seed= 42,
+                                        mtry = 17 ,
+                                        sample.fraction = 0.6081014,
+                                        min.node.size = 5,
+                                        num.trees = 500,
+                                        importance = "impurity")
+
+# Make predictions using this final (training) model
+preds_finalmodel_tetwRF2_500trees <- predict(final_model_tetwRF2_500trees, data = variables_tetw_RF2)$predictions
+
+# Compute the training model R-squared by regressing predictions against actual values
+rsq_finalmodel_tetwRF2_500trees_lm <- lm(variables_tetw_RF2$tetw_copiespm3.ln.diffmeth.mean ~ preds_finalmodel_tetwRF2_500trees)
+summary(rsq_finalmodel_tetwRF2_500trees_lm)$r.squared # training model R-squared = 0.864842
+
+# Compute the training model RMSE 
+rmse_finalmodel_tetwRF2_500trees <- sqrt(mean((variables_tetw_RF2$tetw_copiespm3.ln.diffmeth.mean - preds_finalmodel_tetwRF2_500trees)^2))
+rmse_finalmodel_tetwRF2_500trees # RMSE = 0.3112296
+
+# Compute variable importance
+importance(final_model_tetwRF2_500trees)
+var_imp_tetwRF2_500trees <- importance(final_model_tetwRF2_500trees)
+var_importance_top5_tetwRF2_500trees <- var_imp_tetwRF2_500trees[rev(order(var_imp_tetwRF2_500trees))][1:5]
+var_importance_top5_tetwRF2_500trees_df <- data.frame(Variable = names(var_importance_top5_tetwRF2_500trees), Importance = var_importance_top5_tetwRF2_500trees)
+write_xlsx(var_importance_top5_tetwRF2_500trees_df,"Output_files//var_importance_top5_tetwRF2_500trees_df.xlsx")
+
+# Create a dataframe with predictions and actual values and save as an excel file
+tetwRF2_500trees_preds_obs <- data.frame(
+  Predictions_tetwRF2_500trees = preds_finalmodel_tetwRF2_500trees,
+  Actual_values_tetwRF2_500trees = variables_tetw_RF2$tetw_copiespm3.ln.diffmeth.mean
+)
+
+write_xlsx(tetwRF2_500trees_preds_obs,"Output_files//tetwRF2_500trees_preds_obs.xlsx")
+
+# Save the model for later use 
+saveRDS(final_model_tetwRF2_500trees, file = "Output_files/RF_models/final_model_tetwRF2_500trees.rds")
+
+```
+## Predict concentrations at VGO3 residential addresses
+```{r}
+tetw_RF_estimates <- predict(final_model_tetwRF2_500trees, sample_data(ps_complete))
+```
+# mecA RF model (level 3)
+## Prepare data
+```{r}
+# List of variables to keep for level 2 E. coli model
+variables_meca_RF3 <- c(
+    "staph_copiespm3.ln.diffmeth.mean", "MindistPigs15.NEG", "MindistPoultry250.NEG", 
+    "MindistCows5.NEG", "MindistHorses5.NEG", "MindistGoats50.NEG", 
+    "MindistSheep50.NEG", "MinDistAnyFarm.NEG", "MindistPigs15.INV", 
+    "MindistPoultry250.INV", "MindistCows5.INV", "MindistHorses5.INV", 
+    "MindistGoats50.INV", "MindistSheep50.INV", "MinDistAnyFarm.INV", 
+    "npigs.500m", "npoultry.500m", "ncows.500m", "nhorses.500m", 
+    "npigs.1000m", "npoultry.1000m", "ncows.1000m", "nhorses.1000m", 
+    "nsheep.1000m", "npigs.3000m", "npoultry.3000m", "ncows.3000m", 
+    "nhorses.3000m", "ngoats.3000m", "nsheep.3000m", "AllFarm.250m", 
+    "AllFarm.500m", "AllFarm.1000m", "AllFarm.3000m", "PigFarm.500m", 
+    "PoultryFarm.500m", "CattleFarm.500m", "PigFarm.1000m", 
+    "PoultryFarm.1000m", "CattleFarm.1000m", "HorseFarm.1000m", 
+    "PigFarm.3000m", "PoultryFarm.3000m", "CattleFarm.3000m", 
+    "HorseFarm.3000m", "GoatFarm.3000m", "SheepFarm.3000m", 
+    "npigsWghtDist.1000m.sum", "npoultryWghtDist.1000m.sum", 
+    "ncowsWghtDist.1000m.sum", "nhorsesWghtDist.1000m.sum", 
+    "nsheepWghtDist.1000m.sum", "npigsWghtDist.3000m.sum", 
+    "npoultryWghtDist.3000m.sum", "ncowsWghtDist.3000m.sum", 
+    "nhorsesWghtDist.3000m.sum", "ngoatsWghtDist.3000m.sum", 
+    "nsheepWghtDist.3000m.sum", "nAnyFarmWghtDist.1000m.sum", 
+    "nPigFarmWghtDist.1000m.sum", "nPoultryFarmWghtDist.1000m.sum", 
+    "nCattleFarmWghtDist.1000m.sum", "nHorseFarmWghtDist.1000m.sum", 
+    "nAnyFarmWghtDist.3000m.sum", "nPigFarmWghtDist.3000m.sum", 
+    "nPoultryFarmWghtDist.3000m.sum", "nCattleFarmWghtDist.3000m.sum", 
+    "nHorseFarmWghtDist.3000m.sum", "nGoatFarmWghtDist.3000m.sum", 
+    "nSheepFarmWghtDist.3000m.sum", "nfatpigs.500m", "ndairycows.500m", 
+    "nmeatcows.500m", "npiglets.1000m", "nsows.1000m", "nboars.1000m", 
+    "nfatpigs.1000m", "nlayinghens.1000m", "nbroilerchicks.1000m", 
+    "ndairycows.1000m", "nmeatcows.1000m", "npiglets.3000m", 
+    "nsows.3000m", "nboars.3000m", "nfatpigs.3000m", 
+    "nlayinghens.3000m", "nbroilerchicks.3000m", "notherpoultryanim.3000m", 
+    "ndairycows.3000m", "nmeatcows.3000m", "DairyctlFarm.500m", 
+    "PigMultipFarm.1000m", "FatpigFarm.1000m", "HensFarm.1000m", 
+    "BroilerFarm.1000m", "DairyctlFarm.1000m", "MeatctlFarm.1000m", 
+    "PigMultipFarm.3000m", "FatpigFarm.3000m", "HensFarm.3000m", 
+    "BroilerFarm.3000m", "OthpoultFarm.3000m", "DairyctlFarm.3000m", 
+    "MeatctlFarm.3000m", "npigletsWghtDist.1000m.sum", "nsowsWghtDist.1000m.sum", 
+    "nboarsWghtDist.1000m.sum", "nfatpigsWghtDist.1000m.sum", 
+    "nlayinghensWghtDist.1000m.sum", "nbroilerchicksWghtDist.1000m.sum", 
+    "ndairycowsWghtDist.1000m.sum", "nmeatcowsWghtDist.1000m.sum", 
+    "npigletsWghtDist.3000m.sum", "nsowsWghtDist.3000m.sum", 
+    "nboarsWghtDist.3000m.sum", "nfatpigsWghtDist.3000m.sum", 
+    "nlayinghensWghtDist.3000m.sum", "nbroilerchicksWghtDist.3000m.sum", 
+    "notherpoultryanimWghtDist.3000m.sum", "ndairycowsWghtDist.3000m.sum", 
+    "nmeatcowsWghtDist.3000m.sum", "nPigMultipFarmWghtDist.1000m.sum", 
+    "nFatpigFarmWghtDist.1000m.sum", "nHensFarmWghtDist.1000m.sum", 
+    "nBroilerFarmWghtDist.1000m.sum", "nDairyctlFarmWghtDist.1000m.sum", 
+    "nMeatctlFarmWghtDist.1000m.sum", "nPigMultipFarmWghtDist.3000m.sum", 
+    "nFatpigFarmWghtDist.3000m.sum", "nHensFarmWghtDist.3000m.sum", 
+    "nBroilerFarmWghtDist.3000m.sum", "nOthpoultFarmWghtDist.3000m.sum", 
+    "nDairyctlFarmWghtDist.3000m.sum", "nMeatctlFarmWghtDist.3000m.sum"
+)
+
+# Select only those columns from the dataset
+variables_meca_RF3 <- variables_measurements %>%
+  select(any_of(variables_meca_RF3))
+
+# Check the resulting data
+head(variables_meca_RF3) # 133 input variables, 1 output variable (mecA)
+```
+## Retrain the model with unscaled predictors
+```{r}
+mat<-matrix(ncol=1,nrow=10)
+mtry_mecaRF3_500trees<-list(mat,mat,mat,mat,mat,mat,mat,mat,mat,mat)
+min_node_size_mecaRF3_500trees<-list(mat,mat,mat,mat,mat,mat,mat,mat,mat,mat)
+sample_fraction_mecaRF3_500trees<-list(mat,mat,mat,mat,mat,mat,mat,mat,mat,mat)
+rsq_mecaRF3_500trees <-list(mat,mat,mat,mat,mat,mat,mat,mat,mat,mat)
+rsq_inner_mecaRF3_500trees<-list(mat,mat,mat,mat,mat,mat,mat,mat,mat,mat)
+
+cv_outer_mecaRF3_500trees <- folds(x=variables_meca_RF3$meca_copiespm3.ln.diffmeth.mean, nfolds = 10, stratified = FALSE, seed = 42) 
+
+#### INNER LOOP ####
+for(i in 1:10)
+{
+  training_outer_meca_RF3_500trees <- variables_meca_RF3[cv_outer_mecaRF3_500trees != i, ]
+  test_outer_meca_RF3_500trees <- variables_meca_RF3[cv_outer_mecaRF3_500trees == i, ]
+  
+  cv_inner_mecaRF3_500trees <- folds(x = training_outer_meca_RF3_500trees$meca_copiespm3.ln.diffmeth.mean, nfolds = 10, stratified = FALSE, seed = 42)
+  
+  for(m in 1:10) {
+    training_inner_mecaRF3_500trees <- training_outer_meca_RF3_500trees[cv_inner_mecaRF3_500trees != m, ]
+    validation_inner_mecaRF3_500trees <- training_outer_meca_RF3_500trees[cv_inner_mecaRF3_500trees == m, ]
+    
+    tsk_mecaRF3_500trees <- makeRegrTask(data = training_inner_mecaRF3_500trees, target = "meca_copiespm3.ln.diffmeth.mean")
+    path_mecaRF3_500trees <- tempfile()
+    res_mecaRF3_500trees <- tuneRanger(tsk_mecaRF3_500trees, measure=list(rsq), num.trees=500, build.final.model=TRUE, save.file.path=path_mecaRF3_500trees)
+    
+    mtry_mecaRF3_500trees[[i]][m]<- res_mecaRF3_500trees$recommended.pars$mtry
+    min_node_size_mecaRF3_500trees[[i]][m]<- res_mecaRF3_500trees$recommended.pars$min.node.size
+    sample_fraction_mecaRF3_500trees[[i]][m]<- res_mecaRF3_500trees$recommended.pars$sample.fraction
+    rsq_mecaRF3_500trees[[i]][m] <- res_mecaRF3_500trees$recommended.pars$rsq
+    
+    model_inner_mecaRF3_500trees <- ranger(meca_copiespm3.ln.diffmeth.mean~., 
+                                            data = training_inner_mecaRF3_500trees, seed=42,
+                                            mtry = mtry_mecaRF3_500trees[[i]][m],
+                                            min.node.size = min_node_size_mecaRF3_500trees[[i]][m],
+                                            sample.fraction = sample_fraction_mecaRF3_500trees[[i]][m],
+                                            num.trees = 500,
+                                            importance = "impurity",
+                                            objective = "regression")
+    
+    preds_inner_mecaRF3_500trees <- predict(model_inner_mecaRF3_500trees, data = validation_inner_mecaRF3_500trees)
+    
+    rsq_inner_mecaRF3_500trees[[i]][m]<-mlr3measures::rsq(truth=validation_inner_mecaRF3_500trees$meca_copiespm3.ln.diffmeth.mean, response=preds_inner_mecaRF3_500trees$predictions)  
+  }
+}
+
+# Now determine which outer loop iteration and inner loop iteration gave the best R-squared value, and print this. 
+unlist(rsq_inner_mecaRF3_500trees) # This converts the 10 lists that we have into a vector
+which.max(unlist(rsq_inner_mecaRF3_500trees)) # 35 is the row in the list with the highest R2 value of all 100 iterations (10 outer and 10 inner folds) - this corresponds to outer iteration 4 and inner iteration 5
+rsq_inner_mecaRF3_500trees[[4]][5] # to double check that this is the correct one selected
+mtry_mecaRF3_500trees[[4]][5] # best mtry_mecaRF3_500trees = 17
+sample_fraction_mecaRF3_500trees[[4]][5] # best sample_fraction_mecaRF3_500trees = 0.6081014
+min_node_size_mecaRF3_500trees[[4]][5] # best min_node_size_mecaRF3_500trees = 5
+
+
+#### OUTER LOOP ####
+rsq_outer_mecaRF3_500trees <- list()
+rmse_outer_mecaRF3_500trees <- list()
+all_preds_outer_mecaRF3_500trees <- list()
+all_actuals_outer_mecaRF3_500trees <- list()
+
+for(i in 1:10) {
+  training_outer_mecaRF3_500trees <- variables_meca_RF3[cv_outer_mecaRF3_500trees != i, ]
+  test_outer_mecaRF3_500trees <- variables_meca_RF3[cv_outer_mecaRF3_500trees == i, ]  
+  
+  model_outer_mecaRF3_500trees <- ranger(meca_copiespm3.ln.diffmeth.mean ~ ., 
+                                          data = training_outer_mecaRF3_500trees, 
+                                          seed = 42,
+                                          mtry = 17 ,
+                                          sample.fraction = 0.6081014,
+                                          min.node.size = 5,
+                                          num.trees = 500,
+                                          importance = "impurity")
+  
+  preds_outer_mecaRF3_500trees <- predict(model_outer_mecaRF3_500trees, data = test_outer_mecaRF3_500trees)
+  
+  rsq_outer_mecaRF3_500trees[[i]] <- mlr3measures::rsq(truth = test_outer_mecaRF3_500trees$meca_copiespm3.ln.diffmeth.mean, response = preds_outer_mecaRF3_500trees$predictions) # these are the r-squared values for each of the 10 models in the 10 folds
+  
+  rmse_outer_mecaRF3_500trees[[i]] <- mlr3measures::rmse(truth = test_outer_mecaRF3_500trees$meca_copiespm3.ln.diffmeth.mean, response = preds_outer_mecaRF3_500trees$predictions) # these are the rmse values for each of the 10 models in the 10 folds
+  
+  all_preds_outer_mecaRF3_500trees[[i]] <- preds_outer_mecaRF3_500trees$predictions
+  all_actuals_outer_mecaRF3_500trees[[i]] <- test_outer_mecaRF3_500trees$meca_copiespm3.ln.diffmeth.mean
+}
+
+# Combine the predictions and actual values from all iterations
+all_preds_mecaRF3_500trees <- unlist(all_preds_outer_mecaRF3_500trees)
+all_actuals_mecaRF3_500trees <- unlist(all_actuals_outer_mecaRF3_500trees)
+
+# Compute the overall 10-fold CV R-squared by regressing the combined predictions against the combined actual values
+rsq_overall_mecaRF3_500trees <- lm(all_actuals_mecaRF3_500trees~all_preds_mecaRF3_500trees)
+summary(rsq_overall_mecaRF3_500trees)$r.squared # R-squared = 0.3838619
+
+# Compute the overall 10-fold CV RMSE 
+rmse_overall_mecaRF3_500trees <- sqrt(mean((all_actuals_mecaRF3_500trees - all_preds_mecaRF3_500trees)^2))
+rmse_overall_mecaRF3_500trees # RMSE = 0.5359968
+
+#### Entire dataset ####
+# Train the entire dataset with the best hyperparameters - this will give us the training model R-squared
+final_model_mecaRF3_500trees <- ranger(meca_copiespm3.ln.diffmeth.mean~., 
+                                        data = variables_meca_RF3, 
+                                        seed= 42,
+                                        mtry = 17 ,
+                                        sample.fraction = 0.6081014,
+                                        min.node.size = 5,
+                                        num.trees = 500,
+                                        importance = "impurity")
+
+# Make predictions using this final (training) model
+preds_finalmodel_mecaRF3_500trees <- predict(final_model_mecaRF3_500trees, data = variables_meca_RF3)$predictions
+
+# Compute the training model R-squared by regressing predictions against actual values
+rsq_finalmodel_mecaRF3_500trees_lm <- lm(variables_meca_RF3$meca_copiespm3.ln.diffmeth.mean ~ preds_finalmodel_mecaRF3_500trees)
+summary(rsq_finalmodel_mecaRF3_500trees_lm)$r.squared # training model R-squared = 0.864842
+
+# Compute the training model RMSE 
+rmse_finalmodel_mecaRF3_500trees <- sqrt(mean((variables_meca_RF3$meca_copiespm3.ln.diffmeth.mean - preds_finalmodel_mecaRF3_500trees)^2))
+rmse_finalmodel_mecaRF3_500trees # RMSE = 0.3112296
+
+# Compute variable importance
+importance(final_model_mecaRF3_500trees)
+var_imp_mecaRF3_500trees <- importance(final_model_mecaRF3_500trees)
+var_importance_top5_mecaRF3_500trees <- var_imp_mecaRF3_500trees[rev(order(var_imp_mecaRF3_500trees))][1:5]
+var_importance_top5_mecaRF3_500trees_df <- data.frame(Variable = names(var_importance_top5_mecaRF3_500trees), Importance = var_importance_top5_mecaRF3_500trees)
+write_xlsx(var_importance_top5_mecaRF3_500trees_df,"Output_files//var_importance_top5_mecaRF3_500trees_df.xlsx")
+
+# Create a dataframe with predictions and actual values and save as an excel file
+mecaRF3_500trees_preds_obs <- data.frame(
+  Predictions_mecaRF3_500trees = preds_finalmodel_mecaRF3_500trees,
+  Actual_values_mecaRF3_500trees = variables_meca_RF3$meca_copiespm3.ln.diffmeth.mean
+)
+
+write_xlsx(mecaRF3_500trees_preds_obs,"Output_files//mecaRF3_500trees_preds_obs.xlsx")
+
+# Save the model for later use 
+saveRDS(final_model_mecaRF3_500trees, file = "Output_files/RF_models/final_model_mecaRF3_500trees.rds")
+
+```
+## Predict concentrations at VGO3 residential addresses
+```{r}
+meca_RF_estimates <- predict(final_model_mecaRF3_500trees, sample_data(ps_complete))
+```
+# Add estimates to the participant sample data
+```{r}
+ps_complete@sam_data$E.coli_tunedRF.LUR3.estim <- E.coli_tunedRF_estimate
+ps_complete@sam_data$Staph_tunedRF.LUR3.estim <- Staph_tunedRF_estimate
+ps_complete@sam_data$tetW_tunedRF.LUR3.estim <- tetW_tunedRF_estimate
+ps_complete@sam_data$mecA_tunedRF.LUR3.estim <- mecA_tunedRF_estimate
+```
+
