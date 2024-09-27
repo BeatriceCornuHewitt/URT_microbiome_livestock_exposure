@@ -54,7 +54,8 @@ meta$assay_sample <- gsub("_", "-", meta$assay_sample)
 gc() # clear unused memory
 
 ps1 <- merge_phyloseq(ps54,ps56,ps57,ps58,ps59,ps60,ps61,ps62,ps63,ps64,ps65)
-meta[!meta$assay_sample %in% sample_names(ps1),]
+meta[!meta$assay_sample %in% sample_names(ps1),] # Check if there are any samples in the metadata that are not present in the ps1 object
+
 ps1
 
 # phyloseq-class experiment-level object
@@ -77,25 +78,23 @@ ps1
 # sample_data() Sample Data:       [ 2809 samples by 12 sample variables ]
 # tax_table()   Taxonomy Table:    [ 26480 taxa by 7 taxonomic ranks ]
 ```
-
+## Add metadata to the phyloseq object
 ```{r}
-meta <- meta[meta$sample_id != "0",]
-sample_names(ps1) %in% meta$assay_sample %>% table()
-#sample_names(ps1)[!sample_names(ps1) %in% meta$assay_sample]
-#meta$assay_sample[!meta$assay_sample %in% sample_names(ps1)]
+meta <- meta[meta$sample_id != "0",] # exclude rows where the sample_id is equal to "0".
+sample_names(ps1) %in% meta$assay_sample %>% table() # check whether each sample name in ps1 exists in the assay_sample column of the meta dataframe.
 
-m <- meta_to_df(ps1)
-m$assay_sample <- m$sample_id
-meta[!meta$assay_sample %in% m$assay_sample,]
+m <- meta_to_df(ps1) # convert ps1 metadata to data frame
+m$assay_sample <- m$sample_id # create a new column assay_sample in m by copying the values from sample_id
+meta[!meta$assay_sample %in% m$assay_sample,] # Identify missing Samples
 m <- m %>% select(-c(X, sample_identifier, Filtered, denoised_R1, denoised_R2,
-                     Merged, non.chim, non.chim...filtered.by.length, Sample))
-colnames(m) <- c("sample_id", "input_reads_nr", "perc_readds_kept_after_DADA2", "after_DADA2_reads_nr", "assay_sample")
+                     Merged, non.chim, non.chim...filtered.by.length, Sample)) # remove unecessary columns
+colnames(m) <- c("sample_id", "input_reads_nr", "perc_readds_kept_after_DADA2", "after_DADA2_reads_nr", "assay_sample") # Rename columns
 
-m <- left_join(m, meta, by = "assay_sample")
-m <- m %>% rename(sample_id = sample_id.x) %>% select(-sample_id.y)
-colnames(m) <- gsub("X16S.QPCR.pg.ul", "qPCR", colnames(m))
+m <- left_join(m, meta, by = "assay_sample") # merge ps1 metadata with all metadata
+m <- m %>% rename(sample_id = sample_id.x) %>% select(-sample_id.y) # clean up any duplicate columns
+colnames(m) <- gsub("X16S.QPCR.pg.ul", "qPCR", colnames(m)) # Change name
 m$DI.Run <- as.character(m$DI.Run)
-m <- subset(m, niche != "?NP")
+m <- subset(m, niche != "?NP") # remove rows where niche = ?NP
 m$niche <- factor(m$niche, levels = c("NP", "OP", "BD", "BP", "FB", 
                                       "ZMCB", "ZMCD", "UMD", "BB"))
 m$DI.Run <- factor(m$DI.Run, levels = m$DI.Run %>% unique() %>% as.numeric() %>% sort() %>% as.character())
@@ -147,7 +146,7 @@ m <- m %>% mutate(date1 =  as.Date(format(visit_date, '2021-%m-%d')),
 
 # Bacterial density & Picogreen
 
-Calculate the alpha diversity indices.
+## Calculate the alpha diversity indices.
 
 ```{r}
 m2 <- subset(m, niche != "NP?")
@@ -181,7 +180,7 @@ plot_sample_data(df=m2, x=m2$niche, y=m2$perc_readds_kept_after_DADA2) + labs(x 
     geom_hline(aes(yintercept = 50),  colour="grey50", linetype="dotted") + facet_grid(population~Miseq.Run, scale = "fixed")
 ```
 
-Filter and order the taxa
+# Filter and order the taxa
 
 ```{r}
 ps1 <- prune_taxa(taxa_sums(ps1) > 0, ps1)
@@ -190,9 +189,8 @@ stats <- tibble(step = character(),
                 taxa = numeric(),
                 reads = numeric())
 stats <- ps_stats(ps1, stats, "Merged phyloseq object")
-```
 
-```{r}
+
 ps1 <- taxa_sum_reorder(ps1) %>% separate_species()
 taxa_names(ps1) <- gsub("_7_", "_", taxa_names(ps1))
 ```
