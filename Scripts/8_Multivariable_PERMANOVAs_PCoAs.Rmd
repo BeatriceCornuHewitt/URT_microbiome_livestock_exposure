@@ -1,0 +1,389 @@
+---
+title: "Alpha diversity"
+author: "Beatrice Cornu Hewitt" 
+date: "`r Sys.time()`"
+---
+
+# Packages
+```{r}
+library(tidyverse);library(magrittr);library(glue);library(here);library(ggtext);library(fs);library(phyloseq);library(microbiomer);library(vegan);library(microbiome);library(decontam);library(reshape2);library(colorspace);library(scales);library(ggpubr);library(ggvenn);library(ggnewscale);library(RColorBrewer);library(paletteer);library(broom);library(rcartocolor);library(microViz);library(ggside);library(emmeans); library(MatchIt)
+
+# Set theme for plots in notebook
+theme_set(theme_bw())
+theme_update(axis.text.x = element_text(angle = 45, hjust=1),
+             strip.text = element_text(colour = 'white'),
+             strip.background =element_rect(fill="#2F4858", color = "#2F4858"))
+```
+
+# Data
+```{r}
+ps <- readRDS("../Output/Phyloseq/ps_complete_new_metadata.rds")
+# the phyloseq was already rarefied (ps2 <- phyloseq::rarefy_even_depth(ps1, replace = T, trimOTUs = T)), and the alpha diversity indices were computed from this rarefied data in the script '2b_clean_phyloseq.Rmd': 
+# adiv <- data.frame(
+#   "Observed" = phyloseq::estimate_richness(ps2, measures = "Observed"),
+#   "Shannon" = phyloseq::estimate_richness(ps2, measures = "Shannon"))
+
+# Read in the metadata variable names and explanations
+names <- readxl::read_xlsx("../Input/Codebook_metadata_all.xlsx")
+```
+
+# Nearest neighbour matching - GF with CP 
+```{r}
+# There are 900 CPs, but only 100 GFs - we will subset the CPs to make the groups balanced for the analyses 
+# Select 400 control participants and match 
+# Remove all samples where the population is "GP" from the phyloseq object
+ps_noGP <- subset_samples(ps, population != "GP")
+ps_noGP; ps
+
+
+# Extract sample data from phyloseq object
+sample_data_df <- data.frame(sample_data(ps_noGP))
+
+# Create a binary variable indicating group membership (goat farmers vs. controls)
+sample_data_df$group <- ifelse(sample_data_df$population == "GF", 1, 0)
+
+# Ensure matching variables are in the correct format
+sample_data_df$age <- as.numeric(sample_data_df$age)
+sample_data_df$gender <- as.factor(sample_data_df$gender)
+sample_data_df$sampling_season <- as.factor(sample_data_df$sampling_season)
+
+
+get_mode <- function(v) {
+  uniqv <- unique(v)
+  uniqv[which.max(tabulate(match(v, uniqv)))]
+}
+
+# Aggregate the sample-level data to participant-level (one row per participant)
+participant_data <- sample_data_df %>%
+  group_by(VGO3_ID) %>%
+  summarise(
+    age = mean(age, na.rm = TRUE),  # Aggregate age as mean for participants with multiple samples
+    gender = get_mode(gender),  # Use custom mode function for categorical variable 'gender'
+    sampling_season = get_mode(sampling_season),  # Mode for categorical variable 'sampling_season'
+    group = first(group)  # Ensure group (goat farmer vs control) is consistent across samples
+  )
+
+sum(participant_data$group ==1) # 96 goat farmers
+
+# Remove any participants with missing values for age, gender, or sampling_season
+participant_data_clean <- participant_data %>%
+  filter(!is.na(age), !is.na(gender), !is.na(sampling_season))
+
+sum(participant_data_clean$group==1) # 93 goat farmers without missing metadata
+
+# Check how many rows were removed
+n_removed <- nrow(participant_data) - nrow(participant_data_clean)
+print(paste("Removed", n_removed, "participants due to missing values")) # 10 removed
+
+# Perform nearest neighbor matching at the participant level
+set.seed(123)  # For reproducibility
+matching_model <- matchit(group ~ age + gender + sampling_season, 
+                          data = participant_data_clean, 
+                          method = "nearest", 
+                          ratio = 4)  # Match each goat farmer with 4 controls
+
+# Check the matching summary
+summary(matching_model)
+# Matched data
+matched_data <- match.data(matching_model)
+# Assign the matched group (after matching) to the sample-level data
+# Create a new column in the sample data that will store the matched group status
+sample_data_df$matched_group <- sample_data_df$VGO3_ID %in% matched_data$VGO3_ID
+# Extract the VGO3_ID numbers of matched participants
+matched_VGO3_IDs <- matched_data$VGO3_ID
+# Save as df 
+matched_participants_df <- data.frame(VGO3_ID = matched_VGO3_IDs)
+# Save as csv file
+write.csv(matched_participants_df, "../Output/GFvsCP/matched_VGO3_IDs.csv", row.names = FALSE)
+
+
+# Check the matching 
+# Merge the matched data with the original participant data to include goat farmers and controls
+plot_data <- sample_data_df %>%
+  filter(VGO3_ID %in% matched_VGO3_IDs | population == "GF")  # Filter for matched controls and goat farmers
+
+# Ensure variables are correctly formatted
+plot_data$group <- ifelse(plot_data$population == "GF", "Goat Farmers", "Matched Controls")
+plot_data$group <- as.factor(plot_data$group)
+
+library(ggplot2)
+
+# Boxplot for Age
+age_plot <- ggplot(plot_data, aes(x = group, y = age, fill = group)) +
+  geom_boxplot() +
+  labs(title = "Age Comparison between Goat Farmers and Matched Controls",
+       x = "Group", y = "Age") +
+  theme_minimal() +
+  theme(
+    legend.position = "none",  # Remove legend
+    axis.title.x = element_text(size = 16),  # Increase x-axis title font size
+    axis.title.y = element_text(size = 16),  # Increase y-axis title font size
+    axis.text.x = element_text(size = 14),   # Increase x-axis text size
+    axis.text.y = element_text(size = 14)    # Increase y-axis text size
+  )
+print(age_plot)
+
+# Bar plot for Gender
+gender_plot <- ggplot(plot_data, aes(x = group, fill = gender)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +  # Show proportions
+  labs(title = "Gender Distribution between Goat Farmers and Matched Controls",
+       x = "Group", y = "Proportion", fill = "Gender") +
+  theme_minimal() +
+  theme(
+    axis.title.x = element_text(size = 16),  # Increase x-axis title font size
+    axis.title.y = element_text(size = 16),  # Increase y-axis title font size
+    axis.text.x = element_text(size = 14),   # Increase x-axis text size
+    axis.text.y = element_text(size = 14)    # Increase y-axis text size
+  )
+print(gender_plot)
+
+# Bar plot for Sampling Season
+season_plot <- ggplot(plot_data, aes(x = group, fill = sampling_season)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +  # Show proportions
+  labs(title = "Sampling Season Distribution between Goat Farmers and Matched Controls",
+       x = "Group", y = "Proportion", fill = "Sampling Season") +
+  theme_minimal() +
+  theme(
+    axis.title.x = element_text(size = 16),  # Increase x-axis title font size
+    axis.title.y = element_text(size = 16),  # Increase y-axis title font size
+    axis.text.x = element_text(size = 14),   # Increase x-axis text size
+    axis.text.y = element_text(size = 14)    # Increase y-axis text size
+  )
+print(season_plot)
+
+ggsave("../Output/GFvsCP/age_GF_matchedCP.png", age_plot)
+ggsave("../Output/GFvsCP/gender_GF_matchedCP.png", gender_plot)
+ggsave("../Output/GFvsCP/season_GF_matchedCP.png", season_plot)
+
+
+# Create summary table for supplement
+# Filter the sample data to only include matched participants
+matched_sample_data <- sample_data_df %>%
+  filter(VGO3_ID %in% matched_VGO3_IDs)
+
+# Step 2: Calculate summary statistics for Goat Farmers and Controls
+summary_table <- matched_sample_data %>%
+  group_by(group) %>%
+  summarise(
+    n_samples = n(),  # Number of participants
+    mean_age = mean(age, na.rm = TRUE),  # Mean age
+    gender_male = (sum(gender == 0) / n())*100,  # Proportion of male participants
+    gender_female = (sum(gender == 1) / n())*100,  # Proportion of female participants
+    sampling_season_winter = (sum(sampling_season == "Winter") / n())*100,  # Proportion sampled in winter
+    sampling_season_spring = (sum(sampling_season == "Spring") / n())*100,  # Proportion sampled in spring
+    sampling_season_summer = (sum(sampling_season == "Summer") / n())*100,  # Proportion sampled in summer
+    sampling_season_fall = (sum(sampling_season == "Fall") / n())*100  # Proportion sampled in fall
+  )
+
+# Save the summary table to CSV
+write.csv(summary_table, "../Output/GFvsCP/summary_table_GFvsCP.csv", row.names = FALSE)
+```
+# Subset phyloseq with GFs and matched CPs (1:4)
+```{r}
+# Subset the phyloseq object to only include samples corresponding to matched VGO3_IDs
+ps_CP_GF <- subset_samples(ps, VGO3_ID %in% matched_VGO3_IDs)
+ps_CP_GF;ps
+# Check number of CP and GF participants in subsetted ps - total and per niche
+# Total 
+sum(ps_CP_GF@sam_data$population=='CP')# 709 CP samples (both OP and NP)
+sum(ps_CP_GF@sam_data$population== 'GF')# 169 GF samples (both OP and NP)
+
+# NP samples
+sum(ps_CP_GF@sam_data$population=='CP' & ps_CP_GF@sam_data$niche=='NP')# 319 CP NP samples 
+sum(ps_CP_GF@sam_data$population=='GF' & ps_CP_GF@sam_data$niche=='NP')# 77 GF NP samples 
+
+# OP samples
+sum(ps_CP_GF@sam_data$population=='CP' & ps_CP_GF@sam_data$niche=='OP')# 390 CP NP samples 
+sum(ps_CP_GF@sam_data$population=='GF' & ps_CP_GF@sam_data$niche=='OP')# 92 GF OP samples
+```
+# Multivariable PERMANOVA functions
+```{r}
+beta_df <- function(ord, meta, var) { 
+  m_sub <- subset(meta, !is.na(meta[var]))
+  m_sub <- subset(m_sub, !is.na(m_sub["age"]))
+  m_sub <- subset(m_sub, !is.na(m_sub["sampling_season"]))  
+  m_sub <- subset(m_sub, !is.na(m_sub["gender"]))
+  m_sub <- subset(m_sub, !is.na(m_sub["smoked_ever"]))
+  
+  ord_sub <- ord[rownames(ord) %in% m_sub$sample_id, colnames(ord) %in% 
+                   m_sub$sample_id]
+  ord_sub <- as.dist(ord_sub)
+  return(list(ord_sub = ord_sub, m_sub = m_sub))
+}
+
+do_permanova <- function(ord, meta, var) {
+  t <- adonis2(as.formula(glue("ord ~ {var} + age + sampling_season + gender + smoked_ever")), 
+               permutations = 999, data = meta)
+  return(t)
+}
+
+do_permanova_com <- function(ord, meta, var) {
+  t <- beta_df(ord, meta, var) %>% { do_permanova(ord = .$ord_sub, 
+                                                    meta = .$m_sub, var) } 
+  t <- broom::tidy(t)
+  t <- subset(t, term == var)
+  
+  t <- t %>% mutate(
+  label = ifelse(p.value < 0.25, "*", NA),
+  label = ifelse(p.value < 0.1, "**", label),
+  label = ifelse(p.value < 0.05, "***", label))
+
+  return(t)
+}
+```
+
+
+# Filter phyloseq and convert to relative abundance 
+```{r}
+# Filter the ps object by niche and population
+# Apply a prevalence/abundance filter to the phyloseq objects
+# Then convert to RA
+ps_np <- subset_samples(ps_CP_GF, niche == "NP") %>% pres_abund_filter() %>% to_RA() 
+ps_op <- subset_samples(ps_CP_GF, niche == "OP") %>% pres_abund_filter() %>% to_RA() 
+ps_cp <- subset_samples(ps_CP_GF, population == "CP") %>% pres_abund_filter() %>% to_RA() 
+ps_gf <- subset_samples(ps_CP_GF, population == "GF") %>% pres_abund_filter() %>% to_RA()  
+ps_all <- ps_CP_GF %>% pres_abund_filter() %>% to_RA() 
+
+# Convert the otu tables from the above phyloseq objects to dataframes
+otu_np <- as.data.frame(otu_table(ps_np)) %>% t()
+otu_op <- as.data.frame(otu_table(ps_op)) %>% t()
+otu_cp <- as.data.frame(otu_table(ps_cp)) %>% t()
+otu_gf <- as.data.frame(otu_table(ps_gf)) %>% t()
+otu_all <- as.data.frame(otu_table(ps_all)) %>% t()
+
+# Extract metadata for each ps object
+df_np <- meta_to_df(ps_np)
+df_op <- meta_to_df(ps_op)
+df_cp <- meta_to_df(ps_cp)
+df_gf <- meta_to_df(ps_gf)
+df_all <- meta_to_df(ps_all)
+
+# Compute BC dissimilarity matrices for each ps
+ord_np <- vegdist(otu_np, method = "bray") %>% as.matrix()
+ord_op <- vegdist(otu_op, method = "bray") %>% as.matrix()
+ord_cp <- vegdist(otu_cp, method = "bray") %>% as.matrix()
+ord_gf <- vegdist(otu_gf, method = "bray") %>% as.matrix()
+ord_all <- vegdist(otu_all, method = "bray") %>% as.matrix()
+```
+# Multivariable PERMANOVAs
+```{r}
+# Population effect (corrected for age + sampling_season + gender + smoked_ever)
+population_CPvsGF_NP <- do_permanova_com(ord_np, df_np, "population") %>% unnest()
+population_CPvsGF_NP$group <- "NP"
+
+population_CPvsGF_OP <- do_permanova_com(ord_op, df_op, "population") %>% unnest()
+population_CPvsGF_OP$group <- "OP"
+
+# Niche effect per population (corrected for age + sampling_season + gender + smoked_ever), 
+niche_OPvsNP_CP <- do_permanova_com(ord_cp, df_cp, "niche") %>% unnest()
+niche_OPvsNP_CP$group <- "CP"
+
+niche_OPvsNP_GF <- do_permanova_com(ord_gf, df_gf, "niche") %>% unnest()
+niche_OPvsNP_GF$group <- "GF"
+
+# Combine mutivariable PERMANOVA results for population (both NP and OP)
+population_multiPERM <- rbind(population_CPvsGF_NP, population_CPvsGF_OP)
+niche_multiPERM <- rbind(niche_OPvsNP_CP, niche_OPvsNP_GF)
+
+# save as csv
+write.csv(population_multiPERM, "../Output/Beta_diversity/Multivariable_PERMANOVAs/Occupational_CP_GF_multivarPERM.csv")
+```
+# PCoA plots
+## CP vs GF for NP niche
+```{r}
+ps_np@sam_data$population <- factor(ps_np@sam_data$population, levels = c("CP", "GF"))
+# Extract R2 and p-value from multivariable PERMANOVA
+pop_NP_r2 <- round(population_CPvsGF_NP$R2, 3)
+pop_NP_r2_pval <- population_CPvsGF_NP$p.value
+pop_NP_r2_sig <- population_CPvsGF_NP$label
+
+
+PCoA_pop_NP <- ps_np %>% 
+  dist_calc("bray") %>%
+  ord_calc(method = "PCoA") %>%
+  ord_plot(color = "population", shape = "population", size = 2) +
+  scale_colour_brewer(palette = "Set2", aesthetics = c("fill", "colour")) +
+  stat_ellipse(aes(fill = population, color = population), 
+               type = "t", level = 0.95, size = 1) +
+  theme_bw() +
+  ggside::geom_xsideboxplot(aes(fill = population, y = population), orientation = "y") +
+  ggside::geom_ysideboxplot(aes(fill = population, x = population), orientation = "x") +
+  ggside::scale_xsidey_discrete(labels = NULL) +
+  ggside::scale_ysidex_discrete(labels = NULL) +
+  ggside::theme_ggside_void() +
+  # Add PERMANOVA R² and p-value as annotation
+  annotate("text", x = Inf, y = -1.3, 
+           label = paste0("R² = ", pop_NP_r2, "\n", 
+                          "p value = ", format(pop_NP_r2_pval, scientific = TRUE), " ", pop_NP_r2_sig), 
+           hjust = 1.1, vjust = 1.5, size = 4, color = "black")
+
+
+ggsave("../Output/Beta_diversity/Multivariable_PERMANOVAs/PCoA_GFvsCP_NP.svg", PCoA_pop_NP)
+```
+## CP vs GF for OP niche
+```{r}
+ps_op@sam_data$population <- factor(ps_op@sam_data$population, levels = c("CP", "GF"))
+# Extract R2 and p-value from multivariable PERMANOVA
+pop_OP_r2 <- round(population_CPvsGF_OP$R2, 3)
+pop_OP_r2_pval <- population_CPvsGF_OP$p.value
+pop_OP_r2_sig <- population_CPvsGF_OP$label
+
+PCoA_pop_OP <- ps_op %>% 
+  dist_calc("bray") %>%
+  ord_calc(method = "PCoA") %>%
+  ord_plot(color = "population", shape = "population", size = 2) +
+  scale_colour_brewer(palette = "Set2", aesthetics = c("fill", "colour")) +
+    stat_ellipse(aes(fill = population, color = population), 
+               type = "t", level = 0.95, size = 1) +
+  theme_bw() +
+  ggside::geom_xsideboxplot(aes(fill = population, y = population), orientation = "y") +
+  ggside::geom_ysideboxplot(aes(fill = population, x = population), orientation = "x") +
+  ggside::scale_xsidey_discrete(labels = NULL) +
+  ggside::scale_ysidex_discrete(labels = NULL) +
+  ggside::theme_ggside_void()+
+  # Add PERMANOVA R² and p-value as annotation
+
+annotate("text", x = Inf, y = -1.3, 
+           label = paste0("R² = ", pop_OP_r2, "\n", 
+                          "p value = ", format(pop_OP_r2_pval, scientific = TRUE), " ", pop_OP_r2_sig), 
+           hjust = 1.1, vjust = 1.5, size = 4, color = "black")
+
+ggsave("../Output/Beta_diversity/Multivariable_PERMANOVAs/PCoA_GFvsCP_OP.svg", PCoA_pop_OP)
+```
+# Niche for CP
+```{r}
+# Extract R2 and p-value from multivariable PERMANOVA
+niche_CP_r2 <- round(niche_OPvsNP_CP$R2, 3)
+niche_CP_r2_pval <- niche_OPvsNP_CP$p.value
+niche_CP_r2_sig <- niche_OPvsNP_CP$label
+
+PCoA_niche_CP <- ps_cp %>% 
+  dist_calc("bray") %>%
+  ord_calc(method = "PCoA") %>%
+  ord_plot(color = "niche", shape = "niche", size = 2) +
+  scale_colour_brewer(palette = "Set2", aesthetics = c("fill", "colour")) +
+    stat_ellipse(aes(fill = niche, color = niche), 
+               type = "t", level = 0.95, size = 1) +
+  theme_bw() +
+  ggside::geom_xsideboxplot(aes(fill = niche, y = niche), orientation = "y") +
+  ggside::geom_ysideboxplot(aes(fill = niche, x = niche), orientation = "x") +
+  ggside::scale_xsidey_discrete(labels = NULL) +
+  ggside::scale_ysidex_discrete(labels = NULL) +
+  ggside::theme_ggside_void()+
+  # Add PERMANOVA R² and p-value as annotation
+
+annotate("text", x = Inf, y = -2.2, 
+           label = paste0("R² = ", niche_CP_r2, "\n", 
+                          "p value = ", format(niche_CP_r2_pval, scientific = TRUE), " ", niche_CP_r2_sig), 
+           hjust = 1.1, vjust = 1.5, size = 4, color = "black")
+
+ggsave("../Output/Beta_diversity/Multivariable_PERMANOVAs/PCoA_niche_CP.svg", PCoA_niche_CP)
+```
+
+
+
+
+
+
