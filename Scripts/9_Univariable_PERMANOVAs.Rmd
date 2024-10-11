@@ -1,0 +1,342 @@
+---
+title: "Univariable PERMANOVAs"
+author: Beatrice Cornu Hewitt
+---
+
+# Packages
+```{r}
+library(tidyverse);library(magrittr);library(glue);library(here);library(ggtext);library(fs);library(phyloseq);library(microbiomer);library(vegan);library(microbiome);library(decontam);library(reshape2);library(colorspace);library(scales);library(ggpubr);library(ggvenn);library(ggnewscale);library(RColorBrewer);library(paletteer);library(broom);library(rcartocolor);library(microViz);library(ggside);library(ggplot2);library(dplyr);library(tidyr)
+
+# Set theme for all plots in this script
+theme_set(theme_bw())
+theme_update(axis.text.x = element_text(angle = 45, hjust=1),
+             strip.text = element_text(colour = 'white'),
+             strip.background =element_rect(fill="#2F4858", color = "#2F4858"))
+```
+
+# Set-up
+## Functions
+
+```{r}
+beta_df <- function(ord, meta, var) { 
+  m_sub <- subset(meta, !is.na(meta[var]))
+  ord_sub <- ord[rownames(ord) %in% m_sub$sample_id, colnames(ord) %in% 
+                   m_sub$sample_id]
+  ord_sub <- as.dist(ord_sub)
+  return(list(ord_sub = ord_sub, m_sub = m_sub))
+}
+
+do_permanova <- function(ord, meta, var) {
+  t <- adonis2(as.formula(glue("ord ~ {var}")), 
+               permutations = 999, data = meta)
+  return(t)
+}
+
+do_permanova_com <- function(ord, meta, var) {
+  t <- beta_df(ord, meta, var) %>% { do_permanova(ord = .$ord_sub, 
+                                                    meta = .$m_sub, var) } 
+  t <- broom::tidy(t)
+  t <- subset(t, term == var)
+  
+  t <- t %>% mutate(
+  label_p.value = ifelse(p.value < 0.25, "*", NA),
+  label_p.value = ifelse(p.value < 0.1, "**", label_p.value),
+  label_p.value = ifelse(p.value < 0.05, "***", label_p.value))
+
+  return(t)
+}
+```
+
+# Load data 
+```{r}
+ps <- readRDS("../Output/Phyloseq/ps_complete_new_metadata.rds")
+
+names <- readxl::read_xlsx("../Output/Metadata/Codebook_metadata_all.xlsx")
+
+t <- subset(names, !grepl("Number", Values))
+m <- meta_to_df(ps)
+m <- mutate_at(m, (colnames(m)[colnames(m) %in% t$`Variable name`]), as.character)
+rownames(m) <- m$sample_id
+m <- select(m, -c("sample_id"))
+sample_data(ps) <- m
+```
+# Univariable PERMANOVA 
+## Nasopharynx for CP
+```{r}
+# Remove low abundant ASVs and convert counts to relative abundances
+ps_np_filtered <- subset_samples(ps, niche == "NP") %>% pres_abund_filter() %>% to_RA()
+
+# Subset for CP only
+ps_np_cp <- subset_samples(ps_np_filtered, population == "CP")
+otu_np_cp <- as.data.frame(otu_table(ps_np_cp)) %>% t()
+meta_np_cp <- meta_to_df(ps_np_cp)
+
+# Generate bray-curtis matrix
+bc_dist_np_cp <- vegdist(otu_np_cp, method = "bray")
+bray_np_cp_matrix <- bc_dist_np_cp %>% as.matrix()
+
+```
+## Univariable PERMANOVA
+```{r}
+# Variables of interest for univariable testing
+variables_cp_np <- c("gender", "age", "smoked_ever", "sampling_season", "animal_contact_lastmth", "abroad_lastmth", "flu_vacc", "pneumococcal_vacc", "pneumonia_lastyr", "acute_resp_infec_lastyr", "covid19", 
+                     "antibiotics_lastyr", "antacids_lastyr", "lung_med", "beta_blockers", 
+                     "heart_vascu_disorder", "diabetes", "nasal_allergy", "asthma_ever", 
+                     "COPD_emphysema_diag", "EAA_diag", "cort_inhaler_lastyr", 
+                     "pneumonia_last3yr", "pets_last5yrs", "imm_def",
+                     "KRD_nGoatsWghtDist.2000m.sum", "KRD_nPoultryWghtDist.2000m.sum", 
+                     "KRD_nPigsWghtDist.2000m.sum", "KRD_nCowsWghtDist.2000m.sum") # Add other variables when ready (endotoxin dispersion-modelled and RF modelled microbial agents)
+
+
+
+# Ensure variables are correctly typed
+meta_np_cp[variables_cp_np] <- lapply(meta_np_cp[variables_cp_np], function(x) {
+  if (is.character(x) || is.logical(x)) {
+    as.factor(x)
+  } else {
+    x  # Keep continuous variables as is
+  }
+})
+
+
+# Separate continuous and categorical variables
+categorical_vars <- variables_cp_np[sapply(meta_np_cp[variables_cp_np], is.factor)]
+continuous_vars <- variables_cp_np[sapply(meta_np_cp[variables_cp_np], is.numeric)]
+
+# Pivot longer for analysis
+meta_summary_np_cp <- pivot_longer(mutate_all(meta_np_cp, as.character), 
+                                   cols = variables_cp_np, names_to = "Var", values_to = "Cat")
+
+# Count occurrences for categorical variables only
+meta_summary_np_cp_cat <- meta_summary_np_cp %>%
+  filter(Var %in% categorical_vars) %>%
+  count(Var, Cat) %>%
+  filter(!is.na(Cat))
+
+# Apply filtering for categorical variables based on count
+meta_summary_np_filtered_cat <- meta_summary_np_cp_cat %>%
+  filter(n > 9) %>%
+  count(Var) %>%
+  filter(n > 1)
+
+# For continuous variables, we keep all of them without filtering
+meta_summary_np_filtered_cont <- data.frame(Var = continuous_vars)
+
+# Combine filtered categorical and continuous variables
+final_variable_list_np <- unique(c(meta_summary_np_filtered_cat$Var, meta_summary_np_filtered_cont$Var))
+
+# Create a dataframe for analysis
+variable_list_np <- data_frame(Var = final_variable_list_np, fit = NA)
+
+# Perform PERMANOVA for each variable
+perm_np_cp <- variable_list_np %>% mutate(
+  fit = map(Var, ~do_permanova_com(bray_np_cp_matrix, meta_np_cp, .x))) %>% 
+  unnest(fit)
+
+
+perm_np_cp$type <- "Bray Curtis"
+perm_np_cp$population <- "CP"
+perm_np_cp$niche <- "NP"
+
+# Add the variable description to the dataframe
+perm_np_cp <- perm_np_cp %>%
+  left_join(names, by = c("Var" = "Variable name"))
+# Adjust the p values for multiple testing for the OP niche 
+perm_np_cp$q.value <- p.adjust(perm_np_cp$p.value, "BH")
+perm_np_cp <- perm_np_cp %>% mutate(
+  label_q.value = ifelse(q.value < 0.25, "*", NA),
+  label_q.value = ifelse(q.value < 0.1, "**", label_q.value),
+  label_q.value = ifelse(q.value < 0.05, "***", label_q.value))
+
+# Save results
+write.csv(perm_np_cp, "../Output/Beta_diversity/Univariable_PERMANOVAs/univariable_perm_cp_np.csv")
+```
+## Oropharynx for CP 
+```{r}
+# Remove low abundant ASVs and convert counts to relative abundances
+ps_op_filtered <- subset_samples(ps, niche == "OP") %>% pres_abund_filter() %>% to_RA()
+
+# Subset for CP only
+ps_op_cp <- subset_samples(ps_op_filtered, population == "CP")
+otu_op_cp <- as.data.frame(otu_table(ps_op_cp)) %>% t()
+meta_op_cp <- meta_to_df(ps_op_cp)
+
+# Generate bray-curtis matrix
+bc_dist_op_cp <- vegdist(otu_op_cp, method = "bray")
+bray_op_cp_matrix <- bc_dist_op_cp %>% as.matrix()
+```
+## Univariable PERMANOVA
+```{r}
+# Variables of interest for univariable testing
+variables_cp_op <- c("gender", "age", "smoked_ever", "sampling_season", "animal_contact_lastmth", "abroad_lastmth", "flu_vacc", "pneumococcal_vacc", "pneumonia_lastyr", "acute_resp_infec_lastyr", "covid19", 
+                     "antibiotics_lastyr", "antacids_lastyr", "lung_med", "beta_blockers", 
+                     "heart_vascu_disorder", "diabetes", "nasal_allergy", "asthma_ever", 
+                     "COPD_emphysema_diag", "EAA_diag", "cort_inhaler_lastyr", 
+                     "pneumonia_last3yr", "pets_last5yrs", "imm_def",
+                     "KRD_nGoatsWghtDist.2000m.sum", "KRD_nPoultryWghtDist.2000m.sum", 
+                     "KRD_nPigsWghtDist.2000m.sum", "KRD_nCowsWghtDist.2000m.sum") # Add other variables when ready (endotoxin dispersion-modelled and RF modelled microbial agents)
+
+# Ensure variables are correctly typed
+meta_op_cp[variables_cp_op] <- lapply(meta_op_cp[variables_cp_op], function(x) {
+  if (is.character(x) || is.logical(x)) {
+    as.factor(x)
+  } else {
+    x  # Keep continuous variables as is
+  }
+})
+
+# Separate continuous and categorical variables
+categorical_vars <- variables_cp_op[sapply(meta_op_cp[variables_cp_op], is.factor)]
+continuous_vars <- variables_cp_op[sapply(meta_op_cp[variables_cp_op], is.numeric)]
+
+# Pivot longer for analysis
+meta_summary_op_cp <- pivot_longer(mutate_all(meta_op_cp, as.character), 
+                                   cols = variables_cp_op, names_to = "Var", values_to = "Cat")
+
+# Count occurrences for categorical variables only
+meta_summary_op_cp_cat <- meta_summary_op_cp %>%
+  filter(Var %in% categorical_vars) %>%
+  count(Var, Cat) %>%
+  filter(!is.na(Cat))
+
+# Apply filtering for categorical variables based on count
+meta_summary_op_filtered_cat <- meta_summary_op_cp_cat %>%
+  filter(n > 9) %>%
+  count(Var) %>%
+  filter(n > 1)
+
+# For continuous variables, we keep all of them without filtering
+meta_summary_op_filtered_cont <- data.frame(Var = continuous_vars)
+
+# Combine filtered categorical and continuous variables
+final_variable_list_op <- unique(c(meta_summary_op_filtered_cat$Var, meta_summary_op_filtered_cont$Var))
+
+# Create a dataframe for analysis
+variable_list_op <- data_frame(Var = final_variable_list_op, fit = NA)
+
+# Perform PERMANOVA for each variable
+perm_op_cp <- variable_list_op %>% mutate(
+  fit = map(Var, ~do_permanova_com(bray_op_cp_matrix, meta_op_cp, .x))) %>% 
+  unnest(fit)
+
+
+perm_op_cp$type <- "Bray Curtis"
+perm_op_cp$population <- "CP"
+perm_op_cp$niche <- "OP"
+
+# Add the variable description to the dataframe
+perm_op_cp <- perm_op_cp %>%
+  left_join(names, by = c("Var" = "Variable name"))
+# Adjust the p values for multiple testing for the OP niche 
+perm_op_cp$q.value <- p.adjust(perm_op_cp$p.value, "BH")
+perm_op_cp <- perm_op_cp %>% mutate(
+  label_q.value = ifelse(q.value < 0.25, "*", NA),
+  label_q.value = ifelse(q.value < 0.1, "**", label_q.value),
+  label_q.value = ifelse(q.value < 0.05, "***", label_q.value))
+
+# Save results
+write.csv(perm_op_cp, "../Output/Beta_diversity/Univariable_PERMANOVAs/univariable_perm_cp_op.csv")
+
+```
+
+## Combine PERMANOVA results for
+```{r}
+Univar_perm_CP <- rbind(perm_np_cp, perm_op_cp)
+
+
+write.csv(Univar_perm_CP, "../Output/Beta_diversity/Univariable_PERMANOVAs/univariable_perm_cp_np_op.csv")
+```
+
+# Visualise univariable PERMANOVA results
+```{r}
+# Reshape data if necessary, assuming it's in wide format
+# Otherwise, if your data is already long, you can skip this
+# Check the structure of Univar_perm_CP
+# Ensure that only R2 and p-value columns are used in pivot_longer
+Univar_perm_CP$Description <- ifelse(Univar_perm_CP$Var == "beta_blockers", "Are you using beta blockers", Univar_perm_CP$Description)
+Univar_perm_CP$Description <- ifelse(Univar_perm_CP$Var == "acute_resp_infec_lastyr", "Have you had an acute respiratory infection in the past year?", Univar_perm_CP$Description)
+
+
+long_data <- Univar_perm_CP %>%
+  select(niche, Var, Description, R2, label_q.value)  # Select only necessary columns
+
+# Plot heatmap with R2 as fill and q-value as label
+hm <- long_data %>%
+  ggplot(aes(x = niche, y = Description, fill = R2)) +
+  geom_tile(width = 0.9, height = 0.9) +  # Remove borders and adjust cell size
+  scale_fill_gradient2(low = carto_pal(7, "Earth")[1],
+                       mid = carto_pal(7, "Earth")[4],
+                       high = carto_pal(7, "Earth")[7],
+                       limits = c(0, 0.025), # Max R2 is 0.024 
+                       na.value = carto_pal(7, "Earth")[7]) + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.text.y = element_text(size = 10),  # Customize y-axis text size
+        strip.text.y = element_blank(),  # Remove repeated y-axis labels
+        strip.text = element_text(face = "bold", size = 12),  # Bold facet labels
+        panel.grid = element_blank(),  # Remove default grid
+        plot.background = element_blank(), 
+        axis.title.y = element_blank(),
+        axis.title.x = element_blank())  +
+  geom_text(aes(label = label_q.value), color = "black", size = 4, vjust = 0.8) + 
+  labs(fill = "R2") + 
+  guides(fill = guide_colourbar(title.position = "top", title.hjust = 0.5)) + 
+  facet_grid(Description ~ niche, scales = "free", space = "free", drop = TRUE)  # Add drop = TRUE
+hm
+
+
+ggsave("../Output/Beta_diversity/Univariable_PERMANOVAs/Univariable_heatmap.svg", hm, width = 8, height = 12)
+
+
+```
+# Visualise univariable PERMANOVA results - grouped heatmap
+```{r}
+# Define categories for grouping
+long_data <- Univar_perm_CP %>%
+  select(niche, Var, Description, R2, label_q.value) %>%
+  mutate(Category = case_when(
+    Var %in% c("gender", "age", "smoked_ever", "sampling_season", "animal_contact_lastmth", 
+               "abroad_lastmth", "pets_last5yrs") ~ "Personal characteristics",
+    Var %in% c("KRD_nGoatsWghtDist.2000m.sum", "KRD_nPoultryWghtDist.2000m.sum", 
+               "KRD_nPigsWghtDist.2000m.sum", "KRD_nCowsWghtDist.2000m.sum") ~ "Livestock exposure variables",
+    Var %in% c("asthma_ever", "nasal_allergy", "heart_vascu_disorder", "covid19", "diabetes",
+               "acute_resp_infec_lastyr", "pneumonia_lastyr", "pneumonia_last3yr", "imm_def", 
+               "COPD_emphysema_diag", "EAA_diag", "antibiotics_lastyr", "antacids_lastyr", 
+               "lung_med", "beta_blockers", "cort_inhaler_lastyr", "flu_vacc", "pneumococcal_vacc") ~ "Health factors"
+  ))
+
+
+# Ensure the categories appear in the desired order
+long_data$Category <- factor(long_data$Category, 
+                             levels = c("Personal characteristics", "Livestock exposure variables", "Health factors"))
+
+# Reorder the Description if necessary for better visualization
+long_data <- long_data %>%
+  arrange(Category, Description)
+
+# Create heatmap
+hm <- ggplot(long_data, aes(x = niche, y = Description, fill = R2)) +
+  geom_tile(width = 0.9, height = 0.9) +  # Remove borders and adjust cell size
+  scale_fill_gradient2(low = carto_pal(7, "Earth")[1],
+                       mid = carto_pal(7, "Earth")[4],
+                       high = carto_pal(7, "Earth")[7],
+                       limits = c(0, 0.025),  # Adjust based on max R2
+                       na.value = carto_pal(7, "Earth")[7]) + 
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.text.y = element_text(size = 10),  # Customize y-axis text size
+        strip.text.y = element_blank(),  # Remove repeated y-axis labels
+        strip.text = element_text(face = "bold", size = 12),  # Bold facet labels
+        panel.grid = element_blank(),  # Remove default grid
+        plot.background = element_blank(), 
+        axis.title.y = element_blank(),
+        axis.title.x = element_blank())  +
+  geom_text(aes(label = label_q.value), color = "black", size = 4, vjust = 0.8) + 
+  labs(fill = "R2", 
+       caption = "q-values: * < 0.25, ** < 0.1, *** < 0.05") +  # Add q-value information to legend
+  guides(fill = guide_colourbar(title.position = "top", title.hjust = 0.5)) + 
+  facet_wrap(~ Category, scales = "free_y", ncol = 1, strip.position = "top")  # Add facet wrapping by Category
+
+# Save the plot as an SVG
+ggsave("../Output/Beta_diversity/Univariable_PERMANOVAs/heatmap.svg", plot = hm, width = 8, height = 8)
+
+```
+
