@@ -1,0 +1,71 @@
+---
+title: "Alpha diversity"
+author: "Beatrice Cornu Hewitt" 
+date: "`r Sys.time()`"
+---
+
+# Packages
+```{r}
+library(phyloseq); library(microbiomer)
+```
+
+# Data
+```{r}
+ps <- readRDS("../Output/Phyloseq/ps_complete_new_metadata.rds")
+```
+
+
+```{r}
+# Remove low abundant ASVs and convert counts to relative abundances
+ps_np_filtered <- subset_samples(ps, niche == "NP") %>% pres_abund_filter() %>% to_RA()
+
+# Subset for CP only
+ps_np_cp <- subset_samples(ps_np_filtered, population == "CP")
+otu_np_cp <- as.data.frame(otu_table(ps_np_cp)) %>% t()
+meta_np_cp <- meta_to_df(ps_np_cp)
+
+
+```
+
+
+We use linear models to test the effect of various metadata variables on the Shannon index, observed species and bacterial density. This was done for each niche separately. Models were corrected for age, season of sampling, sex and smoking status of the participant. We visualize the results as boxplots including the p-values from the tests.
+
+```{r}
+meta_np_cp$KRD_nGoatsWghtDist.2000m.sum
+lm_cattle2km_np <- lm(Shannon ~  KRD_nCowsWghtDist.2000m.sum + age + sampling_season + gender + smoked_ever, data = meta_np_cp)
+lm_goats2km_np <- lm(Shannon ~  KRD_nGoatsWghtDist.2000m.sum + age + sampling_season + gender + smoked_ever, data = meta_np_cp)
+
+# Check associations between Shannon and livestock exposure variables - check if linear
+plot(meta_np_cp$KRD_nGoatsWghtDist.2000m.sum, meta_np_cp$Shannon,
+     xlab = "Livestock Exposure (KRD_nGoatsWghtDist.2000m.sum)",
+     ylab = "Shannon Diversity",
+     main = "Shannon Diversity vs. Goat Exposure")
+abline(lm(Shannon ~ KRD_nGoatsWghtDist.2000m.sum, data = meta_np_cp), col = "blue")
+
+
+plot(meta_np_cp$KRD_nGoatFarm.2000m, meta_np_cp$Shannon,
+     xlab = "Livestock Exposure (KRD_nGoatFarm.2000m)",
+     ylab = "Shannon Diversity",
+     main = "Shannon Diversity vs. number of goat farms in 2km")
+abline(lm(Shannon ~ KRD_nGoatFarm.2000m, data = meta_np_cp), col = "blue")
+
+plot(meta_np_cp$KRD_MindistGoatFarm50.NEG, meta_np_cp$Shannon,
+     xlab = "Livestock Exposure (KRD_MindistGoatFarm50.NEG)",
+     ylab = "Shannon Diversity",
+     main = "Shannon Diversity vs. min dist to goat farm")
+abline(lm(Shannon ~ KRD_MindistGoatFarm50.NEG, data = meta_np_cp), col = "blue")
+
+
+plot(meta_np_cp$KRD_nAnyFarm_2000m, meta_np_cp$Shannon,
+     xlab = "Livestock Exposure (KRD_nAnyFarm_2000m)",
+     ylab = "Shannon Diversity",
+     main = "Shannon Diversity vs. farm exposure")
+abline(lm(Shannon ~ KRD_nAnyFarm_2000m, data = meta_np_cp), col = "blue")
+
+
+plot(meta_np_cp$KRD_MindistAnyFarm.NEG, meta_np_cp$Shannon,
+     xlab = "Livestock Exposure (KRD_MindistAnyFarm.NEG)",
+     ylab = "Shannon Diversity",
+     main = "Shannon Diversity vs. min dist to farm")
+abline(lm(Shannon ~ KRD_MindistAnyFarm.NEG, data = meta_np_cp), col = "blue")
+```
