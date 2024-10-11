@@ -8,7 +8,7 @@ Some metadata needs to be added which was not originally added when creating the
 We add this now to the ps_complete phyloseq object
 
 ```{r}
-ps_complete_original <- readRDS("../Output/Phyloseq/x superseded/ps_complete.rds")
+ps_complete_original <- readRDS("../Output/Phyloseq/ps_complete.rds")
 original_samdata <- ps_complete_original@sam_data
 original_samdata_df <- data.frame(original_samdata)
 
@@ -28,5 +28,5 @@ new_sample_data <- sample_data(new_metadata_KRD2022)
 ps_new <- ps_complete_original
 ps_new@sam_data <- new_sample_data
 
-saveRDS(ps_new, "../Output/Phyloseq/ps_complete.rds")
+saveRDS(ps_new, "../Output/Phyloseq/ps_complete_new_metadata.rds")
 ```
