@@ -1,0 +1,980 @@
+---
+title: "DA analysis"
+author: "Beatrice Cornu Hewitt" 
+date: "`r Sys.time()`"
+---
+# Packages
+```{r}
+library(phyloseq); library(dplyr); library(ANCOMBC); library(mia); library(DT); library(Maaslin2); library(microbiomer); library(patchwork);library(rcartocolor); library(ggplot2); library(scales); library(cartography); library(mia); library(rngtools); library(tidyverse); library(mia)
+
+# Set the theme for ggplot
+theme_set(theme_bw())
+theme_update(
+  axis.text.x = element_text(angle = 45, hjust = 1),
+  strip.text = element_text(colour = 'white'),
+  strip.background = element_rect(fill = "#2F4858", color = "#2F4858")
+)
+```
+# Functions
+```{r}
+# Function to conduct MaAsLin2
+do_maaslin2 <- function(ps, var, other_var, ref = NULL) { 
+  #pre-processing
+  sample_data(ps) <- sample_data(ps)[!is.na(sample_data(ps)[,var])]
+  ps <- prune_taxa(taxa_sums(ps) > 0, ps)
+  otu <- ps@otu_table %>% as.data.frame() %>% t() %>% as.data.frame()
+  meta <- meta_to_df(ps)
+  rownames(meta) <- meta$sample_id
+  meta <- as.data.frame(meta)
+  otu <- otu[rownames(otu) %in% rownames(meta),]
+  #Maaslin2
+  ms = Maaslin2(
+    input_data = otu, 
+    input_metadata = meta, 
+    output = var, 
+    fixed_effects = c(var, other_var), 
+    normalization = "NONE",
+    min_abundance = 0,
+    min_prevalence = 0,
+    plot_heatmap = FALSE,
+    plot_scatter = FALSE,
+    reference = ref)
+  #Edit dataframe
+  ms <- ms$results
+  ms$var <- var
+  
+  ms <- ms[ms$metadata == var,]
+  
+  ms <- ms %>% mutate(conf.low = coef-1.96*stderr,
+                      conf.high = coef+1.96*stderr,
+                      label = ifelse(qval < 0.25, "*", NA),
+                      label = ifelse(qval < 0.1, "**", label),
+                      label = ifelse(qval < 0.05, "***", label)
+                      )
+  return(ms)
+}
+```
+# Read in data
+## CP only
+```{r}
+# Read in the phyloseq object which has the new metadata and the RF model predictions
+ps_new_metadata_RFpreds <- readRDS("../Output/Phyloseq/ps_complete_new_metadata_RFpreds.rds")
+# Remove any samples from pneumonia patients as not used in the analysis
+ps_cp <- subset_samples(ps_new_metadata_RFpreds, population == "CP")
+ps_cp <- prune_taxa(taxa_sums(ps_cp) > 0, ps_cp) # Also remove taxa that are not in the CP ps object
+
+# Count number of ASVs and genera left in ps object
+length(unique(as.data.frame(tax_table(ps_cp))$ASV)) # 17495
+length(unique(as.data.frame(tax_table(ps_cp))$Genus)) # 960
+```
+## CP and GF 
+```{r}
+# CPs were matched 1:1 with the GFs (see other R notebook - "Matching_controls_goatfarmers.Rmd")
+ps_cp_gf_matched <- readRDS("../Output/Phyloseq/ps_complete_matchedCPGF.rds")
+
+# Count number of ASVs and genera in ps object
+length(unique(as.data.frame(tax_table(ps_cp_gf_matched))$ASV)) # 7345
+length(unique(as.data.frame(tax_table(ps_cp_gf_matched))$Genus)) # 761
+```
+# Data processing
+## Filtering and conversion to relative abundance
+### CP only
+```{r}
+# Apply the presence abundance filter (Subramanian et al., Nature, 2014: 0.1% relative abundance in at least 2 samples - we do this for the overall data at first - rare taxa can introduce noise so first apply this global filter. 
+# Then convert the ASVs to relative abundances to account for different sequencing depths (normalization step)
+ps_cp_RA <- ps_cp %>% 
+  pres_abund_filter() %>% 
+  to_RA() 
+# A total of 2215 ASVs were found to be present at or above a level of confident detection (0.1% relative abundance) in at least 2 samples (n = 15280 ASVs excluded).
+
+# Count number of ASVs and genera left in ps object
+length(unique(as.data.frame(tax_table(ps_cp_RA))$ASV))
+length(unique(as.data.frame(tax_table(ps_cp_RA))$Genus))
+```
+### CP and GF
+```{r}
+ps_cp_gf_RA <- ps_cp_gf_matched %>% 
+  pres_abund_filter() %>% 
+  to_RA() 
+# A total of 1103 ASVs were found to be present at or above a level of confident detection (0.1% relative abundance) in at least 2 samples (n = 6242 ASVs excluded).
+
+# Count number of genera left in ps object
+length(unique(as.data.frame(tax_table(ps_cp_gf_RA))$ASV))
+length(unique(as.data.frame(tax_table(ps_cp_gf_RA))$Genus))
+```
+
+## Convert to absolute abundances 
+### CP only
+```{r}
+# Convert RA of ASVs by multiplying by the 16S qPCR measurements
+cp_otu_tb <- otu_tab_to_df(ps_cp_RA)
+cp_meta_tb <- meta_to_df(ps_cp_RA)
+# Multiple RA by qPCR 
+cp_otu_tb <- cp_otu_tb %>%
+  mutate(across(-sample_id, ~.x*cp_meta_tb$qPCR)) %>% 
+  as.data.frame()
+# Make sample IDs the row names of the otu table
+rownames(cp_otu_tb) <- cp_otu_tb$sample_id
+# Remove the first column, transpose and convert to df
+cp_otu_tb <- cp_otu_tb[,-1] %>% 
+  t() %>%
+  as.data.frame() 
+# Create ps object with absolute abundance otu table
+ps_abs_cp <- phyloseq(otu_table(cp_otu_tb, 
+                             taxa_are_rows = T), 
+                   tax_table(ps_cp_RA), 
+                   sample_data(ps_cp_RA))
+```
+### CP and GF
+```{r}
+cp_gf_otu_tb <- otu_tab_to_df(ps_cp_gf_RA)
+cp_gf_meta_tb <- meta_to_df(ps_cp_gf_RA)
+# Multiple RA by qPCR 
+cp_gf_otu_tb <- cp_gf_otu_tb %>%
+  mutate(across(-sample_id, ~.x*cp_gf_meta_tb$qPCR)) %>% 
+  as.data.frame()
+# Make sample IDs the row names of the otu table
+rownames(cp_gf_otu_tb) <- cp_gf_otu_tb$sample_id
+# Remove the first column, transpose and convert to df
+cp_gf_otu_tb <- cp_gf_otu_tb[,-1] %>% 
+  t() %>%
+  as.data.frame() 
+# Create ps object with absolute abundance otu table
+ps_abs_cp_gf <- phyloseq(otu_table(cp_gf_otu_tb, 
+                             taxa_are_rows = T), 
+                   tax_table(ps_cp_gf_RA), 
+                   sample_data(ps_cp_gf_RA))
+```
+## Agglomerate data to genus level
+### CP only
+```{r}
+ps_RA_genus_cp <- ps_abs_cp %>%
+  tax_glom(taxrank = "Genus") %>% 
+  to_RA() # 312 genera in the CP
+
+# Change names to the genus-level names
+taxa_names(ps_RA_genus_cp) <- ps_RA_genus_cp@tax_table[,6] 
+
+# Convert relative abundances to absolute abundances by multiplying the ASV table with the qPCR results
+cp_genus_otu_tb <- otu_tab_to_df(ps_RA_genus_cp)
+cp_genus_meta_tb <- meta_to_df(ps_RA_genus_cp)
+
+# Multiple RA by qPCR 
+cp_genus_otu_tb <- cp_genus_otu_tb %>%
+  mutate(across(-sample_id, ~.x*cp_genus_meta_tb$qPCR)) %>% 
+  as.data.frame()
+
+# Make sample IDs the row names of the otu table
+rownames(cp_genus_otu_tb) <- cp_genus_otu_tb$sample_id
+# Remove the first column, transpose and convert to df
+cp_genus_otu_tb <- cp_genus_otu_tb[,-1] %>% 
+  t() %>%
+  as.data.frame() 
+
+# Create ps object with absolute abundance otu table
+ps_genus_abs_cp <- phyloseq(otu_table(cp_genus_otu_tb, 
+                             taxa_are_rows = T), 
+                   tax_table(ps_RA_genus_cp), 
+                   sample_data(ps_RA_genus_cp))
+```
+### CP and GF
+```{r}
+ps_RA_genus_cp_gf <- ps_abs_cp_gf %>%
+  tax_glom(taxrank = "Genus") %>% 
+  to_RA() # 247 genera
+
+# Change names to the genus-level names
+taxa_names(ps_RA_genus_cp_gf) <- ps_RA_genus_cp_gf@tax_table[,6] 
+
+# Convert relative abundances to absolute abundances by multiplying the ASV table with the qPCR results
+cp_gf_genus_otu_tb <- otu_tab_to_df(ps_RA_genus_cp_gf)
+cp_gf_genus_meta_tb <- meta_to_df(ps_RA_genus_cp_gf)
+
+# Multiple RA by qPCR 
+cp_gf_genus_otu_tb <- cp_gf_genus_otu_tb %>%
+  mutate(across(-sample_id, ~.x*cp_gf_genus_meta_tb$qPCR)) %>% 
+  as.data.frame()
+# Make sample IDs the row names of the otu table
+rownames(cp_gf_genus_otu_tb) <- cp_gf_genus_otu_tb$sample_id
+
+# Remove the first column, transpose and convert to df
+cp_gf_genus_otu_tb <- cp_gf_genus_otu_tb[,-1] %>% 
+  t() %>%
+  as.data.frame() 
+
+# Create ps object with absolute abundance otu table
+ps_genus_abs_cp_gf <- phyloseq(otu_table(cp_gf_genus_otu_tb, 
+                             taxa_are_rows = T), 
+                   tax_table(ps_RA_genus_cp_gf), 
+                   sample_data(ps_RA_genus_cp_gf))
+```
+
+## Filter per niche 
+### CP only 
+#### ASV level 
+##### NP 
+```{r}
+samples_cp_np <- sample_data(ps_abs_cp)$niche == "NP" 
+# Prune the phyloseq object to include only NP samples
+ps_abs_cp_np <- prune_samples(samples_cp_np, ps_abs_cp)
+# Set up a presence abundance filter
+# Keep samples that have a presence in at least 10% of all samples with an abundance of 0.01
+# Determine what is 10% of samples
+filter_cp_np <- nrow(ps_abs_cp_np@sam_data) * 0.1 # 10% of total samples
+# Apply the filter
+ps_abs_cp_np_filt <- ps_abs_cp_np %>%
+  pres_abund_filter(pres = filter_cp_np, abund = 0.01)
+# A total of 11 ASVs were found to be present at or above a level of confident detection (1% relative abundance) in at least 83.6 samples (n = 2201 ASVs excluded).
+
+# Count number of ASVs and genera left in ps object
+length(unique(as.data.frame(tax_table(ps_abs_cp_np_filt))$ASV)) # 11 ASVs
+length(unique(as.data.frame(tax_table(ps_abs_cp_np_filt))$Genus)) # 9 genera
+```
+##### OP 
+```{r}
+# OROPHARYNX (OP)
+samples_cp_op <- sample_data(ps_abs_cp)$niche == "OP" 
+# Prune the phyloseq object to include only CP and OP samples
+ps_abs_cp_op <- prune_samples(samples_cp_op, ps_abs_cp)
+# Set up a presence abundance filter
+# Keep samples that have a presence in at least 10% of all samples with an abundance of 0.01
+# Determine what is 10% of samples
+filter_cp_op <- nrow(ps_abs_cp_op@sam_data) * 0.1 # 10% of total samples
+# Apply the filter
+ps_abs_cp_op_filt <- ps_abs_cp_op %>%
+  pres_abund_filter(pres = filter_cp_op, abund = 0.01)
+# A total of 40 ASVs were found to be present at or above a level of confident detection (1% relative abundance) in at least 97.8 samples (n = 2172 ASVs excluded).
+
+# Count number of ASVs and genera left in ps object
+length(unique(as.data.frame(tax_table(ps_abs_cp_op_filt))$ASV)) # 40 ASVs
+length(unique(as.data.frame(tax_table(ps_abs_cp_op_filt))$Genus)) # 21 genera
+```
+#### Genus level 
+##### NP
+```{r}
+samples_cp_np <- sample_data(ps_genus_abs_cp)$niche == "NP" 
+# Prune the phyloseq object to include only CP and NP samples
+ps_abs_genus_cp_np <- prune_samples(samples_cp_np, ps_genus_abs_cp)
+
+# Set up a presence abundance filter
+# Keep samples that have a presence in at least 10% of all samples with an abundance of 0.01
+# Determine what is 10% of samples
+filter_cp_np_genus <- nrow(ps_abs_genus_cp_np@sam_data) * 0.1 # 10% of total samples
+# Apply the filter
+ps_abs_genus_cp_np_filt <- ps_abs_genus_cp_np %>%
+  pres_abund_filter(pres = filter_cp_np_genus, abund = 0.01)
+# A total of 10 GENERA were found to be present at or above a level of confident detection (1% relative abundance) in at least 83.6 samples (n = 279 ASVs excluded).
+
+# Count number of genera left in ps object
+length(unique(as.data.frame(tax_table(ps_abs_genus_cp_np_filt))$Genus)) # 10 genera
+```
+##### OP
+```{r}
+samples_cp_op <- sample_data(ps_genus_abs_cp)$niche == "OP" 
+# Prune the phyloseq object to include only CP and OP samples
+ps_abs_genus_cp_op <- prune_samples(samples_cp_op, ps_genus_abs_cp)
+# Set up a presence abundance filter
+# Keep samples that have a presence in at least 10% of all samples with an abundance of 0.01
+# Determine what is 10% of samples
+filter_cp_op <- nrow(ps_abs_genus_cp_op@sam_data) * 0.1 # 10% of total samples
+# Apply the filter
+ps_abs_genus_cp_op_filt <- ps_abs_genus_cp_op %>%
+  pres_abund_filter(pres = filter_cp_op, abund = 0.01)
+# A total of 21 GENERA were found to be present at or above a level of confident detection (1% relative abundance) in at least 97.8 samples (n = 268 ASVs excluded).
+
+# Check number of genera remaining
+length(unique(as.data.frame(tax_table(ps_abs_genus_cp_op_filt))$Genus)) # 21 genera
+```
+### CP and GF
+#### ASV level 
+##### NP 
+```{r}
+samples_cp_gf_np <- sample_data(ps_abs_cp_gf)$niche == "NP" 
+# Prune the phyloseq object to include only CP and NP samples
+ps_np_cp_gf_abs <- prune_samples(samples_cp_gf_np, ps_abs_cp_gf)
+# Set up a presence abundance filter
+# Keep samples that have a presence in at least 10% of all samples with an abundance of 0.01
+# Determine what is 10% of samples
+filter_np_cp_gf <- nrow(ps_np_cp_gf_abs@sam_data) * 0.1 # 10% of total samples
+# Apply the filter
+ps_np_cp_gf_abs_filt <- ps_np_cp_gf_abs %>%
+  pres_abund_filter(pres = filter_np_cp_gf, abund = 0.01)
+# A total of 13 ASVs were found to be present at or above a level of confident detection (1% relative abundance) in at least 16 samples (n = 1089 ASVs excluded).
+
+# Count number of ASVs and genera left in ps object
+length(unique(as.data.frame(tax_table(ps_np_cp_gf_abs_filt))$ASV)) # 13 ASVs
+length(unique(as.data.frame(tax_table(ps_np_cp_gf_abs_filt))$Genus)) # 10 genera
+
+```
+##### OP 
+```{r}
+samples_cp_gf_op <- sample_data(ps_abs_cp_gf)$niche == "OP" 
+# Prune the phyloseq object to include only CP and OP samples
+ps_op_cp_gf_abs <- prune_samples(samples_cp_gf_op, ps_abs_cp_gf)
+# Set up a presence abundance filter
+# Keep samples that have a presence in at least 10% of all samples with an abundance of 0.01
+# Determine what is 10% of samples
+filter_op_cp_gf <- nrow(ps_op_cp_gf_abs@sam_data) * 0.1 # 10% of total samples
+# Apply the filter
+ps_op_cp_gf_abs_filt <- ps_op_cp_gf_abs %>%
+  pres_abund_filter(pres = filter_op_cp_gf, abund = 0.01)
+# A total of 38 ASVs were found to be present at or above a level of confident detection (1% relative abundance) in at least 19.3 samples (n = 1064 ASVs excluded).
+
+# Count number of ASVs and genera left in ps object
+length(unique(as.data.frame(tax_table(ps_op_cp_gf_abs_filt))$ASV)) # 38 ASVs
+length(unique(as.data.frame(tax_table(ps_op_cp_gf_abs_filt))$Genus)) # 20 genera
+```
+#### Genus level 
+##### NP
+```{r}
+samples_cp_gf_np <- sample_data(ps_genus_abs_cp_gf)$niche == "NP"
+# Prune the phyloseq object to include only CP and NP samples
+ps_np_cp_gf_abs_genus <- prune_samples(samples_cp_gf_np, ps_genus_abs_cp_gf)
+# Set up a presence abundance filter
+# Keep samples that have a presence in at least 10% of all samples with an abundance of 0.01
+# Determine what is 10% of samples
+filter_np_cp_gf <- nrow(ps_np_cp_gf_abs_genus@sam_data) * 0.1 # 10% of total samples
+# Apply the filter
+ps_np_cp_gf_abs_genus_filt <- ps_np_cp_gf_abs_genus %>%
+  pres_abund_filter(pres = filter_np_cp_gf, abund = 0.01)
+
+# A total of 12 GENERA were found to be present at or above a level of confident detection (1% relative abundance) in at least 16 samples (n = 214 ASVs excluded).
+
+# Check number of genera remaining
+length(unique(as.data.frame(tax_table(ps_np_cp_gf_abs_genus_filt))$Genus)) # 12 genera
+
+```
+##### OP
+```{r}
+samples_cp_gf_op <- sample_data(ps_genus_abs_cp_gf)$niche == "OP" 
+# Prune the phyloseq object to include only CP and OP samples
+ps_op_cp_gf_abs_genus <- prune_samples(samples_cp_gf_op, ps_genus_abs_cp_gf)
+
+# Set up a presence abundance filter
+# Keep samples that have a presence in at least 10% of all samples with an abundance of 0.01
+# Determine what is 10% of samples
+filter_op_cp_gf <- nrow(ps_op_cp_gf_abs_genus@sam_data) * 0.1 # 10% of total samples
+# Apply the filter
+ps_op_cp_gf_abs_genus_filt <- ps_op_cp_gf_abs_genus %>%
+  pres_abund_filter(pres = filter_op_cp_gf, abund = 0.01)
+# A total of 22 GENERA were found to be present at or above a level of confident detection (1% relative abundance) in at least 19.3 samples (n = 204 ASVs excluded).
+
+# Check number of genera remaining
+length(unique(as.data.frame(tax_table(ps_op_cp_gf_abs_genus_filt))$Genus)) # 22 genera
+```
+
+# Check metadata variables
+
+```{r}
+# MaAsLin fits a generalized linear model (GLM) for each feature (like microbial abundance) and metadata variable while adjusting for confounders and covariates. Here are the key assumptions and considerations for MaAsLin:
+# 1. Independent Observations (e.g., no temporal or spatial autocorrelation).
+# 2. Linearity (for linear models) - MaAsLin primarily models linear relationships between predictors (metadata) and outcomes (e.g., microbial abundance). Non-linear relationships between the metadata and microbial features may not be well captured.
+# 3. Multicollinearity - metadata variables are not highly collinear with one another. 
+
+# However MaAsLin can handle non-linear associations
+# Select some example ASVs to plot
+rownames(ps_abs_cp_np_filt@otu_table)
+asvs_to_plot <- c("Dolosigranulum_pigrum_1", "Staphylococcus_2", "Corynebacterium_3")  # Replace with actual ASV names
+metadata_vars <- c("KRD_nGoatsWghtDist.2000m.sum", "KRD_nCowsWghtDist.2000m.sum", 
+                   "KRD_nPoultryWghtDist.2000m.sum", "KRD_nPigsWghtDist.2000m.sum", 
+                   "ecoli_RF_preds", "staph_RF_preds", "tetw_RF_preds", "meca_RF_preds")
+
+# Extract metadata and ASV abundance data from phyloseq object
+metadata <- sample_data(ps_abs_cp_np_filt) %>% data.frame()
+asv_data <- otu_table(ps_abs_cp_np_filt) %>% as.data.frame()
+
+metadata$KRD_nGoatsWghtDist.2000m.sum
+# Convert ASV data to long format and combine with metadata
+asv_data_long <- asv_data %>% t  %>% as.data.frame()
+rownames(asv_data_long) <- asv_data_long$VGO3_ID
+
+# Merge metadata with ASV data
+merged_data <- cbind(asv_data_long, metadata, by = "VGO3_ID")
+
+# Filter the merged data to only include the selected ASVs and metadata variables
+plot_data <- merged_data %>%
+  select(c("VGO3_ID", asvs_to_plot, metadata_vars))
+
+# Scatterplots
+ggplot(plot_data, aes(x = KRD_nGoatsWghtDist.2000m.sum, y = Dolosigranulum_pigrum_1)) +
+  geom_point() +
+  labs(x = "E.coli RF Predictions", y = "Dolosigranulum_pigrum_1 Abundance", 
+       title = "Scatter Plot of KRD_nGoatsWghtDist.2000m.sum vs Dolosigranulum_pigrum_1") +
+  theme_minimal()
+
+
+# Histogram of ecoli_RF_preds
+ggplot(plot_data, aes(x = ecoli_RF_preds)) +
+  geom_histogram(binwidth = 0.5, fill = "blue", color = "black", alpha = 0.7) +
+  labs(x = "E.coli RF Predictions", y = "Frequency", 
+       title = "Histogram of E.coli RF Predictions") +
+  theme_minimal()
+
+ggplot(plot_data, aes(x = KRD_nGoatsWghtDist.2000m.sum)) +
+  geom_histogram(binwidth = 0.5, fill = "blue", color = "black", alpha = 0.7) +
+  labs(x = "E.coli RF Predictions", y = "Frequency", 
+       title = "Histogram of KRD_nGoatsWghtDist.2000m.sum") +
+  theme_minimal()
+
+ggplot(plot_data, aes(x = KRD_nCowsWghtDist.2000m.sum)) +
+  geom_histogram(binwidth = 0.5, fill = "blue", color = "black", alpha = 0.7) +
+  labs(x = "E.coli RF Predictions", y = "Frequency", 
+       title = "Histogram of KRD_nCowsWghtDist.2000m.sum") +
+  theme_minimal()
+
+ggplot(plot_data, aes(x = KRD_nPigsWghtDist.2000m.sum)) +
+  geom_histogram(binwidth = 0.5, fill = "blue", color = "black", alpha = 0.7) +
+  labs(x = "E.coli RF Predictions", y = "Frequency", 
+       title = "Histogram of KRD_nPigsWghtDist.2000m.sum") +
+  theme_minimal()
+
+
+
+plot_data$KRD_nPigsWghtDist.2000m.sum
+
+
+```
+
+
+# MaAsLin2
+## CP only
+### ASV level 
+#### NP niche
+```{r}
+# Define the variables to be analyzed
+variables <- c("KRD_nGoatsWghtDist.2000m.sum", "KRD_nCowsWghtDist.2000m.sum", 
+               "KRD_nPoultryWghtDist.2000m.sum", "KRD_nPigsWghtDist.2000m.sum", 
+               "ecoli_RF_preds","staph_RF_preds","tetw_RF_preds","meca_RF_preds" )
+
+# Create an empty list to store the ordered results
+maaslin_results <- list()
+output_folder <- "../Output/DA_analysis/MaAsLin/CP_NP/"
+
+# Loop and save each result to a CSV file
+for (var in variables) {
+  result <- do_maaslin2(ps = ps_abs_cp_np_filt, 
+                        var = var, 
+                        other_var = c("age", "gender", "sampling_season", "smoked_ever"), # adjust for these variables 
+                        ref = c("gender,0", "sampling_season,Summer", "smoked_ever,0")) %>% # Set reference categories
+                        arrange(desc(coef))
+  # Save to a CSV file
+  write.csv(result, paste0(output_folder, "maaslin_cp_np_asvlevel_", var, "_ord.csv"))
+}
+```
+
+#### OP niche
+```{r}
+# Define the variables to be analyzed
+variables <- c("KRD_nGoatsWghtDist.2000m.sum", "KRD_nCowsWghtDist.2000m.sum", 
+               "KRD_nPoultryWghtDist.2000m.sum", "KRD_nPigsWghtDist.2000m.sum", 
+               "ecoli_RF_preds","staph_RF_preds","tetw_RF_preds","meca_RF_preds" )
+
+# Create an empty list to store the ordered results
+maaslin_results <- list()
+output_folder <- "../Output/DA_analysis/MaAsLin/CP_OP/"
+
+# Loop and save each result to a CSV file
+for (var in variables) {
+  result <- do_maaslin2(ps = ps_abs_cp_op_filt, 
+                        var = var, 
+                        other_var = c("age", "gender", "sampling_season", "smoked_ever"), # adjust for these variables 
+                        ref = c("gender,0", "sampling_season,Summer", "smoked_ever,0")) %>% # Set reference categories
+    arrange(desc(coef))
+  # Save to a CSV file
+  write.csv(result, paste0(output_folder, "maaslin_cp_OP_asvlevel_", var, "_ord.csv"))
+}
+```
+### Genus level 
+#### NP niche
+```{r}
+# Define the variables to be analyzed
+variables <- c("KRD_nGoatsWghtDist.2000m.sum", "KRD_nCowsWghtDist.2000m.sum", 
+               "KRD_nPoultryWghtDist.2000m.sum", "KRD_nPigsWghtDist.2000m.sum", 
+               "ecoli_RF_preds","staph_RF_preds","tetw_RF_preds","meca_RF_preds" )
+
+# Create an empty list to store the ordered results
+maaslin_results <- list()
+output_folder <- "../Output/DA_analysis/MaAsLin/CP_NP/"
+
+# Loop and save each result to a CSV file
+for (var in variables) {
+  result <- do_maaslin2(ps = ps_abs_genus_cp_np_filt, 
+                        var = var, 
+                        other_var = c("age", "gender", "sampling_season", "smoked_ever"), # adjust for these variables 
+                        ref = c("gender,0", "sampling_season,Summer", "smoked_ever,0")) %>% # Set reference categories
+    arrange(desc(coef))
+  # Save to a CSV file
+  write.csv(result, paste0(output_folder, "maaslin_cp_np_genuslevel_", var, "_ord.csv"))
+}
+
+```
+
+#### OP niche
+```{r}
+# Define the variables to be analyzed
+variables <- c("KRD_nGoatsWghtDist.2000m.sum", "KRD_nCowsWghtDist.2000m.sum", 
+               "KRD_nPoultryWghtDist.2000m.sum", "KRD_nPigsWghtDist.2000m.sum", 
+               "ecoli_RF_preds","staph_RF_preds","tetw_RF_preds","meca_RF_preds" )
+
+# Create an empty list to store the ordered results
+maaslin_results <- list()
+output_folder <- "../Output/DA_analysis/MaAsLin/CP_OP/"
+
+# Loop and save each result to a CSV file
+for (var in variables) {
+  result <- do_maaslin2(ps = ps_abs_genus_cp_op_filt, 
+                        var = var, 
+                        other_var = c("age", "gender", "sampling_season", "smoked_ever"), # adjust for these variables 
+                        ref = c("gender,0", "sampling_season,Summer", "smoked_ever,0")) %>% # Set reference categories
+    arrange(desc(coef))
+  # Save to a CSV file
+  write.csv(result, paste0(output_folder, "maaslin_cp_op_genuslevel_", var, "_ord.csv"))
+}
+
+```
+## CP and GF
+### ASV level 
+#### NP niche
+```{r}
+# Run Maaslin2 analysis with CP as reference category for population
+maaslin_cp_gf_np <- do_maaslin2(ps = ps_np_cp_gf_abs_filt, 
+                             var = "population", 
+                             other_var = c("age", "gender", "sampling_season", "smoked_ever"), 
+                             ref = c("population,CP", "gender,0", "sampling_season,Summer", "smoked_ever,0"))
+
+# Reorder ASVs based on effect size
+maaslin_cp_gf_np_ord <- maaslin_cp_gf_np %>%
+  arrange(desc(coef))
+
+write.csv(maaslin_cp_gf_np_ord, "../Output/DA_analysis/MaAsLin/CP_GF_NP/maaslin_cp_gf_asv_level_np_ord.csv")
+```
+#### OP niche
+```{r}
+# Run Maaslin2 analysis with CP as reference category for population
+maaslin_cp_gf_op <- do_maaslin2(ps = ps_op_cp_gf_abs_filt, 
+                             var = "population", 
+                             other_var = c( "age", "gender", "sampling_season", "smoked_ever"), 
+                             ref = c("population,CP", "gender,0", "sampling_season,Summer", "smoked_ever,0"))
+
+# Reorder ASVs based on effect size
+maaslin_cp_gf_op_ord <- maaslin_cp_gf_op %>%
+  arrange(desc(coef))
+
+write.csv(maaslin_cp_gf_op_ord, "../Output/DA_analysis/MaAsLin/CP_GF_OP/maaslin_cp_gf_asv_level_op_ord.csv")
+```
+
+### Genus level 
+#### NP niche
+```{r}
+# Run Maaslin2 analysis with CP as reference category for population
+maaslin_cp_gf_genus_np <- do_maaslin2(ps = ps_np_cp_gf_abs_genus_filt, 
+                             var = "population", 
+                             other_var = c("age", "gender", "sampling_season", "smoked_ever"), 
+                             ref = c("population,CP", "gender,0", "sampling_season,Summer", "smoked_ever,0"))
+
+# Reorder ASVs based on effect size
+maaslin_cp_gf_genus_np_ord <- maaslin_cp_gf_genus_np %>%
+  arrange(desc(coef))
+
+write.csv(maaslin_cp_gf_genus_np_ord, "../Output/DA_analysis/MaAsLin/CP_GF_NP/maaslin_cp_gf_genus_np_ord.csv")
+```
+#### OP niche
+```{r}
+# Run Maaslin2 analysis with CP as reference category for population
+maaslin_cp_gf_genus_op <- do_maaslin2(ps = ps_op_cp_gf_abs_genus_filt, 
+                                      var = "population", 
+                                      other_var = c("age", "gender", "sampling_season", "smoked_ever"), 
+                                      ref = c("population,CP", "gender,0", "sampling_season,Summer", "smoked_ever,0"))
+
+# Reorder ASVs based on effect size
+maaslin_cp_gf_genus_op_ord <- maaslin_cp_gf_genus_op %>%
+  arrange(desc(coef))
+
+write.csv(maaslin_cp_gf_genus_op_ord, "../Output/DA_analysis/MaAsLin/CP_GF_OP/maaslin_cp_gf_genus_op_ord.csv")
+```
+
+# Heatmaps
+## CP only
+### ASV level 
+#### NP 
+```{r}
+# Define the directory
+np_folder <- "../Output/DA_analysis/MaAsLin/CP_NP/"
+
+# Read NP results
+np_files_cp_asvlevel <- list.files(np_folder, pattern = "np_asvlevel", full.names = TRUE)
+np_results_cp_asvlevel <- lapply(np_files_cp_asvlevel, read.csv)
+np_results_cp_asvlevel <- bind_rows(np_results_cp_asvlevel) 
+
+# Extract relevant columns for the heatmap
+np_heatmap_data <- np_results_cp_asvlevel %>%
+  select(feature, metadata, coef, label) %>%
+  group_by(feature, metadata) 
+
+# Define the custom order of metadata
+custom_metadata_order <- c("ecoli_RF_preds", "staph_RF_preds", "tetw_RF_preds", 
+                           "meca_RF_preds", "KRD_nPigsWghtDist.2000m.sum", 
+                           "KRD_nGoatsWghtDist.2000m.sum", "KRD_nPoultryWghtDist.2000m.sum", 
+                           "KRD_nCowsWghtDist.2000m.sum")
+
+# Reorder metadata variables 
+np_heatmap_data$metadata <- factor(np_heatmap_data$metadata, levels = custom_metadata_order)
+
+# Rename metadata variables
+np_heatmap_data <- np_heatmap_data %>%
+  mutate(metadata = recode(metadata,
+    "ecoli_RF_preds" = "RF-modelled E. coli exposure",
+    "staph_RF_preds" = "RF-modelled Staphylococcus spp. exposure",
+    "tetw_RF_preds" = "RF-modelled tetW ARG exposure",
+    "meca_RF_preds" = "RF-modelled mecA ARG exposure",
+    "KRD_nPigsWghtDist.2000m.sum" = "Distance weighted number of pigs in 2000m",
+    "KRD_nGoatsWghtDist.2000m.sum" = "Distance weighted number of goats in 2000m",
+    "KRD_nPoultryWghtDist.2000m.sum" = "Distance weighted number of chickens in 2000m",
+    "KRD_nCowsWghtDist.2000m.sum" = "Distance weighted number of cattle in 2000m"
+  ))
+
+
+# Create the heatmap
+heatmap_cp_np_asvlevel <- ggplot(np_heatmap_data, aes(x = metadata, y = feature, fill = coef)) +
+  geom_tile(color = "white") +  # Create the heatmap tiles
+  scale_fill_gradient2(
+    low = carto_pal(7, "Geyser")[1], 
+    mid = carto_pal(7, "Geyser")[4], 
+    high = carto_pal(7, "Geyser")[7], 
+    midpoint = 0,
+    name = "Coefficient"
+  ) +
+  geom_text(aes(label = label), color = "white", size = 3) +  # Add labels inside the cells
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels
+    axis.title.x = element_blank(),  # Remove x-axis title
+    axis.title.y = element_blank(),   # Remove y-axis title
+    plot.title = element_text(hjust = 0.5)  # Center the title
+  ) +
+  labs(title = "Heatmap of Coefficients by residential\n livestock exposure (NP niche)")
+
+ggsave("../Output/DA_analysis/MaAsLin/CP_NP/heatmap_cp_np_asvlevel.svg", heatmap_cp_np_asvlevel)
+```
+#### OP
+```{r}
+# Define the directory
+op_folder <- "../Output/DA_analysis/MaAsLin/CP_op/"
+
+# Read OP results
+op_files_cp_asvlevel <- list.files(op_folder, pattern = "OP_asvlevel", full.names = TRUE)
+op_results_cp_asvlevel <- lapply(op_files_cp_asvlevel, read.csv)
+op_results_cp_asvlevel <- bind_rows(op_results_cp_asvlevel) 
+
+# Extract relevant columns for the heatmap
+op_heatmap_data <- op_results_cp_asvlevel %>%
+  select(feature, metadata, coef, label) %>%
+  group_by(feature, metadata) 
+
+# Define the custom order of metadata
+custom_metadata_order <- c("ecoli_RF_preds", "staph_RF_preds", "tetw_RF_preds", 
+                           "meca_RF_preds", "KRD_nPigsWghtDist.2000m.sum", 
+                           "KRD_nGoatsWghtDist.2000m.sum", "KRD_nPoultryWghtDist.2000m.sum", 
+                           "KRD_nCowsWghtDist.2000m.sum")
+
+# Reorder metadata variables 
+op_heatmap_data$metadata <- factor(op_heatmap_data$metadata, levels = custom_metadata_order)
+
+# Rename metadata variables
+op_heatmap_data <- op_heatmap_data %>%
+  mutate(metadata = recode(metadata,
+    "ecoli_RF_preds" = "RF-modelled E. coli exposure",
+    "staph_RF_preds" = "RF-modelled Staphylococcus spp. exposure",
+    "tetw_RF_preds" = "RF-modelled tetW ARG exposure",
+    "meca_RF_preds" = "RF-modelled mecA ARG exposure",
+    "KRD_nPigsWghtDist.2000m.sum" = "Distance weighted number of pigs in 2000m",
+    "KRD_nGoatsWghtDist.2000m.sum" = "Distance weighted number of goats in 2000m",
+    "KRD_nPoultryWghtDist.2000m.sum" = "Distance weighted number of chickens in 2000m",
+    "KRD_nCowsWghtDist.2000m.sum" = "Distance weighted number of cattle in 2000m"
+  ))
+
+# Create the heatmap
+heatmap_cp_op_asvlevel <- ggplot(op_heatmap_data, aes(x = metadata, y = feature, fill = coef)) +
+  geom_tile(color = "white") +  # Create the heatmap tiles
+  scale_fill_gradient2(
+    low = carto_pal(7, "Geyser")[1], 
+    mid = carto_pal(7, "Geyser")[4], 
+    high = carto_pal(7, "Geyser")[7], 
+    midpoint = 0,
+    name = "Coefficient"
+  ) +
+  geom_text(aes(label = label), color = "white", size = 3) +  # Add labels inside the cells
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels
+    axis.title.x = element_blank(),  # Remove x-axis title
+    axis.title.y = element_blank(),   # Remove y-axis title
+    plot.title = element_text(hjust = 0.5)  # Center the title
+    ) +
+  labs(title = "Heatmap of Coefficients by residential\n livestock exposure (OP niche)")
+
+ggsave("../Output/DA_analysis/MaAsLin/CP_op/heatmap_cp_op_asvlevel.svg", heatmap_cp_op_asvlevel)
+```
+
+### Genus level 
+#### NP 
+```{r}
+# Define the directory
+np_folder <- "../Output/DA_analysis/MaAsLin/CP_NP/"
+
+# Read NP results
+np_files_cp_genuslevel <- list.files(np_folder, pattern = "np_genuslevel", full.names = TRUE)
+np_results_cp_genuslevel <- lapply(np_files_cp_genuslevel, read.csv)
+np_results_cp_genuslevel <- bind_rows(np_results_cp_genuslevel) 
+
+# Extract relevant columns for the heatmap
+np_heatmap_data <- np_results_cp_genuslevel %>%
+  select(feature, metadata, coef, label) %>%
+  group_by(feature, metadata) 
+
+# Define the custom order of metadata
+custom_metadata_order <- c("ecoli_RF_preds", "staph_RF_preds", "tetw_RF_preds", 
+                           "meca_RF_preds", "KRD_nPigsWghtDist.2000m.sum", 
+                           "KRD_nGoatsWghtDist.2000m.sum", "KRD_nPoultryWghtDist.2000m.sum", 
+                           "KRD_nCowsWghtDist.2000m.sum")
+
+# Reorder metadata variables 
+np_heatmap_data$metadata <- factor(np_heatmap_data$metadata, levels = custom_metadata_order)
+
+# Rename metadata variables
+np_heatmap_data <- np_heatmap_data %>%
+  mutate(metadata = recode(metadata,
+                           "ecoli_RF_preds" = "RF-modelled E. coli exposure",
+                           "staph_RF_preds" = "RF-modelled Staphylococcus spp. exposure",
+                           "tetw_RF_preds" = "RF-modelled tetW ARG exposure",
+                           "meca_RF_preds" = "RF-modelled mecA ARG exposure",
+                           "KRD_nPigsWghtDist.2000m.sum" = "Distance weighted number of pigs in 2000m",
+                           "KRD_nGoatsWghtDist.2000m.sum" = "Distance weighted number of goats in 2000m",
+                           "KRD_nPoultryWghtDist.2000m.sum" = "Distance weighted number of chickens in 2000m",
+                           "KRD_nCowsWghtDist.2000m.sum" = "Distance weighted number of cattle in 2000m"
+  ))
+
+
+# Create the heatmap
+heatmap_cp_np_genuslevel <- ggplot(np_heatmap_data, aes(x = metadata, y = feature, fill = coef)) +
+  geom_tile(color = "white") +  # Create the heatmap tiles
+  scale_fill_gradient2(
+    low = carto_pal(7, "Geyser")[1], 
+    mid = carto_pal(7, "Geyser")[4], 
+    high = carto_pal(7, "Geyser")[7], 
+    midpoint = 0,
+    name = "Coefficient"
+  ) +
+  geom_text(aes(label = label), color = "white", size = 3) +  # Add labels inside the cells
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels
+    axis.title.x = element_blank(),  # Remove x-axis title
+    axis.title.y = element_blank(),   # Remove y-axis title
+    plot.title = element_text(hjust = 0.5)  # Center the title
+  ) +
+  labs(title = "Heatmap of Coefficients by residential\n livestock exposure (NP niche)")
+
+ggsave("../Output/DA_analysis/MaAsLin/CP_NP/heatmap_cp_np_genuslevel.svg", heatmap_cp_np_genuslevel)
+```
+#### OP
+```{r}
+# Define the directory
+op_folder <- "../Output/DA_analysis/MaAsLin/CP_OP/"
+
+# Read OP results
+op_files_cp_genuslevel <- list.files(op_folder, pattern = "op_genuslevel", full.names = TRUE)
+op_results_cp_genuslevel <- lapply(op_files_cp_genuslevel, read.csv)
+op_results_cp_genuslevel <- bind_rows(op_results_cp_genuslevel) 
+
+# Extract relevant columns for the heatmap
+op_heatmap_data <- op_results_cp_genuslevel %>%
+  select(feature, metadata, coef, label) %>%
+  group_by(feature, metadata) 
+
+# Define the custom order of metadata
+custom_metadata_order <- c("ecoli_RF_preds", "staph_RF_preds", "tetw_RF_preds", 
+                           "meca_RF_preds", "KRD_nPigsWghtDist.2000m.sum", 
+                           "KRD_nGoatsWghtDist.2000m.sum", "KRD_nPoultryWghtDist.2000m.sum", 
+                           "KRD_nCowsWghtDist.2000m.sum")
+
+# Reorder metadata variables 
+op_heatmap_data$metadata <- factor(op_heatmap_data$metadata, levels = custom_metadata_order)
+
+# Rename metadata variables
+op_heatmap_data <- op_heatmap_data %>%
+  mutate(metadata = recode(metadata,
+                           "ecoli_RF_preds" = "RF-modelled E. coli exposure",
+                           "staph_RF_preds" = "RF-modelled Staphylococcus spp. exposure",
+                           "tetw_RF_preds" = "RF-modelled tetW ARG exposure",
+                           "meca_RF_preds" = "RF-modelled mecA ARG exposure",
+                           "KRD_nPigsWghtDist.2000m.sum" = "Distance weighted number of pigs in 2000m",
+                           "KRD_nGoatsWghtDist.2000m.sum" = "Distance weighted number of goats in 2000m",
+                           "KRD_nPoultryWghtDist.2000m.sum" = "Distance weighted number of chickens in 2000m",
+                           "KRD_nCowsWghtDist.2000m.sum" = "Distance weighted number of cattle in 2000m"
+  ))
+
+# Create the heatmap
+heatmap_cp_op_genuslevel <- ggplot(op_heatmap_data, aes(x = metadata, y = feature, fill = coef)) +
+  geom_tile(color = "white") +  # Create the heatmap tiles
+  scale_fill_gradient2(
+    low = carto_pal(7, "Geyser")[1], 
+    mid = carto_pal(7, "Geyser")[4], 
+    high = carto_pal(7, "Geyser")[7], 
+    midpoint = 0,
+    name = "Coefficient"
+  ) +
+  geom_text(aes(label = label), color = "white", size = 3) +  # Add labels inside the cells
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels
+    axis.title.x = element_blank(),  # Remove x-axis title
+    axis.title.y = element_blank(),   # Remove y-axis title
+    plot.title = element_text(hjust = 0.5)  # Center the title
+  ) +
+  labs(title = "Heatmap of Coefficients by residential\n livestock exposure (OP niche)")
+
+ggsave("../Output/DA_analysis/MaAsLin/CP_op/heatmap_cp_op_genuslevel.svg", heatmap_cp_op_genuslevel)
+```
+## CP and GF
+### ASV level 
+#### NP 
+```{r}
+# Extract relevant columns for the heatmap
+np_cp_gf_heatmap_data <- maaslin_cp_gf_np_ord %>%
+  select(feature, metadata, coef, label)
+
+# Rename metadata variables
+np_cp_gf_heatmap_data <- np_cp_gf_heatmap_data %>%
+  mutate(metadata = recode(metadata,
+                           "population" = "Population (GF vs CP)"))
+
+
+# Create the heatmap
+heatmap_cp_gf_np_asvlevel <- ggplot(np_cp_gf_heatmap_data, aes(x = metadata, y = feature, fill = coef)) +
+  geom_tile(color = "white") +  # Create the heatmap tiles
+  scale_fill_gradient2(
+    low = carto_pal(7, "Geyser")[1], 
+    mid = carto_pal(7, "Geyser")[4], 
+    high = carto_pal(7, "Geyser")[7], 
+    midpoint = 0,
+    name = "Coefficient"
+  ) +
+  geom_text(aes(label = label), color = "white", size = 3) +  # Add labels inside the cells
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels
+    axis.title.x = element_blank(),  # Remove x-axis title
+    axis.title.y = element_blank(),   # Remove y-axis title
+    plot.title = element_text(hjust = 0.5)  # Center the title
+  ) +
+  labs(title = "Heatmap of coefficients by occupational\n livestock exposure (NP niche) - ASV level")
+
+ggsave("../Output/DA_analysis/MaAsLin/CP_GF_NP/heatmap_cp_gf_np_asvlevel.svg", heatmap_cp_gf_np_asvlevel, width = 5, height=8)
+```
+#### OP
+```{r}
+# Extract relevant columns for the heatmap
+op_cp_gf_heatmap_data <- maaslin_cp_gf_op_ord %>%
+  select(feature, metadata, coef, label)
+
+# Rename metadata variables
+op_cp_gf_heatmap_data <- op_cp_gf_heatmap_data %>%
+  mutate(metadata = recode(metadata,
+                           "population" = "Population (GF vs CP)"))
+
+
+# Create the heatmap
+heatmap_cp_gf_op_asvlevel <- ggplot(op_cp_gf_heatmap_data, aes(x = metadata, y = feature, fill = coef)) +
+  geom_tile(color = "white") +  # Create the heatmap tiles
+  scale_fill_gradient2(
+    low = carto_pal(7, "Geyser")[1], 
+    mid = carto_pal(7, "Geyser")[4], 
+    high = carto_pal(7, "Geyser")[7], 
+    midpoint = 0,
+    name = "Coefficient"
+  ) +
+  geom_text(aes(label = label), color = "white", size = 3) +  # Add labels inside the cells
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels
+    axis.title.x = element_blank(),  # Remove x-axis title
+    axis.title.y = element_blank(),   # Remove y-axis title
+    plot.title = element_text(hjust = 0.5)  # Center the title
+  ) +
+  labs(title = "Heatmap of coefficients by occupational\n livestock exposure (OP niche) - ASV level")
+
+ggsave("../Output/DA_analysis/MaAsLin/CP_GF_OP/heatmap_cp_gf_op_asvlevel.svg", heatmap_cp_gf_op_asvlevel, width = 5, height=8)
+```
+
+### Genus level 
+#### NP 
+```{r}
+# Extract relevant columns for the heatmap
+np_cp_gf_genus_heatmap_data <- maaslin_cp_gf_genus_np_ord %>%
+  select(feature, metadata, coef, label)
+
+# Rename metadata variables
+np_cp_gf_genus_heatmap_data <- np_cp_gf_genus_heatmap_data %>%
+  mutate(metadata = recode(metadata,
+                           "population" = "Population (GF vs CP)"))
+
+
+# Create the heatmap
+heatmap_cp_gf_np_genuslevel <- ggplot(np_cp_gf_genus_heatmap_data, aes(x = metadata, y = feature, fill = coef)) +
+  geom_tile(color = "white") +  # Create the heatmap tiles
+  scale_fill_gradient2(
+    low = carto_pal(7, "Geyser")[1], 
+    mid = carto_pal(7, "Geyser")[4], 
+    high = carto_pal(7, "Geyser")[7], 
+    midpoint = 0,
+    name = "Coefficient"
+  ) +
+  geom_text(aes(label = label), color = "white", size = 3) +  # Add labels inside the cells
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels
+    axis.title.x = element_blank(),  # Remove x-axis title
+    axis.title.y = element_blank(),   # Remove y-axis title
+    plot.title = element_text(hjust = 0.5)  # Center the title
+  ) +
+  labs(title = "Heatmap of coefficients by occupational\n livestock exposure (NP niche) - Genus level")
+
+ggsave("../Output/DA_analysis/MaAsLin/CP_GF_NP/heatmap_cp_gf_np_genuslevel.svg", heatmap_cp_gf_np_genuslevel, width = 5, height=8)
+```
+#### OP
+```{r}
+# Extract relevant columns for the heatmap
+op_cp_gf_genus_heatmap_data <- maaslin_cp_gf_genus_op_ord %>%
+  select(feature, metadata, coef, label)
+
+# Rename metadata variables
+op_cp_gf_genus_heatmap_data <- op_cp_gf_genus_heatmap_data %>%
+  mutate(metadata = recode(metadata,
+                           "population" = "Population (GF vs CP)"))
+
+
+# Create the heatmap
+heatmap_cp_gf_op_genuslevel <- ggplot(op_cp_gf_genus_heatmap_data, aes(x = metadata, y = feature, fill = coef)) +
+  geom_tile(color = "white") +  # Create the heatmap tiles
+  scale_fill_gradient2(
+    low = carto_pal(7, "Geyser")[1], 
+    mid = carto_pal(7, "Geyser")[4], 
+    high = carto_pal(7, "Geyser")[7], 
+    midpoint = 0,
+    name = "Coefficient"
+  ) +
+  geom_text(aes(label = label), color = "white", size = 3) +  # Add labels inside the cells
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels
+    axis.title.x = element_blank(),  # Remove x-axis title
+    axis.title.y = element_blank(),   # Remove y-axis title
+    plot.title = element_text(hjust = 0.5)  # Center the title
+  ) +
+  labs(title = "Heatmap of coefficients by occupational\n livestock exposure (op niche) - Genus level")
+
+ggsave("../Output/DA_analysis/MaAsLin/CP_GF_op/heatmap_cp_gf_op_genuslevel.svg", heatmap_cp_gf_op_genuslevel, width = 5, height=8)
+```
+
+# ANCOM-BC2 analysis is not possible with a continuous variable
