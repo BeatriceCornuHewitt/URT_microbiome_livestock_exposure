@@ -613,9 +613,9 @@ np_heatmap_data <- np_results_cp_asvlevel %>%
 
 # Define the custom order of metadata
 custom_metadata_order <- c("ecoli_RF_preds", "staph_RF_preds", "tetw_RF_preds", 
-                           "meca_RF_preds", "KRD_nPigsWghtDist.2000m.sum", 
-                           "KRD_nGoatsWghtDist.2000m.sum", "KRD_nPoultryWghtDist.2000m.sum", 
-                           "KRD_nCowsWghtDist.2000m.sum")
+                           "meca_RF_preds", "KRD_nPigsWghtDist.3000m.sum", 
+                           "KRD_nGoatsWghtDist.3000m.sum", "KRD_nPoultryWghtDist.3000m.sum", 
+                           "KRD_nCowsWghtDist.3000m.sum")
 
 # Reorder metadata variables 
 np_heatmap_data$metadata <- factor(np_heatmap_data$metadata, levels = custom_metadata_order)
@@ -627,10 +627,10 @@ np_heatmap_data <- np_heatmap_data %>%
     "staph_RF_preds" = "RF-modelled Staphylococcus spp. exposure",
     "tetw_RF_preds" = "RF-modelled tetW ARG exposure",
     "meca_RF_preds" = "RF-modelled mecA ARG exposure",
-    "KRD_nPigsWghtDist.2000m.sum" = "Distance weighted number of pigs in 2000m",
-    "KRD_nGoatsWghtDist.2000m.sum" = "Distance weighted number of goats in 2000m",
-    "KRD_nPoultryWghtDist.2000m.sum" = "Distance weighted number of chickens in 2000m",
-    "KRD_nCowsWghtDist.2000m.sum" = "Distance weighted number of cattle in 2000m"
+    "KRD_nPigsWghtDist.3000m.sum" = "Distance weighted number of pigs in 3000m",
+    "KRD_nGoatsWghtDist.3000m.sum" = "Distance weighted number of goats in 3000m",
+    "KRD_nPoultryWghtDist.3000m.sum" = "Distance weighted number of chickens in 3000m",
+    "KRD_nCowsWghtDist.3000m.sum" = "Distance weighted number of cattle in 3000m"
   ))
 
 
