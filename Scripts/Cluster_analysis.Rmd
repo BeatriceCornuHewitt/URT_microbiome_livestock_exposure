@@ -13,7 +13,7 @@ library(tidyverse);library(magrittr);library(glue);library(here);library(ggtext)
 theme_set(theme_bw())
 theme_update(axis.text.x = element_text(angle = 45, hjust=1),
              strip.text = element_text(colour = 'white'),
-             strip.background =element_rect(fill="#2F4858", color = "#2F4858"))
+             strip.background =element_rect(fill="2F4858", color = "#2F4858"))
 ```
 # Functions
 ```{r}
@@ -94,11 +94,328 @@ create_dendro_gg <- function(hc, hang_height=0.05, size = 0.4) {
 ```
 
 # Data
+## CP (all) and GF (all)
+```{r}
+ps_new_metadata_RFpreds <- readRDS("../Output/Phyloseq/ps_complete_new_metadata_RFpreds.rds")
+# Remove any samples from pneumonia patients as not used in the analysis
+ps_cpall_gf <- subset_samples(ps_new_metadata_RFpreds, population != "GP")
+ps_cpall_gf <- prune_taxa(taxa_sums(ps_cpall_gf) > 0, ps_cpall_gf) # Also remove taxa that are not in the ps_cpall_gf object
+```
+
+### NP 
+```{r}
+# First, we remove the low abundant ASVs, calculate the relative abundance of each ASV per sample and subset the nasopharyngeal samples
+ps_RA_cpall_gf_np <- ps_cpall_gf %>% pres_abund_filter() %>% to_RA() %>%
+  prune_samples(sample_data(ps_cpall_gf)$niche == "NP", .) 
+# A total of 2567 ASVs were found to be present at or above a level of confident detection (0.1% relative abundance) in at least 2 samples (n = 17462 ASVs excluded).
+
+# Next, using the OTU table and meta data, we created a Bray Curtis dissimilarity matrix. This matrix is used to determine the number of clusters/which samples have a more similar microbial profile (belong to the same cluster)
+meta_cpall_gf_np <- meta_to_df(ps_RA_cpall_gf_np)
+  
+otu_cpall_gf_np <- as(otu_table(ps_RA_cpall_gf_np), "matrix")
+if(taxa_are_rows(ps_RA_cpall_gf_np)){otu_cpall_gf_np <- t(otu_cpall_gf_np)} 
+otu_cpall_gf_np <- as.data.frame(otu_cpall_gf_np)
+# Compute BC distances
+ord_cpall_gf_np <- vegdist(otu_cpall_gf_np, method = "bray") 
+
+# We used complete linkage to create the phylogenetic tree (hierarchical clustering). The method is based on maximum distance; the similarity of any two clusters is the similarity of their most dissimilar pair.
+hc_cpall_gf_np_clust <- hclust(ord_cpall_gf_np, method = "complete")
+# Reorder 'otu_np' based on the clustering order
+otu_hc_cpall_gf_np_order_clust <- otu_cpall_gf_np[hc_cpall_gf_np_clust$order,]
+
+# The Calinski-Harabasz and Silhouette methods were used to determine the appropriate location to cut the tree. Higher value of indices means the clusters are dense and well separated. Here, we looked for a peak or at least an abrupt elbow on the line plot of the indices.
+CalHara_silhouette_indices_cpall_gf_np <- clust_ind_plot(ord_cpall_gf_np, seq(2, 25, by = 1), clust_method="complete")
+write.csv(CalHara_silhouette_indices_cpall_gf_np$data, "../Output/Cluster_analysis/CPall_GF_NP/calinski_harabasz_silhouette_indices_cpall_gf_np.csv")
+
+# Calinski-Harabasz Index: A higher value indicates well-separated clusters with high intra-cluster similarity.
+# Silhouette: The optimal number of clusters typically shows the highest silhouette score, suggesting well-separated and compact clusters.
+
+# look for the points where there are peaks or elbows in the curve
+
+# Create dendogram
+dend_cpall_gf_np <- as.dendrogram(hc_cpall_gf_np_clust)
+ 
+# 4 clusters
+dend_4clusters <- color_branches(dend_cpall_gf_np, k = 4, groupLabels=T)
+plot(stats::dendrapply(dend_4clusters, noLabel))
+
+# 5 clusters
+dend_5clusters <- color_branches(dend_cpall_gf_np, k = 5, groupLabels=T)
+plot(stats::dendrapply(dend_5clusters, noLabel))
+cluster_assignments_5 <- cutree(dend_cpall_gf_np, k = 5)
+cluster_counts_5 <- table(cluster_assignments_5)
+print(cluster_counts_5)
+
+# 6 clusters
+dend_6clusters <- color_branches(dend_cpall_gf_np, k = 6, groupLabels=T)
+plot(stats::dendrapply(dend_6clusters, noLabel))
+cluster_assignments_6 <- cutree(dend_cpall_gf_np, k = 6)
+cluster_counts_6 <- table(cluster_assignments_6)
+print(cluster_counts_6)
+
+# 7 clusters
+dend_7clusters <- color_branches(dend_cpall_gf_np, k = 7, groupLabels=T)
+plot(stats::dendrapply(dend_7clusters, noLabel))
+cluster_assignments_7 <- cutree(dend_cpall_gf_np, k = 7)
+cluster_counts_7 <- table(cluster_assignments_7)
+print(cluster_counts_7)
+
+# 8 clusters
+dend_8clusters <- color_branches(dend, k = 8, groupLabels=T)
+plot(stats::dendrapply(dend_8clusters, noLabel))
+cluster_assignments_8 <- cutree(dend, k = 8)
+cluster_counts_8 <- table(cluster_assignments_8)
+print(cluster_counts_8)
+
+# 12 clusters
+dend_12clusters <- color_branches(dend, k = 12, groupLabels=T)
+plot(stats::dendrapply(dend_12clusters, noLabel))
+# check number per cluster
+cluster_assignments_12 <- cutree(dend, k = 12)
+cluster_counts_12 <- table(cluster_assignments_12)
+print(cluster_counts_12)
+
+
+# 6 clusters appears optimal
+
+# k = 6
+# 6 clusters
+dend_6clusters <- color_branches(dend_cpall_gf_np, k = 6, groupLabels=T)
+plot(stats::dendrapply(dend_6clusters, noLabel))
+cluster_assignments_6 <- cutree(dend_cpall_gf_np, k = 6)
+cluster_counts_6 <- table(cluster_assignments_6)
+print(cluster_counts_6)
+
+# The function 'cuttree' is used to cut the tree at k = 4 as determined by the indices (see peak in CH index)
+groups_cpall_gf_np_c6 <- cutree(hc_cpall_gf_np_clust, k=6)
+ps_RA_cpall_gf_np@sam_data$cluster <- groups_cpall_gf_np_c6[order(rownames(ps_RA_cpall_gf_np@sam_data))]
+ps_RA_cpall_gf_np@sam_data$cluster <- ps_RA_cpall_gf_np@sam_data$cluster %>% as.character()
+
+# Determine the top 3 ASVs for each cluster
+otu_cpall_gf_np <- as(otu_table(ps_RA_cpall_gf_np), "matrix")
+if (taxa_are_rows(ps_RA_cpall_gf_np)) {
+  otu_cpall_gf_np <- t(otu_cpall_gf_np)  # Ensure ASVs are columns, samples are rows
+}
+
+# Extract sample metadata with cluster information
+sample_data_cpall_gf_np <- data.frame(ps_RA_cpall_gf_np@sam_data)
+# Combine the OTU table with the sample cluster data
+otu_cpall_gf_np_with_clusters <- cbind(cluster = sample_data_cpall_gf_np$cluster, otu_cpall_gf_np)
+otu_cpall_gf_np_with_clusters <- as.data.frame(otu_cpall_gf_np_with_clusters)
+otu_cpall_gf_np_with_clusters$cluster <- as.factor(otu_cpall_gf_np_with_clusters$cluster)
+# Convert all ASV abundances to numeric
+otu_cpall_gf_np_with_clusters[-1] <- lapply(otu_cpall_gf_np_with_clusters[-1], as.numeric)
+# Sum ASV abundances for each cluster
+asv_sum_by_cluster_cpall_gf_np <- otu_cpall_gf_np_with_clusters %>%
+  group_by(cluster) %>%
+  summarise(across(where(is.numeric), sum, na.rm = TRUE))
+# Convert back to data frame for further processing
+asv_sum_by_cluster_cpall_gf_np <- as.data.frame(asv_sum_by_cluster_cpall_gf_np)
+# Find the top 3 most abundant ASVs in each cluster and their percentage
+top_3_asvs_cpall_gf_np <- apply(asv_sum_by_cluster_cpall_gf_np[, -1], 1, function(x) {
+  # Get total abundance in the cluster for calculating percentages
+  total_abundance_cpall_gf_np <- sum(x, na.rm = TRUE)
+  # Get names and values of the top 3 ASVs
+  top_3_indices_cpall_gf_np <- order(x, decreasing = TRUE)[1:3]
+  top_3_asv_names_cpall_gf_np <- names(x)[top_3_indices_cpall_gf_np]
+  top_3_asv_values_cpall_gf_np <- x[top_3_indices_cpall_gf_np]
+  # Calculate percentages
+  top_3_asv_percentages_cpall_gf_np <- (top_3_asv_values_cpall_gf_np / total_abundance_cpall_gf_np) * 100
+  # Combine ASV names and percentages into a string for each cluster
+  result <- paste0(top_3_asv_names_cpall_gf_np, ": ", round(top_3_asv_percentages_cpall_gf_np, 2), "%", collapse = "; ")
+  return(result)
+})
+
+# Combine results with cluster information
+top_3_asvs_df_cpall_gf_np <- data.frame(cluster = asv_sum_by_cluster_cpall_gf_np$cluster, Top_3_ASVs = top_3_asvs_cpall_gf_np)
+# Display the top 3 ASVs for each cluster along with their percentages
+print(top_3_asvs_df_cpall_gf_np)
+
+#### Rename clusters ####
+# If an ASV is >40% of the total abundance in a cluster: Name the cluster after that ASV only, as it is the dominant contributor.
+# If the top ASV is between 20-40% of the total abundance: Use the two most abundant ASVs to name the cluster.
+# If the top ASV is <20% of the total abundance: Use the top three ASVs to name the cluster, as none of the ASVs dominate significantly.
+
+get_cluster_name <- function(top_asvs_string) {
+  asv_info <- strsplit(top_asvs_string, "; ")[[1]]
+  asv_names <- sapply(asv_info, function(x) strsplit(x, ": ")[[1]][1])
+  asv_percentages <- as.numeric(sapply(asv_info, function(x) sub("%", "", strsplit(x, ": ")[[1]][2])))
+  
+  if (asv_percentages[1] > 40) {
+    return(paste0(asv_names[1], "-dominated cluster"))
+  } else if (asv_percentages[1] > 20) {
+    return(paste0(asv_names[1], " and ", asv_names[2], "-dominated cluster"))
+  } else {
+    return(paste0(asv_names[1], ", ", asv_names[2], ", and ", asv_names[3], "-dominated cluster"))
+  }
+}
+
+# Rename based on these rules
+top_3_asvs_df_cpall_gf_np$Cluster_Name <- sapply(top_3_asvs_df_cpall_gf_np$Top_3_ASVs, get_cluster_name)
+
+# [1] "Dolosigranulum_pigrum_1 and Corynebacterium_7-dominated cluster"
+# [2] "Corynebacterium_3-dominated cluster"                            
+# [3] "Moraxella_5-dominated cluster"                                  
+# [4] "Staphylococcus_2-dominated cluster"                             
+# [5] "Moraxella_lincolnii_47-dominated cluster"                       
+# [6] "Corynebacterium_28 and Streptococcus_23-dominated cluster" 
+
+# Shorten the names made above for plotting 
+# Define the new cluster names in the same order as the original clusters
+new_cluster_names_cpall_gf_np <- c(
+  "Dolo_pigr(1)/Cory(7) clust",
+  "Cory(3) clust",
+  "Mor(5) clust",
+  "Staph(2) clust",
+  "Mor_linc(47) clust",
+  "Cory(28)/Strep(23) clust"
+)
+
+# Assign the new names to 'Cluster_Name' in 'top_3_asvs_df'
+top_3_asvs_df_cpall_gf_np$Cluster_Name <- new_cluster_names_cpall_gf_np
+
+# Update the clusters in the sample data to use the new names
+ps_RA_cpall_gf_np@sam_data$cluster <- top_3_asvs_df_cpall_gf_np$Cluster_Name[match(ps_RA_cpall_gf_np@sam_data$cluster, top_3_asvs_df_cpall_gf_np$cluster)]
+# Convert to character
+ps_RA_cpall_gf_np@sam_data$cluster <- as.character(ps_RA_cpall_gf_np@sam_data$cluster)
+
+# Count the number of samples in each cluster
+cluster_counts_cpall_gf_np <- as.data.frame(table(ps_RA_cpall_gf_np@sam_data$cluster))
+colnames(cluster_counts_cpall_gf_np) <- c("Cluster", "Count")
+
+# Calculate the relative proportions of each cluster
+cluster_counts_cpall_gf_np$Proportion <- cluster_counts_cpall_gf_np$Count / sum(cluster_counts_cpall_gf_np$Count)
+
+write.csv(cluster_counts_cpall_gf_np, "../Output/Cluster_analysis/CPall_GF_NP/cluster_counts_cpall_gf_np.csv")
+
+# Create the plot with geom_bar for vertical stacking
+bar_clusters_cpall_gf_np <- ggplot(data = cluster_counts_cpall_gf_np, aes(x = Cluster, y = (Proportion*100), fill = Cluster)) +
+  geom_bar(stat = "identity") +  # Use stat = "identity" to directly use Proportion
+  labs(title = "Bar Plot of Clusters in Control Population and Goat farmers",
+       x = "Clusters",            # X-axis now represents clusters
+       y = "% of samples",          # Y-axis represents proportions
+       fill = "Cluster") +
+  scale_fill_manual(values = c(paletteer_d("pals::stepped")[c(13,20,10,16,1,18)])) +
+  theme_minimal() +
+  theme(axis.text.x = element_blank(),      # Remove x-axis labels if needed
+        axis.ticks.x = element_blank(),     # Remove x-axis ticks if needed
+        legend.position = "right")
+
+bar_clusters_cpall_gf_np
+ggsave("../Output/Cluster_analysis/CPall_GF_NP/Bar_plot_cluster_proportions_clusters.svg", bar_clusters_cpall_gf_np, width = 8, height = 5)
+
+```
+CONTINUE HERE!!!!
+
+#### Visualisations for manuscript
+```{r}
+dendro_cpall_gf_np <- create_dendro_gg(hc_cpall_gf_np_clust, size = 0.15)
+
+otu_hm_cpall_gf_np <- as(otu_table(ps_RA_cpall_gf_np), "matrix")
+otu_hm_cpall_gf_np_order <- otu_hm_cpall_gf_np[order(rowMeans(otu_hm_cpall_gf_np), decreasing = T)[1:45], hc_cpall_gf_np_clust$order]
+meta_hm_cpall_gf_np_order <- ps_RA_cpall_gf_np %>% meta_to_df()
+meta_hm_cpall_gf_np_order <- meta_hm_cpall_gf_np_order[hc_cpall_gf_np_clust$order,]
+unique(meta_hm_cpall_gf_np_order$cluster)
+meta_hm_cpall_gf_np_order$cluster <- factor(meta_hm_cpall_gf_np_order$cluster, levels = c("Mor_linc(47) clust",
+  "Staph(2) clust",
+  "Dolo_pigr(1)/Cory(7) clust",
+  "Mor(5) clust",
+  "Cory(28)/Strep(23) clust",
+  "Cory(3) clust"))
+
+all(colnames(otu_hm_cpall_gf_np_order) == hc_cpall_gf_np_clust$labels[hc_cpall_gf_np_clust$order])
+
+hm_cpall_gf_np_data <- prep_hm_data(otu_hm_cpall_gf_np_order)
+
+hm_cpall_gf <- hm_cpall_gf_np_data %>%
+  ggplot(aes(x = sample_id, y = OTU, fill = RA)) +
+  geom_tile() +
+  scale_fill_gradientn(name="Relative abundance", colors = carto_pal(7, "BurgYl"), na.value = "white") +
+  theme_grey(base_size=10) + 
+  theme(axis.text.x = element_blank(), 
+        axis.text.y = element_markdown(), 
+        axis.ticks.x = element_blank(), 
+        legend.position = "bottom",
+        legend.key.height=grid::unit(0.2, "cm"),
+        legend.key.width=grid::unit(0.8, "cm"),
+        plot.background=element_blank()) +
+  xlab("Sample") + ylab("ASV")
+
+hm_cpall_gf
+
+### CONTINUE FROM HERE!!!! 
+# heatmap
+meta_hm_cp_np_order$sample_id <- factor(meta_hm_cp_np_order$sample_id, levels = meta_hm_cp_np_order$sample_id)
+
+hm_ann <- meta_hm_cp_np_order %>%
+  ggplot(aes(x = sample_id, y = "Cluster", fill = cluster)) +
+  theme_void() + geom_tile() + 
+  scale_fill_manual(values = c(paletteer_d("pals::stepped")[c(13,15,12,10,1,3,19,20,5,7,23)])) + 
+  labs(fill = "Cluster") + 
+  theme(axis.text.y = element_text(size = 8), 
+        axis.ticks.length.y = unit(.18, "cm"),
+        legend.direction = "vertical", 
+        legend.box = "vertical",
+        legend.key.size = unit(0.8, "lines")) +
+  guides(fill = guide_legend(nrow = 4))
+
+
+ps_cp_np <- subset_samples(ps_cp, niche == "NP")
+ps_cp_np <- prune_taxa(taxa_sums(ps_cp_np) > 0, ps_cp_np) 
+
+
+df_pres_cp_np <- ps_cp_np %>% ps_to_df()
+
+df_pres_cp_np[, colnames(df_pres_cp_np)[700:10172]] <- lapply(df_pres_cp_np[, colnames(df_pres_cp_np)[700:10172]], function(x) ifelse(x > 2, 1, 0))
+
+df_pres_cp_np <- df_pres_cp_np[701:2915]
+
+prev <- colMeans(df_pres_cp_np)
+prev_cp_np <- data.frame(Taxa = colnames(df_pres_cp_np), Prevalence = prev)
+prev_cp_np$Taxa <- format_OTU(prev_cp_np$Taxa)
+
+prev_cp_np <- subset(prev_cp_np, Taxa %in% hm_cp_np_data$OTU)
+prev_cp_np$Taxa <- factor(prev_cp_np$Taxa, levels = levels(hm_cp_np_data$OTU))
+
+p_prev_cp_np <- ggplot(prev_cp_np, aes(x = Prevalence, y = Taxa)) +
+  geom_bar(stat = "identity", fill = "azure4", width = 0.5) +
+  labs(x = "Prevalence") +
+  theme_minimal() + 
+  theme(axis.text.y = element_blank(), 
+        axis.title.y = element_blank(),
+        axis.ticks.y = element_blank()) +
+  scale_x_continuous(breaks = c(0, 0.5, 1),
+                     labels = scales::percent_format())
+p_prev_cp_np
+
+layout <- "
+AAAAAA#
+AAAAAA#
+AAAAAA#
+BBBBBB#
+CCCCCCD
+CCCCCCD
+CCCCCCD
+CCCCCCD
+CCCCCCD
+CCCCCCD
+CCCCCCD
+CCCCCCD
+CCCCCCD
+CCCCCCD
+CCCCCCD
+"
+
+dendro_cp_np$plot + hm_ann + hm + p_prev_cp_np + plot_layout(design = layout, guides = "collect") & theme(legend.position = 'bottom')
+
+ggsave("../Output/Cluster_analysis/CP_NP/heatmap_cluster_cp_np.svg", height = 8, width = 7)
+```
+
 ## CP only
 ```{r}
 # Read in the phyloseq object which has the new metadata and the RF model predictions
 ps_new_metadata_RFpreds <- readRDS("../Output/Phyloseq/ps_complete_new_metadata_RFpreds.rds")
-# Remove any samples from pneumonia patients as not used in the analysis
+# ONly include CP participants 
 ps_cp <- subset_samples(ps_new_metadata_RFpreds, population == "CP")
 ps_cp <- prune_taxa(taxa_sums(ps_cp) > 0, ps_cp) # Also remove taxa that are not in the CP ps object
 ```
@@ -301,7 +618,61 @@ bar_clusters_cp_np
 ggsave("../Output/Cluster_analysis/CP_NP/Bar_plot_cluster_proportions_clusters.svg", bar_clusters_cp_np, width = 8, height = 5)
 
 ```
+### Check some metrics before running models
+```{r}
+# Extract the variables into a new data frame for simplicity
+variables <- sample_data_df_cp_np[, c("KRD_nPoultryWghtDist.3000m.sum", 
+                                      "KRD_nCowsWghtDist.3000m.sum", 
+                                      "KRD_nGoatsWghtDist.3000m.sum", 
+                                      "KRD_nPigsWghtDist.3000m.sum")]
 
+
+# Calculate the correlation matrix and p-values
+corr_result <- psych::corr.test(variables)
+corr_matrix <- corr_result$r    # Correlation matrix
+p_matrix <- corr_result$p       # p-value matrix
+
+# Convert correlation matrix and p-value matrix to long format
+corr_long <- melt(corr_matrix)
+p_long <- melt(p_matrix)
+
+# Merge correlation and p-value matrices into one data frame
+corr_long$p_value <- p_long$value
+
+# Create labels based on significance levels
+corr_long$label <- ifelse(corr_long$p_value < 0.001, "***",
+                          ifelse(corr_long$p_value < 0.01, "**",
+                                 ifelse(corr_long$p_value < 0.05, "*", "NS")))
+
+
+# Only keep the upper triangle (excluding self-comparisons)
+corr_long <- corr_long %>% 
+  filter(as.numeric(Var1) < as.numeric(Var2))
+
+# Plot the half-matrix heatmap with correlation coefficients and significance stars as labels
+ggplot(corr_long, aes(Var1, Var2, fill = value)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient2(low = "#6D9EC1", high = "#E46726", mid = "white", 
+                       midpoint = 0, limit = c(-1, 1), space = "Lab", 
+                       name="Pearson\nCorrelation") +
+  geom_text(aes(label = paste0(round(value, 2), "\n", label)), color = "black", size = 4) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.text.y = element_text(hjust = 1),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank()) +
+  ggtitle("Correlation Matrix with Significance Stars")
+
+
+
+# Fit a logistic regression model for one of the clusters
+logit_model <- glm(cluster=="Cor(3)/Staph(2) clust" ~ KRD_nPoultryWghtDist.3000m.sum + KRD_nCowsWghtDist.3000m.sum + KRD_nGoatsWghtDist.3000m.sum + KRD_nPigsWghtDist.3000m.sum +age +gender +smoked_ever + sampling_season, data = sample_data_df_cp_np, family = binomial)
+# Calculate the Variance Inflation Factor (VIF)
+vif_results <- vif(logit_model)
+
+# Display VIF results
+print(vif_results) # None of the GVIF values are >2, can we can go ahead with the distance-weighted metrics together in a multivariable model
+```
 ##### Compare with metadata 
 ```{r}
 # Convert sample data to a dataframe
@@ -387,17 +758,17 @@ write.csv(logistic_results_df_cp_np, "../Output/Cluster_analysis/CP_NP/log_regre
 
 ```
 
-##### Heatmap 
+##### Heatmap - metadata relations
 ```{r}
 # Present the Odds ratio instead of the estimate - this tells us how the odds of belonging to a specific cluster change with each unit increase in the predictor variable. 
 
 # Filter out relevant results for specified variables
-logistic_results_df_filtered <- logistic_results_df %>%
-  filter(!grepl("^(age|gender|smoked|sampling|\\(Intercept\\))", rownames(logistic_results_df))) %>%
+logistic_results_df_cp_np_filtered <- logistic_results_df_cp_np %>%
+  filter(!grepl("^(age|gender|smoked|sampling|\\(Intercept\\))", rownames(logistic_results_df_cp_np))) %>%
   select(Cluster, Variable, Estimate, Adjusted_p_value, `Std. Error`)
 
 # Calculate Odds Ratios and Confidence Intervals
-logistic_results_df_filtered <- logistic_results_df_filtered %>%
+logistic_results_df_cp_np_filtered <- logistic_results_df_cp_np_filtered %>%
   mutate(
     OR = exp(Estimate),
     Lower_CI = exp(Estimate - 1.96 * `Std. Error`),
@@ -405,10 +776,10 @@ logistic_results_df_filtered <- logistic_results_df_filtered %>%
   )
 
 # Reorder the variables for the plot
-logistic_results_df_filtered$Variable <- factor(logistic_results_df_filtered$Variable,
+logistic_results_df_cp_np_filtered$Variable <- factor(logistic_results_df_cp_np_filtered$Variable,
   levels = c("KRD_nCowsWghtDist.3000m.sum", "KRD_nPoultryWghtDist.3000m.sum", "KRD_nGoatsWghtDist.3000m.sum", "KRD_nPigsWghtDist.3000m.sum", "meca_RF_preds", "tetw_RF_preds", "staph_RF_preds", "ecoli_RF_preds"))
 
-logistic_results_df_filtered <- logistic_results_df_filtered %>%
+logistic_results_df_cp_np_filtered <- logistic_results_df_cp_np_filtered %>%
   mutate(Variable = recode(Variable,
     "ecoli_RF_preds" = "RF-modelled E. coli exposure",
     "staph_RF_preds" = "RF-modelled Staphylococcus spp. exposure",
@@ -420,18 +791,15 @@ logistic_results_df_filtered <- logistic_results_df_filtered %>%
     "KRD_nCowsWghtDist.3000m.sum" = "Distance weighted number of cattle in 3000m"
   ))
 
-
-
-heatmap_data <- logistic_results_df_filtered %>%
+heatmap_data_cp_np<- logistic_results_df_cp_np_filtered %>%
   select(Variable, Cluster, OR) %>%
   dcast(Variable ~ Cluster, value.var = "OR")  # Reshape data for heatmap
 
 # Convert to long format for ggplot
-heatmap_long <- melt(heatmap_data, id.vars = "Variable", variable.name = "Cluster", value.name = "OR")
-
+heatmap_long_cp_np <- melt(heatmap_data_cp_np, id.vars = "Variable", variable.name = "Cluster", value.name = "OR")
 
 # Create the heatmap with italic formatting
-heatmap_residential_expo <- ggplot(heatmap_long, aes(x = Cluster, y = Variable, fill = OR)) +
+heatmap_residential_expo_cp_np <- ggplot(heatmap_long_cp_np, aes(x = Cluster, y = Variable, fill = OR)) +
   geom_tile(color = "white") +
   scale_fill_gradient2(
     low = carto_pal(7, "Geyser")[1], 
@@ -463,7 +831,7 @@ heatmap_residential_expo <- ggplot(heatmap_long, aes(x = Cluster, y = Variable, 
   )
 
 # Save the heatmap
-ggsave("../Output/Cluster_analysis/CP_NP/Residential_livestock_expo_heatmap.svg", heatmap_residential_expo, width = 8, height = 6)
+ggsave("../Output/Cluster_analysis/CP_NP/Residential_livestock_expo_heatmap.svg", heatmap_residential_expo_cp_np, width = 8, height = 6)
 
 
 ```
@@ -780,6 +1148,7 @@ ggsave("../Output/Cluster_analysis/CP_OP/Bar_plot_cluster_proportions_clusters.s
 
 ```
 
+
 ##### Compare with metadata 
 ```{r}
 # Convert sample data to a dataframe
@@ -866,7 +1235,7 @@ write.csv(logistic_results_df_cp_op, "../Output/Cluster_analysis/CP_OP/log_regre
 
 ```
 
-##### Heatmap 
+##### Heatmap - metadata relations
 ```{r}
 # Present the Odds ratio instead of the estimate - this tells us how the odds of belonging to a specific cluster change with each unit increase in the predictor variable. 
 
@@ -1337,7 +1706,7 @@ filtered_clusters <- population_count_table %>%
 print(filtered_clusters)
 
 # Filter the main dataset for only the selected clusters
-sample_data_df_cp_gf_np <- sample_data_cp_gf_np %>%
+sample_data_df_cp_gf_np <- data.frame(sample_data_cp_gf_np) %>%
   filter(cluster %in% filtered_clusters)
 
 # Initialize an empty data frame to store logistic regression results
@@ -1357,55 +1726,208 @@ if (!"population" %in% names(sample_data_df_cp_gf_np)) {
 }
 sample_data_df_cp_gf_np$population <- as.factor(sample_data_df_cp_gf_np$population)
 
+# Initialize vectors to collect p-values and estimates for the populationGF variable
+populationGF_p_values <- c()
+populationGF_estimates <- c()
+
+# Initialize an empty data frame to store logistic regression results for each cluster
+logistic_results_df_cp_gf_np <- data.frame()
+
 # Loop through each cluster
 for (clust in unique(sample_data_df_cp_gf_np$cluster)) {
   # Create a binary outcome for each cluster (1 if sample is in the cluster, 0 otherwise)
   sample_data_df_cp_gf_np$in_cluster <- ifelse(sample_data_df_cp_gf_np$cluster == clust, 1, 0)
   
-  # Fit the multivariable logistic regression model
+  # Debug: Check counts of 0s and 1s in `in_cluster`
+  print(paste("Cluster:", clust))
+  print(table(sample_data_df_cp_gf_np$in_cluster))
+  
+  # Check if there is variation in `in_cluster`
+  if (length(unique(sample_data_df_cp_gf_np$in_cluster)) == 1) {
+    print(paste("Skipping cluster", clust, "due to lack of variation in outcome"))
+    next
+  }
+  
+  # Fit the multivariable logistic regression model, including population and additional variables
   formula_multivariable <- as.formula(paste("in_cluster ~", paste(c("population", additional_vars), collapse = " + ")))
   
-  model_multivariable <- glm(formula_multivariable, 
-                              data = sample_data_df_cp_gf_np, 
-                              family = binomial)
+  model_multivariable <- tryCatch({
+    glm(formula_multivariable, data = sample_data_df_cp_gf_np, family = binomial)
+  }, error = function(e) {
+    print(paste("Error fitting model for cluster", clust, ":", e$message))
+    return(NULL)
+  })
   
-  # Extract summary statistics
-  summary_stats <- as.data.frame(summary(model_multivariable)$coefficients)
+  # Check if model fit was successful
+  if (is.null(model_multivariable)) {
+    logistic_results_df_cp_gf_np <- rbind(logistic_results_df_cp_gf_np, 
+                                          data.frame(Cluster = clust, 
+                                                     PopulationGF_Estimate = NA, 
+                                                     PopulationGF_p_value = NA))
+    next
+  }
   
-  # Add cluster name for clarity
-  summary_stats$Cluster <- clust
+  # Extract coefficients if available
+  model_coefficients <- summary(model_multivariable)$coefficients
   
-  # Add variable names explicitly
-  summary_stats$Variable <- rownames(summary_stats)
-  
-  # Adjust p-values
-  summary_stats$Adjusted_p_value <- p.adjust(summary_stats[, "Pr(>|z|)"], method = "BH")  # Use "bonferroni" or "fdr" as needed
-  
-  # Reset row names to avoid issues with rbind
-  rownames(summary_stats) <- NULL
-  
-  # Reorder columns to have 'Variable' and 'Cluster' at the end
-  summary_stats <- summary_stats[, c("Variable", "Cluster", "Estimate", "Std. Error", "z value", "Pr(>|z|)", "Adjusted_p_value")]
-  
-  # Append to the results data frame
-  logistic_results_df_cp_gf_np <- rbind(logistic_results_df_cp_gf_np, summary_stats)
+  if ("populationGF" %in% rownames(model_coefficients)) {
+    # Extract the p-value and estimate for the populationGF variable
+    populationGF_p_value <- model_coefficients["populationGF", "Pr(>|z|)"]
+    populationGF_estimate <- model_coefficients["populationGF", "Estimate"]
+    
+    # Append to the respective vectors
+    populationGF_p_values <- c(populationGF_p_values, populationGF_p_value)
+    populationGF_estimates <- c(populationGF_estimates, populationGF_estimate)
+    
+    # Save the cluster identifier along with p-value and estimate for reference
+    logistic_results_df_cp_gf_np <- rbind(logistic_results_df_cp_gf_np, 
+                                          data.frame(Cluster = clust, 
+                                                     PopulationGF_Estimate = populationGF_estimate, 
+                                                     PopulationGF_p_value = populationGF_p_value))
+  } else {
+    # If populationGF is not in the model, add NA for both estimate and p-value
+    logistic_results_df_cp_gf_np <- rbind(logistic_results_df_cp_gf_np, 
+                                          data.frame(Cluster = clust, 
+                                                     PopulationGF_Estimate = NA, 
+                                                     PopulationGF_p_value = NA))
+  }
 }
 
-# Optionally view the results
+# Apply the Benjamini-Hochberg correction to the collected populationGF p-values (excluding NA values)
+logistic_results_df_cp_gf_np$Adjusted_p_value <- p.adjust(na.omit(populationGF_p_values), method = "BH")
+
+# Print the final results showing each cluster, its estimate, original populationGF p-value, and the adjusted p-value
 print(logistic_results_df_cp_gf_np)
 
-# Ensure to have columns named properly in the final data frame
-colnames(logistic_results_df_cp_gf_np) <- c("Variable", "Cluster", "Estimate", "Std. Error", "z value", "Pr(>|z|)", "Adjusted_p_value")
-
-# Display the final results
-print(logistic_results_df_cp_gf_np)
-
-
-write.csv(logistic_results_df_cp_gf_np, "../Output/Cluster_analysis/CP_GF_NP/log_regression_results_cp_gf_np.csv")
-
-# For each logistic regression model fit, the p-values were adjusted in that specific model
+# Optionally save the results
+write.csv(logistic_results_df_cp_gf_np, "../Output/Cluster_analysis/CP_GF_NP/log_regression_populationGF_p_values_and_estimates.csv", row.names = FALSE)
 ```
-##### Heatmap 
+
+```{r}
+# Select relevant columns from the original results DataFrame
+logistic_results_df_cp_gf_np_filtered <- logistic_results_df_cp_gf_np %>%
+  select(Cluster, PopulationGF_Estimate, Adjusted_p_value)
+
+# Calculate Odds Ratios and add the 'Variable' column
+logistic_results_df_cp_gf_np_filtered <- logistic_results_df_cp_gf_np_filtered %>%
+  mutate(OR = exp(PopulationGF_Estimate),
+         Variable = "Population")  # Ensure Variable column is created
+
+# Check the structure of the DataFrame to confirm 'Variable' column is present
+print(head(logistic_results_df_cp_gf_np_filtered))
+
+# Reshape the data using the `dcast` function from the reshape2 package
+heatmap_data_cp_gf_np <- logistic_results_df_cp_gf_np_filtered %>%
+  select(Variable, Cluster, OR) %>%  # Include 'Variable' and 'OR' in selection
+  dcast(Variable ~ Cluster, value.var = "OR")  # Use the OR for reshaping
+
+# Convert to long format for ggplot heatmap
+heatmap_data_cp_gf_np <- melt(heatmap_data_cp_gf_np, id.vars = "Variable", variable.name = "Cluster", value.name = "OR")
+
+# Create the heatmap with italic formatting
+heatmap_occupational_expo_cp_gf_np <- ggplot(heatmap_data_cp_gf_np, aes(x = Cluster, y = Variable, fill = OR)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient2(
+    low = carto_pal(7, "Geyser")[1], 
+    mid = carto_pal(7, "Geyser")[4], 
+    high = carto_pal(7, "Geyser")[7], 
+    midpoint = 1,
+    name = "Odds Ratio"
+  ) +
+  labs(
+    title = "Heatmap of Odds Ratios for PopulationGF Exposure",
+    x = "Cluster"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(hjust = 0.5),
+    axis.text.y = element_markdown()  # Enable markdown for y-axis labels
+  )
+heatmap_occupational_expo_cp_gf_np
+
+# Save the heatmap
+ggsave("../Output/Cluster_analysis/CP_GF_NP/Occupational_livestock_expo_heatmap.svg", heatmap_occupational_expo, width = 8, height = 6)
+
+```
+
+
+
+
+```{r}
+# Filter out relevant results for populationGF variable only
+logistic_results_df_cp_gf_np_filtered <- logistic_results_df_cp_gf_np %>%
+  select(Cluster, Estimate, Adjusted_p_value, `Std. Error`)
+
+# Calculate Odds Ratios and Confidence Intervals
+logistic_results_df_cp_gf_np_filtered <- logistic_results_df_cp_gf_np_filtered %>%
+  mutate(
+    OR = exp(Estimate),
+    Lower_CI = exp(Estimate - 1.96 * `Std. Error`),
+    Upper_CI = exp(Estimate + 1.96 * `Std. Error`)
+  )
+
+# Prepare data for heatmap: reshaping to show ORs by cluster
+heatmap_data_cp_gf <- logistic_results_df_cp_gf_np_filtered %>%
+  select(Cluster, OR) %>%
+  dcast(Variable ~ Cluster, value.var = "OR")  # Reshape data for heatmap
+
+# Convert to long format for ggplot heatmap
+heatmap_data_cp_gf <- melt(heatmap_data_cp_gf, id.vars = "Variable", variable.name = "Cluster", value.name = "OR")
+
+# Create the heatmap with italic formatting
+heatmap_occupational_expo <- ggplot(heatmap_data_cp_gf, aes(x = Cluster, y = Variable, fill = OR)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient2(
+    low = carto_pal(7, "Geyser")[1], 
+    mid = carto_pal(7, "Geyser")[4], 
+    high = carto_pal(7, "Geyser")[7], 
+    midpoint = 1,
+    name = "Odds Ratio"
+  ) +
+  labs(
+    title = "Heatmap of Odds Ratios for PopulationGF Exposure",
+    x = "Cluster"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(hjust = 0.5),
+    axis.text.y = element_markdown()  # Enable markdown for y-axis labels
+  )
+heatmap_occupational_expo
+
+# Save the heatmap
+ggsave("../Output/Cluster_analysis/CP_GF_NP/Occupational_livestock_expo_heatmap.svg", heatmap_occupational_expo, width = 8, height = 6)
+
+
+#### Dot and Whisker Plot for Odds Ratios with CI for PopulationGF Variable
+dot_whisker_plot_cp_gf_np <- ggplot(logistic_results_df_cp_gf_np_filtered, aes(x = Cluster, y = OR, color = Cluster, group = Cluster)) +
+  geom_point(size = 4, position = position_dodge(width = 1)) +  # Dodge to avoid overlap
+  geom_errorbar(aes(ymin = Lower_CI, ymax = Upper_CI), width = 0.2, position = position_dodge(width = 1)) +  # Dodge for error bars
+  scale_y_continuous(trans = 'log', breaks = scales::breaks_log()) +  # Log scale for OR
+  labs(
+    title = "Odds Ratios for PopulationGF Exposure Across Clusters",
+    x = "Clusters",
+    y = "Odds Ratio (Log Scale)",
+    color = "Cluster"
+  ) +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 16),
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    axis.text.y = element_text(size = 10),
+    legend.position = "right",
+    plot.margin = margin(10, 10, 10, 100)  # Adjust margins (top, right, bottom, left)
+  )
+dot_whisker_plot_cp_gf_np
+
+# Save the dot-whisker plot
+ggsave("../Output/Cluster_analysis/CP_GF_NP/dot_whisker_plot_cp_gf_np.svg", dot_whisker_plot_cp_gf_np, width = 12, height = 8)
+
+```
+
+##### Heatmap - metadata relations
 ```{r}
 # Present the Odds ratio instead of the estimate - this tells us how the odds of belonging to a specific cluster change with each unit increase in the predictor variable. 
 
@@ -1454,34 +1976,8 @@ heatmap_occupational_expo
 
 # Save the heatmap
 ggsave("../Output/Cluster_analysis/CP_GF_NP/Occupational_livestock_expo_heatmap.svg", heatmap_occupational_expo, width = 8, height = 6)
-
-
 ```
-#### Dot and whisker plot
-```{r}
-dot_whisker_plot_cp_gf_np <- ggplot(logistic_results_df_cp_gf_np_filtered, aes(x = Variable, y = OR, color = Cluster, group = Cluster)) +
-  geom_point(size = 4, position = position_dodge(width = 1)) +  # Dodge to avoid overlap
-  geom_errorbar(aes(ymin = Lower_CI, ymax = Upper_CI), width = 0.2, position = position_dodge(width = 1)) +  # Dodge for error bars
-  scale_y_continuous(trans = 'log', breaks = scales::breaks_log()) +  # Log scale for OR
-  labs(
-    title = "Odds Ratios for Occupational Livestock Exposure",
-    x = "Variables",
-    y = "Odds Ratio (Log Scale)",
-    color = "Cluster"
-  ) +
-  theme_minimal() +
-  theme(
-    plot.title = element_text(hjust = 0.5, size = 16),
-    axis.text.x = element_text(angle = 45, hjust = 1),
-    axis.text.y = element_text(size = 10),
-    legend.position = "right",
-    plot.margin = margin(10, 10, 10, 100)  # Adjust margins (top, right, bottom, left)
-  )
-dot_whisker_plot_cp_gf_np
 
-# Save the plot with increased height
-ggsave("../Output/Cluster_analysis/CP_GF_NP/dot_whisker_plot_cp_gf_np.svg", dot_whisker_plot_cp_gf_np, width = 12, height = 8)
-```
 
 #### Visualisations for manuscript
 ```{r}
@@ -1834,81 +2330,107 @@ if (!"population" %in% names(sample_data_df_cp_gf_op)) {
 }
 sample_data_df_cp_gf_op$population <- as.factor(sample_data_df_cp_gf_op$population)
 
+# Initialize vectors to collect p-values and estimates for the populationGF variable
+populationGF_p_values <- c()
+populationGF_estimates <- c()
+
+# Initialize an empty data frame to store logistic regression results for each cluster
+logistic_results_df_cp_gf_op <- data.frame()
+
 # Loop through each cluster
 for (clust in unique(sample_data_df_cp_gf_op$cluster)) {
   # Create a binary outcome for each cluster (1 if sample is in the cluster, 0 otherwise)
   sample_data_df_cp_gf_op$in_cluster <- ifelse(sample_data_df_cp_gf_op$cluster == clust, 1, 0)
   
-  # Fit the multivariable logistic regression model
+  # Debug: Check counts of 0s and 1s in `in_cluster`
+  print(paste("Cluster:", clust))
+  print(table(sample_data_df_cp_gf_op$in_cluster))
+  
+  # Check if there is variation in `in_cluster`
+  if (length(unique(sample_data_df_cp_gf_op$in_cluster)) == 1) {
+    print(paste("Skipping cluster", clust, "due to lack of variation in outcome"))
+    next
+  }
+  
+  # Fit the multivariable logistic regression model, including population and additional variables
   formula_multivariable <- as.formula(paste("in_cluster ~", paste(c("population", additional_vars), collapse = " + ")))
   
-  model_multivariable <- glm(formula_multivariable, 
-                              data = sample_data_df_cp_gf_op, 
-                              family = binomial)
+  model_multivariable <- tryCatch({
+    glm(formula_multivariable, data = sample_data_df_cp_gf_op, family = binomial)
+  }, error = function(e) {
+    print(paste("Error fitting model for cluster", clust, ":", e$message))
+    return(NULL)
+  })
   
-  # Extract summary statistics
-  summary_stats <- as.data.frame(summary(model_multivariable)$coefficients)
+  # Check if model fit was successful
+  if (is.null(model_multivariable)) {
+    logistic_results_df_cp_gf_op <- rbind(logistic_results_df_cp_gf_op, 
+                                          data.frame(Cluster = clust, 
+                                                     PopulationGF_Estimate = NA, 
+                                                     PopulationGF_p_value = NA))
+    next
+  }
   
-  # Add cluster name for clarity
-  summary_stats$Cluster <- clust
+  # Extract coefficients if available
+  model_coefficients <- summary(model_multivariable)$coefficients
   
-  # Add variable names explicitly
-  summary_stats$Variable <- rownames(summary_stats)
-  
-  # Adjust p-values
-  summary_stats$Adjusted_p_value <- p.adjust(summary_stats[, "Pr(>|z|)"], method = "BH")  # Use "bonferroni" or "fdr" as needed
-  
-  # Reset row names to avoid issues with rbind
-  rownames(summary_stats) <- NULL
-  
-  # Reorder columns to have 'Variable' and 'Cluster' at the end
-  summary_stats <- summary_stats[, c("Variable", "Cluster", "Estimate", "Std. Error", "z value", "Pr(>|z|)", "Adjusted_p_value")]
-  
-  # Append to the results data frame
-  logistic_results_df_cp_gf_op <- rbind(logistic_results_df_cp_gf_op, summary_stats)
+  if ("populationGF" %in% rownames(model_coefficients)) {
+    # Extract the p-value and estimate for the populationGF variable
+    populationGF_p_value <- model_coefficients["populationGF", "Pr(>|z|)"]
+    populationGF_estimate <- model_coefficients["populationGF", "Estimate"]
+    
+    # Append to the respective vectors
+    populationGF_p_values <- c(populationGF_p_values, populationGF_p_value)
+    populationGF_estimates <- c(populationGF_estimates, populationGF_estimate)
+    
+    # Save the cluster identifier along with p-value and estimate for reference
+    logistic_results_df_cp_gf_op <- rbind(logistic_results_df_cp_gf_op, 
+                                          data.frame(Cluster = clust, 
+                                                     PopulationGF_Estimate = populationGF_estimate, 
+                                                     PopulationGF_p_value = populationGF_p_value))
+  } else {
+    # If populationGF is not in the model, add NA for both estimate and p-value
+    logistic_results_df_cp_gf_op <- rbind(logistic_results_df_cp_gf_op, 
+                                          data.frame(Cluster = clust, 
+                                                     PopulationGF_Estimate = NA, 
+                                                     PopulationGF_p_value = NA))
+  }
 }
 
-# Optionally view the results
+# Apply the Benjamini-Hochberg correction to the collected populationGF p-values (excluding NA values)
+logistic_results_df_cp_gf_op$Adjusted_p_value <- p.adjust(na.omit(populationGF_p_values), method = "BH")
+
+# Print the final results showing each cluster, its estimate, original populationGF p-value, and the adjusted p-value
 print(logistic_results_df_cp_gf_op)
 
-# Ensure to have columns named properly in the final data frame
-colnames(logistic_results_df_cp_gf_op) <- c("Variable", "Cluster", "Estimate", "Std. Error", "z value", "Pr(>|z|)", "Adjusted_p_value")
-
-# Display the final results
-print(logistic_results_df_cp_gf_op)
-
-
-write.csv(logistic_results_df_cp_gf_op, "../Output/Cluster_analysis/CP_GF_OP/log_regression_results_cp_gf_op.csv")
-
-# For each logistic regression model fit, the p-values were adjusted in that specific model
+# Optionally save the results
+write.csv(logistic_results_df_cp_gf_op, "../Output/Cluster_analysis/CP_GF_OP/log_regression_populationGF_p_values_and_estimates.csv", row.names = FALSE)
 ```
-##### Heatmap 
+##### Heatmap - metadata relations
 ```{r}
-# Present the Odds ratio instead of the estimate - this tells us how the odds of belonging to a specific cluster change with each unit increase in the predictor variable. 
-
-# Filter out relevant results for specified variables
+# Select relevant columns from the original results DataFrame
 logistic_results_df_cp_gf_op_filtered <- logistic_results_df_cp_gf_op %>%
-  filter(!grepl("^(age|gender|smoked|sampling|\\(Intercept\\))", logistic_results_df_cp_gf_op$Variable)) %>%
-  select(Cluster, Variable, Estimate, Adjusted_p_value, `Std. Error`)
+  select(Cluster, PopulationGF_Estimate, Adjusted_p_value)
 
-# Calculate Odds Ratios and Confidence Intervals
+# Calculate Odds Ratios and add the 'Variable' column
 logistic_results_df_cp_gf_op_filtered <- logistic_results_df_cp_gf_op_filtered %>%
-  mutate(
-    OR = exp(Estimate),
-    Lower_CI = exp(Estimate - 1.96 * `Std. Error`),
-    Upper_CI = exp(Estimate + 1.96 * `Std. Error`)
-  )
+  mutate(OR = exp(PopulationGF_Estimate),
+         Variable = "Population")  # Ensure Variable column is created
 
-# Reorder the variables for the plot
-heatmap_data_cp_gf <- logistic_results_df_cp_gf_op_filtered %>%
-  select(Variable, Cluster, OR) %>%
-  dcast(Variable ~ Cluster, value.var = "OR")  # Reshape data for heatmap
+# Check the structure of the DataFrame to confirm 'Variable' column is present
+print(head(logistic_results_df_cp_gf_op_filtered))
 
-# Convert to long format for ggplot
-heatmap_data_cp_gf <- melt(heatmap_data_cp_gf, id.vars = "Variable", variable.name = "Cluster", value.name = "OR")
+# Reshape the data using the `dcast` function from the reshape2 package
+heatmap_data_cp_gf_op <- logistic_results_df_cp_gf_op_filtered %>%
+  select(Variable, Cluster, OR) %>%  # Include 'Variable' and 'OR' in selection
+  dcast(Variable ~ Cluster, value.var = "OR")  # Use the OR for reshaping
+
+
+# Convert to long format for ggplot heatmap
+heatmap_data_cp_gf_op <- melt(heatmap_data_cp_gf_op, id.vars = "Variable", variable.name = "Cluster", value.name = "OR")
 
 # Create the heatmap with italic formatting
-heatmap_occupational_expo <- ggplot(heatmap_data_cp_gf, aes(x = Cluster, y = Variable, fill = OR)) +
+heatmap_occupational_expo_op <- ggplot(heatmap_data_cp_gf_op, aes(x = Cluster, y = Variable, fill = OR)) +
   geom_tile(color = "white") +
   scale_fill_gradient2(
     low = carto_pal(7, "Geyser")[1], 
@@ -1918,8 +2440,8 @@ heatmap_occupational_expo <- ggplot(heatmap_data_cp_gf, aes(x = Cluster, y = Var
     name = "Odds Ratio"
   ) +
   labs(
-    title = "Heatmap of Odds Ratios for Population (occupational exposure)",
-    x = "Cluster",
+    title = "Heatmap of Odds Ratios for PopulationGF Exposure",
+    x = "Cluster"
   ) +
   theme_minimal() +
   theme(
@@ -1927,37 +2449,11 @@ heatmap_occupational_expo <- ggplot(heatmap_data_cp_gf, aes(x = Cluster, y = Var
     plot.title = element_text(hjust = 0.5),
     axis.text.y = element_markdown()  # Enable markdown for y-axis labels
   )
-heatmap_occupational_expo
+heatmap_occupational_expo_op
 
 # Save the heatmap
-ggsave("../Output/Cluster_analysis/CP_GF_OP/Occupational_livestock_expo_heatmap.svg", heatmap_occupational_expo, width = 8, height = 6)
+ggsave("../Output/Cluster_analysis/CP_GF_OP/Occupational_livestock_expo_heatmap.svg", heatmap_occupational_expo_op, width = 8, height = 6)
 
-
-```
-#### Dot and whisker plot
-```{r}
-dot_whisker_plot_cp_gf_op <- ggplot(logistic_results_df_cp_gf_op_filtered, aes(x = Variable, y = OR, color = Cluster, group = Cluster)) +
-  geom_point(size = 4, position = position_dodge(width = 1)) +  # Dodge to avoid overlap
-  geom_errorbar(aes(ymin = Lower_CI, ymax = Upper_CI), width = 0.2, position = position_dodge(width = 1)) +  # Dodge for error bars
-  scale_y_continuous(trans = 'log', breaks = scales::breaks_log()) +  # Log scale for OR
-  labs(
-    title = "Odds Ratios for Occupational Livestock Exposure",
-    x = "Variables",
-    y = "Odds Ratio (Log Scale)",
-    color = "Cluster"
-  ) +
-  theme_minimal() +
-  theme(
-    plot.title = element_text(hjust = 0.5, size = 16),
-    axis.text.x = element_text(angle = 45, hjust = 1),
-    axis.text.y = element_text(size = 10),
-    legend.position = "right",
-    plot.margin = margin(10, 10, 10, 100)  # Adjust margins (top, right, bottom, left)
-  )
-dot_whisker_plot_cp_gf_op
-
-# Save the plot with increased height
-ggsave("../Output/Cluster_analysis/CP_GF_OP/dot_whisker_plot_cp_gf_op.svg", dot_whisker_plot_cp_gf_op, width = 12, height = 8)
 ```
 #### Visualisations for manuscript
 ```{r}
@@ -2086,5 +2582,186 @@ dendro$plot + hm_pop_cp_gf_op + hm_cluster_cp_gf_op + hm_cp_gf_op + p_prev_cp_gf
 ggsave("../Output/Cluster_analysis/CP_GF_OP/heatmap_cluster_cp_gf_op.svg", height = 10, width = 8)
 
 ```
+
+# Combine heatmaps together
+```{r}
+heatmap_residential_expo_cp_np
+heatmap_residential_expo_cp_op
+heatmap_occupational_expo
+heatmap_occupational_expo_op
+
+# Make patchwork of plot
+layout_hm_final <- "
+AAAAAAABBBBBBB
+AAAAAAABBBBBBB
+AAAAAAABBBBBBB
+AAAAAAABBBBBBB
+CCCCCCCDDDDDDD
+"
+
+heatmap_residential_expo + heatmap_residential_expo_cp_op + heatmap_occupational_expo + heatmap_occupational_expo_op + plot_layout(design = layout_hm_final, guides = "collect") & theme(legend.position = 'right')
+
+
+ggsave("../Output/Cluster_analysis/heatmap_cluster_cp_gf_op.svg", height = 10, width = 8)
+
+
+
+
+# Adjust the legends for the heatmaps
+heatmap_residential_expo <- heatmap_residential_expo + theme(legend.position = 'right')
+heatmap_residential_expo_cp_op <- heatmap_residential_expo_cp_op + theme(legend.position = 'none')
+heatmap_occupational_expo <- heatmap_occupational_expo + theme(legend.position = 'none')
+heatmap_occupational_expo_op <- heatmap_occupational_expo_op + theme(legend.position = 'none')
+
+# Create patchwork layout
+layout_hm_final <- "
+AAAAAAABBBBBBB
+AAAAAAABBBBBBB
+AAAAAAABBBBBBB
+AAAAAAABBBBBBB
+CCCCCCCDDDDDDD
+"
+
+# Combine the plots with the specified layout and guide options
+final_plot <- heatmap_residential_expo + 
+              heatmap_residential_expo_cp_op + 
+              heatmap_occupational_expo + 
+              heatmap_occupational_expo_op + 
+              plot_layout(design = layout_hm_final, guides = "collect")
+
+# Save the plot with the adjusted legend
+ggsave("../Output/Cluster_analysis/heatmap_cluster_cp_gf_op.svg", plot = final_plot, height = 10, width = 8)
+
+
+
+
+
+
+
+# Adjust the legends for the heatmaps
+heatmap_residential_expo <- heatmap_residential_expo + 
+    theme(legend.position = 'right')
+
+heatmap_residential_expo_cp_op <- heatmap_residential_expo_cp_op + 
+    theme(legend.position = 'none', 
+          axis.text.y = element_blank(), 
+          axis.title.y = element_blank())
+
+heatmap_occupational_expo <- heatmap_occupational_expo + 
+    theme(legend.position = 'none')
+
+heatmap_occupational_expo_op <- heatmap_occupational_expo_op + 
+    theme(legend.position = 'none', 
+          axis.text.y = element_blank(), 
+          axis.title.y = element_blank())
+
+# Create patchwork layout
+layout_hm_final <- "
+AAAAAAABBBBBBB
+AAAAAAABBBBBBB
+AAAAAAABBBBBBB
+AAAAAAABBBBBBB
+CCCCCCCDDDDDDD
+"
+
+# Combine the plots with the specified layout and guide options
+final_plot <- heatmap_residential_expo + 
+              heatmap_residential_expo_cp_op + 
+              heatmap_occupational_expo + 
+              heatmap_occupational_expo_op + 
+              plot_layout(design = layout_hm_final, guides = "collect")
+
+# Save the plot with the adjusted legend and y-axis labels
+ggsave("../Output/Cluster_analysis/heatmap_cluster_cp_gf_op.svg", plot = final_plot, height = 10, width = 8)
+
+
+
+```
+
+
+```{r}
+
+
+# Create the heatmap with italic formatting
+heatmap_residential_expo_cp_np_final <- ggplot(heatmap_long_cp_np, aes(x = Cluster, y = Variable, fill = OR)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient2(
+    low = carto_pal(7, "Geyser")[1], 
+    mid = carto_pal(7, "Geyser")[4], 
+    high = carto_pal(7, "Geyser")[7], 
+    midpoint = 1,
+    name = "Odds Ratio"
+  ) +
+  scale_y_discrete(labels = c(
+    "RF-modelled E. coli exposure" = "RF-modelled *E. coli* exposure",
+    "RF-modelled Staphylococcus spp. exposure" = "RF-modelled *Staphylococcus* spp. exposure",
+    "RF-modelled tetW ARG exposure" = "RF-modelled *tetW* ARG exposure",
+    "RF-modelled mecA ARG exposure" = "RF-modelled *mecA* ARG exposure",
+    "Distance weighted number of pigs in 3000m" = "Distance weighted number of pigs in 3000m",
+    "Distance weighted number of goats in 3000m" = "Distance weighted number of goats in 3000m",
+    "Distance weighted number of chickens in 3000m" = "Distance weighted number of chickens in 3000m",
+    "Distance weighted number of cattle in 3000m" = "Distance weighted number of cattle in 3000m"
+  )) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(hjust = 0.5),
+    axis.text.y = element_markdown(),  # Enable markdown for y-axis labels
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    legend.position = 'right'
+  )
+
+
+heatmap_residential_expo_cp_op <- heatmap_residential_expo_cp_op + 
+    theme(legend.position = 'none', 
+          axis.text.y = element_blank(), 
+          axis.title.y = element_blank())
+
+
+
+
+# Create the heatmap with italic formatting
+heatmap_occupational_expo_np_final <- ggplot(heatmap_data_cp_gf_np, aes(x = Cluster, y = Variable, fill = OR)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient2(
+    low = carto_pal(7, "Geyser")[1], 
+    mid = carto_pal(7, "Geyser")[4], 
+    high = carto_pal(7, "Geyser")[7], 
+    midpoint = 1,
+    name = "Odds Ratio"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    plot.title = element_text(hjust = 0.5),
+    axis.text.y = element_markdown()  # Enable markdown for y-axis labels
+  )+ 
+    theme(legend.position = 'none')
+
+
+
+heatmap_occupational_expo_op_final <- ggplot(heatmap_data_cp_gf_op, aes(x = Cluster, y = Variable, fill = OR)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient2(
+    low = carto_pal(7, "Geyser")[1], 
+    mid = carto_pal(7, "Geyser")[4], 
+    high = carto_pal(7, "Geyser")[7], 
+    midpoint = 1,
+    name = "Odds Ratio"
+  ) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = 'none', 
+        axis.text.y = element_blank(), 
+        axis.title.y = element_blank(),
+        axis.title.x = element_blank())
+
+
+
+```
+
+
+
 
 
