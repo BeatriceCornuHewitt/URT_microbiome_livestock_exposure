@@ -1,0 +1,192 @@
+---
+title: "Matching of controls with goat farmers"
+author: "Beatrice Cornu Hewitt" 
+date: "`r Sys.time()`"
+output: html_document
+---
+# Packages
+```{r}
+library(phyloseq); library(MatchIt); library(ggplot2); library(patchwork)
+
+```
+
+# Data 
+```{r}
+# PS object
+ps_new_metadata_RFpreds <- readRDS("../Output/Phyloseq/ps_complete_new_metadata_RFpreds.rds")
+```
+
+# Nearest neighbour matching of controls with GFs
+```{r}
+# There are 900 CPs, but only 100 GFs - we will subset the CPs to make the groups balanced for the analyses 
+# Select 200 control participants and match with the 100 GFs as best as possible
+# Remove all samples where the population is "GP" from the phyloseq object
+ps_nogp <- subset_samples(ps_new_metadata_RFpreds, population != "GP")
+ps_nogp; ps_new_metadata_RFpreds
+
+# Extract sample data from phyloseq object
+sample_data_df <- data.frame(sample_data(ps_nogp))
+
+# Create a binary variable indicating group membership (goat farmers vs. controls)
+sample_data_df$group <- ifelse(sample_data_df$population == "GF", 1, 0)
+
+# Ensure matching variables are in the correct format
+sample_data_df$age <- as.numeric(sample_data_df$age)
+sample_data_df$gender <- as.factor(sample_data_df$gender)
+sample_data_df$sampling_season <- as.factor(sample_data_df$sampling_season)
+
+get_mode <- function(v) {
+  uniqv <- unique(v)
+  uniqv[which.max(tabulate(match(v, uniqv)))]
+}
+
+# Aggregate the sample-level data to participant-level (one row per participant)
+participant_data <- sample_data_df %>%
+  group_by(VGO3_ID) %>%
+  summarise(
+    age = mean(age, na.rm = TRUE),  # Aggregate age as mean for participants with multiple samples
+    gender = get_mode(gender),  # Use custom mode function for categorical variable 'gender'
+    sampling_season = get_mode(sampling_season),  # Mode for categorical variable 'sampling_season'
+    group = first(group)  # Ensure group (goat farmer vs control) is consistent across samples
+  )
+
+sum(participant_data$group ==1) # 96 goat farmers
+
+# Remove any participants with missing values for age, gender, or sampling_season
+participant_data_clean <- participant_data %>%
+  filter(!is.na(age), !is.na(gender), !is.na(sampling_season))
+
+sum(participant_data_clean$group==1) # 93 goat farmers without missing metadata
+
+# Check how many rows were removed
+n_removed <- nrow(participant_data) - nrow(participant_data_clean)
+print(paste("Removed", n_removed, "participants due to missing values")) # 3 GFs removed due to missing data
+
+# Perform nearest neighbor matching at the participant level
+set.seed(123)  # For reproducibility
+matching_model <- matchit(group ~ age + gender + sampling_season, 
+                          data = participant_data_clean, 
+                          method = "nearest", 
+                          ratio = 2)  # Match each goat farmer with 2 controls
+
+# Check the matching summary
+summary(matching_model)
+# Matched data
+matched_data <- match.data(matching_model)
+# Assign the matched group (after matching) to the sample-level data
+# Create a new column in the sample data that will store the matched group status
+sample_data_df$matched_group <- sample_data_df$VGO3_ID %in% matched_data$VGO3_ID
+# Extract the VGO3_ID numbers of matched participants
+matched_VGO3_IDs <- matched_data$VGO3_ID
+# Save as df 
+matched_participants_df <- data.frame(VGO3_ID = matched_VGO3_IDs)
+# Save as csv file
+write.csv(matched_participants_df, "../Output/Matching_CPwithGF/matched_VGO3_IDs.csv", row.names = FALSE)
+```
+
+# Plots to check the matching
+```{r}
+# Check the matching 
+# Merge the matched data with the original participant data to include goat farmers and controls
+plot_data <- sample_data_df %>%
+  filter(VGO3_ID %in% matched_VGO3_IDs | population == "GF")  # Filter for matched controls and goat farmers
+
+# Ensure variables are correctly formatted
+plot_data$group <- ifelse(plot_data$population == "GF", "Goat Farmers", "Matched Controls")
+plot_data$group <- as.factor(plot_data$group)
+
+# Boxplot for Age
+age_plot <- ggplot(plot_data, aes(x = group, y = age, fill = group)) +
+  geom_boxplot() +
+  labs(title = "Age Comparison between Goat Farmers and Matched Controls",
+       x = "Group", y = "Age") +
+  theme_minimal() +
+  theme(
+    legend.position = "none",  # Remove legend
+    axis.title.x = element_text(size = 16),  # Increase x-axis title font size
+    axis.title.y = element_text(size = 16),  # Increase y-axis title font size
+    axis.text.x = element_text(size = 14),   # Increase x-axis text size
+    axis.text.y = element_text(size = 14)    # Increase y-axis text size
+  )
+# Bar plot for Gender
+gender_plot <- ggplot(plot_data, aes(x = group, fill = gender)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +  # Show proportions
+  labs(title = "Gender Distribution between Goat Farmers and Matched Controls",
+       x = "Group", y = "Proportion", fill = "Gender") +
+  theme_minimal() +
+  theme(
+    axis.title.x = element_text(size = 16),  # Increase x-axis title font size
+    axis.title.y = element_text(size = 16),  # Increase y-axis title font size
+    axis.text.x = element_text(size = 14),   # Increase x-axis text size
+    axis.text.y = element_text(size = 14)    # Increase y-axis text size
+  )
+
+# Bar plot for Sampling Season
+season_plot <- ggplot(plot_data, aes(x = group, fill = sampling_season)) +
+  geom_bar(position = "fill") +
+  scale_y_continuous(labels = scales::percent) +
+  labs(title = "Sampling Season Distribution between Goat Farmers and Matched Controls",
+       x = "Group", y = "Proportion", fill = "Sampling Season") +
+  theme_minimal() +
+  theme(
+    axis.title.x = element_text(size = 16),
+    axis.title.y = element_text(size = 16),
+    axis.text.x = element_text(size = 14),
+    axis.text.y = element_text(size = 14)
+  )
+
+
+ggsave("../Output/Matching_CPwithGF/age_GF_matchedCP.png", age_plot)
+ggsave("../Output/Matching_CPwithGF/gender_GF_matchedCP.png", gender_plot)
+ggsave("../Output/Matching_CPwithGF/season_GF_matchedCP.png", season_plot)
+
+
+# Create summary table for supplement
+# Filter the sample data to only include matched participants
+matched_sample_data <- sample_data_df %>%
+  filter(VGO3_ID %in% matched_VGO3_IDs)
+
+# Step 2: Calculate summary statistics for Goat Farmers and Controls
+summary_table <- matched_sample_data %>%
+  group_by(group) %>%
+  summarise(
+    n_samples = n(),  # Number of participants
+    mean_age = mean(age, na.rm = TRUE),  # Mean age
+    gender_male = (sum(gender == 0) / n())*100,  # Proportion of male participants
+    gender_female = (sum(gender == 1) / n())*100,  # Proportion of female participants
+    sampling_season_winter = (sum(sampling_season == "Winter") / n())*100,  # Proportion sampled in winter
+    sampling_season_spring = (sum(sampling_season == "Spring") / n())*100,  # Proportion sampled in spring
+    sampling_season_summer = (sum(sampling_season == "Summer") / n())*100,  # Proportion sampled in summer
+    sampling_season_fall = (sum(sampling_season == "Fall") / n())*100  # Proportion sampled in fall
+  )
+
+# Save the summary table to CSV
+write.csv(summary_table, "../Output/Matching_CPwithGF/summary_table_GFvsCP.csv", row.names = FALSE)
+```
+# Subset phyloseq with GFs and matched CPs (1:2)
+```{r}
+# Subset the phyloseq object to only include samples corresponding to matched VGO3_IDs
+ps_matched_cp_gf <- subset_samples(ps_new_metadata_RFpreds, VGO3_ID %in% matched_VGO3_IDs)
+ps_matched_cp_gf <- prune_taxa(taxa_sums(ps_matched_cp_gf) > 0, ps_matched_cp_gf) # Also remove taxa that are not in the CP ps object
+
+ps_matched_cp_gf;ps_new_metadata_RFpreds
+# Check number of CP and GF participants in subsetted ps - total and per niche
+# Total 
+sum(ps_matched_cp_gf@sam_data$population=='CP')# 355 CP samples (both OP and NP)
+sum(ps_matched_cp_gf@sam_data$population== 'GF')# 169 GF samples (both OP and NP)
+
+# NP samples
+sum(ps_matched_cp_gf@sam_data$population=='CP' & ps_matched_cp_gf@sam_data$niche=='NP')# 160 CP NP samples 
+sum(ps_matched_cp_gf@sam_data$population=='GF' & ps_matched_cp_gf@sam_data$niche=='NP')# 77 GF NP samples 
+
+# OP samples
+sum(ps_matched_cp_gf@sam_data$population=='CP' & ps_matched_cp_gf@sam_data$niche=='OP')# 195 CP NP samples 
+sum(ps_matched_cp_gf@sam_data$population=='GF' & ps_matched_cp_gf@sam_data$niche=='OP')# 92 GF OP samples
+
+
+# Save phyloseq for later use
+saveRDS(ps_matched_cp_gf, "../Output/Phyloseq/ps_complete_matchedCPGF.rds")
+```
+
+
