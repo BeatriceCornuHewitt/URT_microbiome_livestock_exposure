@@ -5,7 +5,7 @@ date: "`r Sys.time()`"
 ---
 # Packages
 ```{r}
-library(phyloseq); library(dplyr); library(ANCOMBC); library(mia); library(DT); library(Maaslin2); library(microbiomer); library(patchwork);library(rcartocolor); library(ggplot2); library(scales); library(cartography); library(mia); library(rngtools); library(tidyverse); library(mia)
+library(phyloseq); library(dplyr); library(ANCOMBC); library(mia); library(DT); library(Maaslin2); library(microbiomer); library(patchwork);library(rcartocolor); library(ggplot2); library(scales); library(cartography); library(mia); library(rngtools); library(tidyverse); library(mia); library(car)
 
 # Set the theme for ggplot
 theme_set(theme_bw())
@@ -76,6 +76,68 @@ ps_cp_gf_matched <- readRDS("../Output/Phyloseq/ps_complete_matchedCPGF.rds")
 length(unique(as.data.frame(tax_table(ps_cp_gf_matched))$ASV)) # 7345
 length(unique(as.data.frame(tax_table(ps_cp_gf_matched))$Genus)) # 761
 ```
+
+## Check multicollinearity
+```{r}
+# Extract the sample data from the phyloseq object
+sample_data_df <- data.frame(sample_data(ps_abs_cp_np_filt))
+# Fit the linear model
+lm_model <- lm(KRD_nGoatsWghtDist.3000m.sum ~ age + gender + sampling_season + smoked_ever +
+                KRD_nCowsWghtDist.3000m.sum + KRD_nPoultryWghtDist.3000m.sum + 
+                KRD_nPigsWghtDist.3000m.sum, data = sample_data_df)
+
+# Calculate VIF values
+vif_values <- vif(lm_model)
+
+# Print the VIF values
+print(vif_values)
+
+
+# Correlation plot
+# Extract the variables into a new data frame for simplicity
+variables <- sample_data_df[, c("KRD_nPoultryWghtDist.3000m.sum", 
+                                      "KRD_nCowsWghtDist.3000m.sum", 
+                                      "KRD_nGoatsWghtDist.3000m.sum", 
+                                      "KRD_nPigsWghtDist.3000m.sum")]
+
+
+# Calculate the correlation matrix and p-values
+corr_result <- psych::corr.test(variables)
+corr_matrix <- corr_result$r    # Correlation matrix
+p_matrix <- corr_result$p       # p-value matrix
+
+# Convert correlation matrix and p-value matrix to long format
+corr_long <- melt(corr_matrix)
+p_long <- melt(p_matrix)
+
+# Merge correlation and p-value matrices into one data frame
+corr_long$p_value <- p_long$value
+
+# Create labels based on significance levels
+corr_long$label <- ifelse(corr_long$p_value < 0.001, "***",
+                          ifelse(corr_long$p_value < 0.01, "**",
+                                 ifelse(corr_long$p_value < 0.05, "*", "NS")))
+
+
+# Only keep the upper triangle (excluding self-comparisons)
+corr_long <- corr_long %>% 
+  filter(as.numeric(Var1) < as.numeric(Var2))
+
+# Plot the half-matrix heatmap with correlation coefficients and significance stars as labels
+ggplot(corr_long, aes(Var1, Var2, fill = value)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient2(low = "#6D9EC1", high = "#E46726", mid = "white", 
+                       midpoint = 0, limit = c(-1, 1), space = "Lab", 
+                       name="Pearson\nCorrelation") +
+  geom_text(aes(label = paste0(round(value, 2), "\n", label)), color = "black", size = 4) +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        axis.text.y = element_text(hjust = 1),
+        axis.title.x = element_blank(),
+        axis.title.y = element_blank()) +
+  ggtitle("Correlation Matrix with Significance Stars")
+```
+
 # Data processing
 ## Filtering and conversion to relative abundance
 ### CP only
@@ -375,15 +437,15 @@ length(unique(as.data.frame(tax_table(ps_op_cp_gf_abs_genus_filt))$Genus)) # 22 
 # Select some example ASVs to plot
 rownames(ps_abs_cp_np_filt@otu_table)
 asvs_to_plot <- c("Dolosigranulum_pigrum_1", "Staphylococcus_2", "Corynebacterium_3")  # Replace with actual ASV names
-metadata_vars <- c("KRD_nGoatsWghtDist.2000m.sum", "KRD_nCowsWghtDist.2000m.sum", 
-                   "KRD_nPoultryWghtDist.2000m.sum", "KRD_nPigsWghtDist.2000m.sum", 
+metadata_vars <- c("KRD_nGoatsWghtDist.3000m.sum", "KRD_nCowsWghtDist.3000m.sum", 
+                   "KRD_nPoultryWghtDist.3000m.sum", "KRD_nPigsWghtDist.3000m.sum", 
                    "ecoli_RF_preds", "staph_RF_preds", "tetw_RF_preds", "meca_RF_preds")
 
 # Extract metadata and ASV abundance data from phyloseq object
 metadata <- sample_data(ps_abs_cp_np_filt) %>% data.frame()
 asv_data <- otu_table(ps_abs_cp_np_filt) %>% as.data.frame()
 
-metadata$KRD_nGoatsWghtDist.2000m.sum
+metadata$KRD_nGoatsWghtDist.3000m.sum
 # Convert ASV data to long format and combine with metadata
 asv_data_long <- asv_data %>% t  %>% as.data.frame()
 rownames(asv_data_long) <- asv_data_long$VGO3_ID
@@ -396,10 +458,10 @@ plot_data <- merged_data %>%
   select(c("VGO3_ID", asvs_to_plot, metadata_vars))
 
 # Scatterplots
-ggplot(plot_data, aes(x = KRD_nGoatsWghtDist.2000m.sum, y = Dolosigranulum_pigrum_1)) +
+ggplot(plot_data, aes(x = KRD_nGoatsWghtDist.3000m.sum, y = Dolosigranulum_pigrum_1)) +
   geom_point() +
   labs(x = "E.coli RF Predictions", y = "Dolosigranulum_pigrum_1 Abundance", 
-       title = "Scatter Plot of KRD_nGoatsWghtDist.2000m.sum vs Dolosigranulum_pigrum_1") +
+       title = "Scatter Plot of KRD_nGoatsWghtDist.3000m.sum vs Dolosigranulum_pigrum_1") +
   theme_minimal()
 
 
@@ -410,27 +472,27 @@ ggplot(plot_data, aes(x = ecoli_RF_preds)) +
        title = "Histogram of E.coli RF Predictions") +
   theme_minimal()
 
-ggplot(plot_data, aes(x = KRD_nGoatsWghtDist.2000m.sum)) +
+ggplot(plot_data, aes(x = KRD_nGoatsWghtDist.3000m.sum)) +
   geom_histogram(binwidth = 0.5, fill = "blue", color = "black", alpha = 0.7) +
   labs(x = "E.coli RF Predictions", y = "Frequency", 
-       title = "Histogram of KRD_nGoatsWghtDist.2000m.sum") +
+       title = "Histogram of KRD_nGoatsWghtDist.3000m.sum") +
   theme_minimal()
 
-ggplot(plot_data, aes(x = KRD_nCowsWghtDist.2000m.sum)) +
+ggplot(plot_data, aes(x = KRD_nCowsWghtDist.3000m.sum)) +
   geom_histogram(binwidth = 0.5, fill = "blue", color = "black", alpha = 0.7) +
   labs(x = "E.coli RF Predictions", y = "Frequency", 
-       title = "Histogram of KRD_nCowsWghtDist.2000m.sum") +
+       title = "Histogram of KRD_nCowsWghtDist.3000m.sum") +
   theme_minimal()
 
-ggplot(plot_data, aes(x = KRD_nPigsWghtDist.2000m.sum)) +
+ggplot(plot_data, aes(x = KRD_nPigsWghtDist.3000m.sum)) +
   geom_histogram(binwidth = 0.5, fill = "blue", color = "black", alpha = 0.7) +
   labs(x = "E.coli RF Predictions", y = "Frequency", 
-       title = "Histogram of KRD_nPigsWghtDist.2000m.sum") +
+       title = "Histogram of KRD_nPigsWghtDist.3000m.sum") +
   theme_minimal()
 
 
 
-plot_data$KRD_nPigsWghtDist.2000m.sum
+plot_data$KRD_nPigsWghtDist.3000m.sum
 
 
 ```
@@ -441,32 +503,187 @@ plot_data$KRD_nPigsWghtDist.2000m.sum
 ### ASV level 
 #### NP niche
 ```{r}
+# UNIVARIABLE for livestock species
 # Define the variables to be analyzed
-variables <- c("KRD_nGoatsWghtDist.2000m.sum", "KRD_nCowsWghtDist.2000m.sum", 
-               "KRD_nPoultryWghtDist.2000m.sum", "KRD_nPigsWghtDist.2000m.sum", 
-               "ecoli_RF_preds","staph_RF_preds","tetw_RF_preds","meca_RF_preds" )
+variables <- c("KRD_nGoatsWghtDist.3000m.sum", "KRD_nCowsWghtDist.3000m.sum",
+               "KRD_nPoultryWghtDist.3000m.sum", "KRD_nPigsWghtDist.3000m.sum",
+               "ecoli_RF_preds","staph_RF_preds","tetw_RF_preds","meca_RF_preds")
 
-# Create an empty list to store the ordered results
 maaslin_results <- list()
-output_folder <- "../Output/DA_analysis/MaAsLin/CP_NP/"
 
+output_file <- "../Output/DA_analysis/MaAsLin/CP_NP/"
 # Loop and save each result to a CSV file
 for (var in variables) {
-  result <- do_maaslin2(ps = ps_abs_cp_np_filt, 
-                        var = var, 
-                        other_var = c("age", "gender", "sampling_season", "smoked_ever"), # adjust for these variables 
+  result <- do_maaslin2(ps = ps_abs_cp_np_filt,
+                        var = var,
+                        other_var = c("age", "gender", "sampling_season", "smoked_ever"), # adjust for these variables
                         ref = c("gender,0", "sampling_season,Summer", "smoked_ever,0")) %>% # Set reference categories
                         arrange(desc(coef))
   # Save to a CSV file
-  write.csv(result, paste0(output_folder, "maaslin_cp_np_asvlevel_", var, "_ord.csv"))
+  write.csv(result, paste0(output_file, "ASV_level_maaslin_cp_np_univar_", var, ".csv"))
 }
+
+
+# MULTIVARIABLE for livestock species
+# Run MaAsLin for the (distance-based) livestock exposure variables (with adjustment for the other livestock variables)
+# Goat farm exposure as main variable
+Goat_expo_maaslin <- do_maaslin2(ps = ps_abs_cp_np_filt, 
+                               var = "KRD_nGoatsWghtDist.3000m.sum",  # Including all livestock variables together
+                               other_var = c("age", "gender", "sampling_season", "smoked_ever", "KRD_nCowsWghtDist.3000m.sum", "KRD_nPoultryWghtDist.3000m.sum", "KRD_nPigsWghtDist.3000m.sum"),  # Adjusting for these variables
+                               ref = c("gender,0", "sampling_season,Summer", "smoked_ever,0")) %>%  # Set reference categories
+                               arrange(desc(coef))
+# Save results as csv
+write.csv(Goat_expo_maaslin, paste0("../Output/DA_analysis/MaAsLin/CP_NP/ASV_level/", "ASV_level_maaslin_cp_np_goatfarmexposure.csv"))
+
+# Cattle farm exposure as main variable
+Cow_expo_maaslin <- do_maaslin2(ps = ps_abs_cp_np_filt, 
+                               var = "KRD_nCowsWghtDist.3000m.sum",  # Including all livestock variables together
+                               other_var = c("age", "gender", "sampling_season", "smoked_ever", "KRD_nGoatsWghtDist.3000m.sum", "KRD_nPoultryWghtDist.3000m.sum", "KRD_nPigsWghtDist.3000m.sum"),  # Adjusting for these variables
+                               ref = c("gender,0", "sampling_season,Summer", "smoked_ever,0")) %>%  # Set reference categories
+                               arrange(desc(coef))
+# Save results as csv
+write.csv(Cow_expo_maaslin, paste0("../Output/DA_analysis/MaAsLin/CP_NP/ASV_level/", "ASV_level_maaslin_cp_np_cattlefarmexposure.csv"))
+
+# Poultry farm exposure as main variable
+Poultry_expo_maaslin <- do_maaslin2(ps = ps_abs_cp_np_filt, 
+                               var = "KRD_nPoultryWghtDist.3000m.sum",  # Including all livestock variables together
+                               other_var = c("age", "gender", "sampling_season", "smoked_ever", "KRD_nGoatsWghtDist.3000m.sum", "KRD_nCowsWghtDist.3000m.sum", "KRD_nPigsWghtDist.3000m.sum"),  # Adjusting for these variables
+                               ref = c("gender,0", "sampling_season,Summer", "smoked_ever,0")) %>%  # Set reference categories
+                               arrange(desc(coef))
+# Save results as csv
+write.csv(Poultry_expo_maaslin, paste0("../Output/DA_analysis/MaAsLin/CP_NP/ASV_level/", "ASV_level_maaslin_cp_np_poultryfarmexposure.csv"))
+
+# Pig farm exposure as main variable=
+Pig_expo_maaslin <- do_maaslin2(ps = ps_abs_cp_np_filt, 
+                               var = "KRD_nPigsWghtDist.3000m.sum",  # Including all livestock variables together
+                               other_var = c("age", "gender", "sampling_season", "smoked_ever", "KRD_nCowsWghtDist.3000m.sum", "KRD_nPoultryWghtDist.3000m.sum", "KRD_nGoatsWghtDist.3000m.sum"),  # Adjusting for these variables
+                               ref = c("gender,0", "sampling_season,Summer", "smoked_ever,0")) %>%  # Set reference categories
+                               arrange(desc(coef))
+# Save results as csv
+write.csv(Pig_expo_maaslin, paste0("../Output/DA_analysis/MaAsLin/CP_NP/ASV_level/", "ASV_level_maaslin_cp_np_pigfarmexposure.csv"))
+
+
+# Loop for individual models for modelled exposures: ecoli, staph, tetw, and meca
+RF_modelled_variables <- c("ecoli_RF_preds","staph_RF_preds","tetw_RF_preds","meca_RF_preds")
+# Create an empty list to store the ordered results
+maaslin_results <- list()
+
+# Loop and save each result to a CSV file
+for (var in RF_modelled_variables) {
+  result <- do_maaslin2(ps = ps_abs_cp_np_filt,
+                        var = var,
+                        other_var = c("age", "gender", "sampling_season", "smoked_ever"), # adjust for these variables
+                        ref = c("gender,0", "sampling_season,Summer", "smoked_ever,0")) %>% # Set reference categories
+                        arrange(desc(coef))
+  # Save to a CSV file
+  write.csv(result, paste0("../Output/DA_analysis/MaAsLin/CP_NP/ASV_level/", "ASV_level_maaslin_cp_np_", var, ".csv"))
+}
+
+
 ```
+<!-- #### NP niche - 2nd try with scaled predictors -->
+<!-- ```{r} -->
+<!-- # Scaling of predictor variables  -->
+
+<!-- # Perform Z-score scaling on the continuous variables in your dataset -->
+<!-- ps_abs_cp_np_filt_scaled <- ps_abs_cp_np_filt -->
+<!-- sample_data(ps_abs_cp_np_filt_scaled)$age <- scale(sample_data(ps_abs_cp_np_filt_scaled)$age) -->
+<!-- sample_data(ps_abs_cp_np_filt_scaled)$KRD_nGoatsWghtDist.3000m.sum <- scale(sample_data(ps_abs_cp_np_filt_scaled)$KRD_nGoatsWghtDist.3000m.sum) -->
+<!-- sample_data(ps_abs_cp_np_filt_scaled)$KRD_nCowsWghtDist.3000m.sum <- scale(sample_data(ps_abs_cp_np_filt_scaled)$KRD_nCowsWghtDist.3000m.sum) -->
+<!-- sample_data(ps_abs_cp_np_filt_scaled)$KRD_nPoultryWghtDist.3000m.sum <- scale(sample_data(ps_abs_cp_np_filt_scaled)$KRD_nPoultryWghtDist.3000m.sum) -->
+<!-- sample_data(ps_abs_cp_np_filt_scaled)$KRD_nPigsWghtDist.3000m.sum <- scale(sample_data(ps_abs_cp_np_filt_scaled)$KRD_nPigsWghtDist.3000m.sum) -->
+
+<!-- # If the RF modeled variables are continuous, scale them as well -->
+<!-- sample_data(ps_abs_cp_np_filt_scaled)$ecoli_RF_preds <- scale(sample_data(ps_abs_cp_np_filt_scaled)$ecoli_RF_preds) -->
+<!-- sample_data(ps_abs_cp_np_filt_scaled)$staph_RF_preds <- scale(sample_data(ps_abs_cp_np_filt_scaled)$staph_RF_preds) -->
+<!-- sample_data(ps_abs_cp_np_filt_scaled)$tetw_RF_preds <- scale(sample_data(ps_abs_cp_np_filt_scaled)$tetw_RF_preds) -->
+<!-- sample_data(ps_abs_cp_np_filt_scaled)$meca_RF_preds <- scale(sample_data(ps_abs_cp_np_filt_scaled)$meca_RF_preds) -->
+
+<!-- # UNIVARIABLE for livestock species -->
+<!-- # Define the variables to be analyzed -->
+<!-- variables <- c("KRD_nGoatsWghtDist.3000m.sum", "KRD_nCowsWghtDist.3000m.sum", -->
+<!--                "KRD_nPoultryWghtDist.3000m.sum", "KRD_nPigsWghtDist.3000m.sum", -->
+<!--                "ecoli_RF_preds","staph_RF_preds","tetw_RF_preds","meca_RF_preds") -->
+
+<!-- maaslin_results <- list() -->
+
+<!-- output_file <- "../Output/DA_analysis/MaAsLin/CP_NP/" -->
+<!-- # Loop and save each result to a CSV file -->
+<!-- for (var in variables) { -->
+<!--   result <- do_maaslin2(ps = ps_abs_cp_np_filt_scaled, -->
+<!--                         var = var, -->
+<!--                         other_var = c("age", "gender", "sampling_season", "smoked_ever"), # adjust for these variables -->
+<!--                         ref = c("gender,0", "sampling_season,Summer", "smoked_ever,0")) %>% # Set reference categories -->
+<!--                         arrange(desc(coef)) -->
+<!--   # Save to a CSV file -->
+<!--   write.csv(result, paste0(output_file, "ASV_level_maaslin_cp_np_univar_scaled", var, ".csv")) -->
+<!-- } -->
+
+
+<!-- # MULTIVARIABLE for livestock species -->
+<!-- # Run MaAsLin for the (distance-based) livestock exposure variables (with adjustment for the other livestock variables) -->
+<!-- # Goat farm exposure as main variable -->
+<!-- Goat_expo_maaslin <- do_maaslin2(ps = ps_abs_cp_np_filt_scaled,  -->
+<!--                                var = "KRD_nGoatsWghtDist.3000m.sum",  # Including all livestock variables together -->
+<!--                                other_var = c("age", "gender", "sampling_season", "smoked_ever", "KRD_nCowsWghtDist.3000m.sum", "KRD_nPoultryWghtDist.3000m.sum", "KRD_nPigsWghtDist.3000m.sum"),  # Adjusting for these variables -->
+<!--                                ref = c("gender,0", "sampling_season,Summer", "smoked_ever,0")) %>%  # Set reference categories -->
+<!--                                arrange(desc(coef)) -->
+<!-- # Save results as csv -->
+<!-- write.csv(Goat_expo_maaslin, paste0("../Output/DA_analysis/MaAsLin/CP_NP/ASV_level/", "ASV_level_maaslin_cp_np_goatfarmexposure_scaled.csv")) -->
+
+<!-- # Cattle farm exposure as main variable -->
+<!-- Cow_expo_maaslin <- do_maaslin2(ps = ps_abs_cp_np_filt_scaled,  -->
+<!--                                var = "KRD_nCowsWghtDist.3000m.sum",  # Including all livestock variables together -->
+<!--                                other_var = c("age", "gender", "sampling_season", "smoked_ever", "KRD_nGoatsWghtDist.3000m.sum", "KRD_nPoultryWghtDist.3000m.sum", "KRD_nPigsWghtDist.3000m.sum"),  # Adjusting for these variables -->
+<!--                                ref = c("gender,0", "sampling_season,Summer", "smoked_ever,0")) %>%  # Set reference categories -->
+<!--                                arrange(desc(coef)) -->
+<!-- # Save results as csv -->
+<!-- write.csv(Cow_expo_maaslin, paste0("../Output/DA_analysis/MaAsLin/CP_NP/ASV_level/", "ASV_level_maaslin_cp_np_cattlefarmexposure_scaled.csv")) -->
+
+<!-- # Poultry farm exposure as main variable -->
+<!-- Poultry_expo_maaslin <- do_maaslin2(ps = ps_abs_cp_np_filt,  -->
+<!--                                var = "KRD_nPoultryWghtDist.3000m.sum",  # Including all livestock variables together -->
+<!--                                other_var = c("age", "gender", "sampling_season", "smoked_ever", "KRD_nGoatsWghtDist.3000m.sum", "KRD_nCowsWghtDist.3000m.sum", "KRD_nPigsWghtDist.3000m.sum"),  # Adjusting for these variables -->
+<!--                                ref = c("gender,0", "sampling_season,Summer", "smoked_ever,0")) %>%  # Set reference categories -->
+<!--                                arrange(desc(coef)) -->
+<!-- # Save results as csv -->
+<!-- write.csv(Poultry_expo_maaslin, paste0("../Output/DA_analysis/MaAsLin/CP_NP/ASV_level/", "ASV_level_maaslin_cp_np_poultryfarmexposure.csv")) -->
+
+<!-- # Pig farm exposure as main variable= -->
+<!-- Pig_expo_maaslin <- do_maaslin2(ps = ps_abs_cp_np_filt,  -->
+<!--                                var = "KRD_nPigsWghtDist.3000m.sum",  # Including all livestock variables together -->
+<!--                                other_var = c("age", "gender", "sampling_season", "smoked_ever", "KRD_nCowsWghtDist.3000m.sum", "KRD_nPoultryWghtDist.3000m.sum", "KRD_nGoatsWghtDist.3000m.sum"),  # Adjusting for these variables -->
+<!--                                ref = c("gender,0", "sampling_season,Summer", "smoked_ever,0")) %>%  # Set reference categories -->
+<!--                                arrange(desc(coef)) -->
+<!-- # Save results as csv -->
+<!-- write.csv(Pig_expo_maaslin, paste0("../Output/DA_analysis/MaAsLin/CP_NP/ASV_level/", "ASV_level_maaslin_cp_np_pigfarmexposure.csv")) -->
+
+
+<!-- # Loop for individual models for modelled exposures: ecoli, staph, tetw, and meca -->
+<!-- RF_modelled_variables <- c("ecoli_RF_preds","staph_RF_preds","tetw_RF_preds","meca_RF_preds") -->
+<!-- # Create an empty list to store the ordered results -->
+<!-- maaslin_results <- list() -->
+
+<!-- # Loop and save each result to a CSV file -->
+<!-- for (var in RF_modelled_variables) { -->
+<!--   result <- do_maaslin2(ps = ps_abs_cp_np_filt, -->
+<!--                         var = var, -->
+<!--                         other_var = c("age", "gender", "sampling_season", "smoked_ever"), # adjust for these variables -->
+<!--                         ref = c("gender,0", "sampling_season,Summer", "smoked_ever,0")) %>% # Set reference categories -->
+<!--                         arrange(desc(coef)) -->
+<!--   # Save to a CSV file -->
+<!--   write.csv(result, paste0("../Output/DA_analysis/MaAsLin/CP_NP/ASV_level/", "ASV_level_maaslin_cp_np_", var, ".csv")) -->
+<!-- } -->
+
+
+<!-- ``` -->
 
 #### OP niche
 ```{r}
+# UNIVARIABLE for livestock species
 # Define the variables to be analyzed
-variables <- c("KRD_nGoatsWghtDist.2000m.sum", "KRD_nCowsWghtDist.2000m.sum", 
-               "KRD_nPoultryWghtDist.2000m.sum", "KRD_nPigsWghtDist.2000m.sum", 
+variables <- c("KRD_nGoatsWghtDist.3000m.sum", "KRD_nCowsWghtDist.3000m.sum",
+               "KRD_nPoultryWghtDist.3000m.sum", "KRD_nPigsWghtDist.3000m.sum",
                "ecoli_RF_preds","staph_RF_preds","tetw_RF_preds","meca_RF_preds" )
 
 # Create an empty list to store the ordered results
@@ -475,21 +692,77 @@ output_folder <- "../Output/DA_analysis/MaAsLin/CP_OP/"
 
 # Loop and save each result to a CSV file
 for (var in variables) {
-  result <- do_maaslin2(ps = ps_abs_cp_op_filt, 
-                        var = var, 
-                        other_var = c("age", "gender", "sampling_season", "smoked_ever"), # adjust for these variables 
+  result <- do_maaslin2(ps = ps_abs_cp_op_filt,
+                        var = var,
+                        other_var = c("age", "gender", "sampling_season", "smoked_ever"), # adjust for these variables
                         ref = c("gender,0", "sampling_season,Summer", "smoked_ever,0")) %>% # Set reference categories
     arrange(desc(coef))
   # Save to a CSV file
   write.csv(result, paste0(output_folder, "maaslin_cp_OP_asvlevel_", var, "_ord.csv"))
 }
+
+# MULTIVARIABLE for livestock species
+# Run MaAsLin for the (distance-based) livestock exposure variables (with adjustment for the other livestock variables)
+# Goat farm exposure as main variable
+Goat_expo_maaslin <- do_maaslin2(ps = ps_abs_cp_op_filt, 
+                                 var = "KRD_nGoatsWghtDist.3000m.sum",  # Including all livestock variables together
+                                 other_var = c("age", "gender", "sampling_season", "smoked_ever", "KRD_nCowsWghtDist.3000m.sum", "KRD_nPoultryWghtDist.3000m.sum", "KRD_nPigsWghtDist.3000m.sum"),  # Adjusting for these variables
+                                 ref = c("gender,0", "sampling_season,Summer", "smoked_ever,0")) %>%  # Set reference categories
+  arrange(desc(coef))
+# Save results as csv
+write.csv(Goat_expo_maaslin, paste0("../Output/DA_analysis/MaAsLin/CP_OP/ASV_level/", "ASV_level_maaslin_cp_op_goatfarmexposure.csv"))
+
+# Cattle farm exposure as main variable
+Cow_expo_maaslin <- do_maaslin2(ps = ps_abs_cp_op_filt, 
+                                var = "KRD_nCowsWghtDist.3000m.sum",  # Including all livestock variables together
+                                other_var = c("age", "gender", "sampling_season", "smoked_ever", "KRD_nGoatsWghtDist.3000m.sum", "KRD_nPoultryWghtDist.3000m.sum", "KRD_nPigsWghtDist.3000m.sum"),  # Adjusting for these variables
+                                ref = c("gender,0", "sampling_season,Summer", "smoked_ever,0")) %>%  # Set reference categories
+  arrange(desc(coef))
+# Save results as csv
+write.csv(Cow_expo_maaslin, paste0("../Output/DA_analysis/MaAsLin/CP_OP/ASV_level/", "ASV_level_maaslin_cp_op_cattlefarmexposure.csv"))
+
+# Poultry farm exposure as main variable
+Poultry_expo_maaslin <- do_maaslin2(ps = ps_abs_cp_op_filt, 
+                                    var = "KRD_nPoultryWghtDist.3000m.sum",  # Including all livestock variables together
+                                    other_var = c("age", "gender", "sampling_season", "smoked_ever", "KRD_nGoatsWghtDist.3000m.sum", "KRD_nCowsWghtDist.3000m.sum", "KRD_nPigsWghtDist.3000m.sum"),  # Adjusting for these variables
+                                    ref = c("gender,0", "sampling_season,Summer", "smoked_ever,0")) %>%  # Set reference categories
+  arrange(desc(coef))
+# Save results as csv
+write.csv(Poultry_expo_maaslin, paste0("../Output/DA_analysis/MaAsLin/CP_OP/ASV_level/", "ASV_level_maaslin_cp_op_poultryfarmexposure.csv"))
+
+# Pig farm exposure as main variable=
+Pig_expo_maaslin <- do_maaslin2(ps = ps_abs_cp_op_filt, 
+                                var = "KRD_nPigsWghtDist.3000m.sum",  # Including all livestock variables together
+                                other_var = c("age", "gender", "sampling_season", "smoked_ever", "KRD_nCowsWghtDist.3000m.sum", "KRD_nPoultryWghtDist.3000m.sum", "KRD_nGoatsWghtDist.3000m.sum"),  # Adjusting for these variables
+                                ref = c("gender,0", "sampling_season,Summer", "smoked_ever,0")) %>%  # Set reference categories
+  arrange(desc(coef))
+# Save results as csv
+write.csv(Pig_expo_maaslin, paste0("../Output/DA_analysis/MaAsLin/CP_OP/ASV_level/", "ASV_level_maaslin_cp_op_pigfarmexposure.csv"))
+
+
+# Loop for individual models for modelled exposures: ecoli, staph, tetw, and meca
+RF_modelled_variables <- c("ecoli_RF_preds","staph_RF_preds","tetw_RF_preds","meca_RF_preds")
+# Create an empty list to store the ordered results
+maaslin_results <- list()
+
+# Loop and save each result to a CSV file
+for (var in RF_modelled_variables) {
+  result <- do_maaslin2(ps = ps_abs_cp_op_filt,
+                        var = var,
+                        other_var = c("age", "gender", "sampling_season", "smoked_ever"), # adjust for these variables
+                        ref = c("gender,0", "sampling_season,Summer", "smoked_ever,0")) %>% # Set reference categories
+    arrange(desc(coef))
+  # Save to a CSV file
+  write.csv(result, paste0("../Output/DA_analysis/MaAsLin/CP_OP/ASV_level/", "ASV_level_maaslin_cp_op_", var, ".csv"))
+}
 ```
 ### Genus level 
 #### NP niche
 ```{r}
+# UNIVARIABLE for livestock species
 # Define the variables to be analyzed
-variables <- c("KRD_nGoatsWghtDist.2000m.sum", "KRD_nCowsWghtDist.2000m.sum", 
-               "KRD_nPoultryWghtDist.2000m.sum", "KRD_nPigsWghtDist.2000m.sum", 
+variables <- c("KRD_nGoatsWghtDist.3000m.sum", "KRD_nCowsWghtDist.3000m.sum",
+               "KRD_nPoultryWghtDist.3000m.sum", "KRD_nPigsWghtDist.3000m.sum",
                "ecoli_RF_preds","staph_RF_preds","tetw_RF_preds","meca_RF_preds" )
 
 # Create an empty list to store the ordered results
@@ -498,22 +771,76 @@ output_folder <- "../Output/DA_analysis/MaAsLin/CP_NP/"
 
 # Loop and save each result to a CSV file
 for (var in variables) {
-  result <- do_maaslin2(ps = ps_abs_genus_cp_np_filt, 
-                        var = var, 
-                        other_var = c("age", "gender", "sampling_season", "smoked_ever"), # adjust for these variables 
+  result <- do_maaslin2(ps = ps_abs_genus_cp_np_filt,
+                        var = var,
+                        other_var = c("age", "gender", "sampling_season", "smoked_ever"), # adjust for these variables
                         ref = c("gender,0", "sampling_season,Summer", "smoked_ever,0")) %>% # Set reference categories
     arrange(desc(coef))
   # Save to a CSV file
   write.csv(result, paste0(output_folder, "maaslin_cp_np_genuslevel_", var, "_ord.csv"))
 }
 
+# MULTIVARIABLE for livestock species
+# Run MaAsLin for the (distance-based) livestock exposure variables (with adjustment for the other livestock variables)
+# Goat farm exposure as main variable
+Goat_expo_maaslin_genus <- do_maaslin2(ps = ps_abs_genus_cp_np_filt, 
+                                 var = "KRD_nGoatsWghtDist.3000m.sum",  # Including all livestock variables together
+                                 other_var = c("age", "gender", "sampling_season", "smoked_ever", "KRD_nCowsWghtDist.3000m.sum", "KRD_nPoultryWghtDist.3000m.sum", "KRD_nPigsWghtDist.3000m.sum"),  # Adjusting for these variables
+                                 ref = c("gender,0", "sampling_season,Summer", "smoked_ever,0")) %>%  # Set reference categories
+  arrange(desc(coef))
+# Save results as csv
+write.csv(Goat_expo_maaslin_genus, paste0("../Output/DA_analysis/MaAsLin/CP_NP/genus_level/", "Genus_level_maaslin_cp_np_goatfarmexposure.csv"))
+
+# Cattle farm exposure as main variable
+Cow_expo_maaslin_genus <- do_maaslin2(ps = ps_abs_genus_cp_np_filt, 
+                                var = "KRD_nCowsWghtDist.3000m.sum",  # Including all livestock variables together
+                                other_var = c("age", "gender", "sampling_season", "smoked_ever", "KRD_nGoatsWghtDist.3000m.sum", "KRD_nPoultryWghtDist.3000m.sum", "KRD_nPigsWghtDist.3000m.sum"),  # Adjusting for these variables
+                                ref = c("gender,0", "sampling_season,Summer", "smoked_ever,0")) %>%  # Set reference categories
+  arrange(desc(coef))
+# Save results as csv
+write.csv(Cow_expo_maaslin_genus, paste0("../Output/DA_analysis/MaAsLin/CP_NP/genus_level/", "Genus_level_maaslin_cp_np_cattlefarmexposure.csv"))
+
+# Poultry farm exposure as main variable
+Poultry_expo_maaslin_genus <- do_maaslin2(ps = ps_abs_genus_cp_np_filt, 
+                                    var = "KRD_nPoultryWghtDist.3000m.sum",  # Including all livestock variables together
+                                    other_var = c("age", "gender", "sampling_season", "smoked_ever", "KRD_nGoatsWghtDist.3000m.sum", "KRD_nCowsWghtDist.3000m.sum", "KRD_nPigsWghtDist.3000m.sum"),  # Adjusting for these variables
+                                    ref = c("gender,0", "sampling_season,Summer", "smoked_ever,0")) %>%  # Set reference categories
+  arrange(desc(coef))
+# Save results as csv
+write.csv(Poultry_expo_maaslin_genus, paste0("../Output/DA_analysis/MaAsLin/CP_NP/genus_level/", "Genus_level_maaslin_cp_np_poultryfarmexposure.csv"))
+
+# Pig farm exposure as main variable=
+Pig_expo_maaslin_genus <- do_maaslin2(ps = ps_abs_genus_cp_np_filt, 
+                                var = "KRD_nPigsWghtDist.3000m.sum",  # Including all livestock variables together
+                                other_var = c("age", "gender", "sampling_season", "smoked_ever", "KRD_nCowsWghtDist.3000m.sum", "KRD_nPoultryWghtDist.3000m.sum", "KRD_nGoatsWghtDist.3000m.sum"),  # Adjusting for these variables
+                                ref = c("gender,0", "sampling_season,Summer", "smoked_ever,0")) %>%  # Set reference categories
+  arrange(desc(coef))
+# Save results as csv
+write.csv(Pig_expo_maaslin_genus, paste0("../Output/DA_analysis/MaAsLin/CP_NP/genus_level/", "Genus_level_maaslin_cp_np__pigfarmexposure.csv"))
+
+
+# Loop for individual models for modelled exposures: ecoli, staph, tetw, and meca
+RF_modelled_variables <- c("ecoli_RF_preds","staph_RF_preds","tetw_RF_preds","meca_RF_preds")
+
+# Loop and save each result to a CSV file
+for (var in RF_modelled_variables) {
+  result <- do_maaslin2(ps = ps_abs_genus_cp_np_filt,
+                        var = var,
+                        other_var = c("age", "gender", "sampling_season", "smoked_ever"), # adjust for these variables
+                        ref = c("gender,0", "sampling_season,Summer", "smoked_ever,0")) %>% # Set reference categories
+    arrange(desc(coef))
+  # Save to a CSV file
+  write.csv(result, paste0("../Output/DA_analysis/MaAsLin/CP_NP/Genus_level/", "Genus_level_maaslin_cp_np_", var, ".csv"))
+}
+
 ```
 
 #### OP niche
 ```{r}
+# UNIVARIABLE for livestock species
 # Define the variables to be analyzed
-variables <- c("KRD_nGoatsWghtDist.2000m.sum", "KRD_nCowsWghtDist.2000m.sum", 
-               "KRD_nPoultryWghtDist.2000m.sum", "KRD_nPigsWghtDist.2000m.sum", 
+variables <- c("KRD_nGoatsWghtDist.3000m.sum", "KRD_nCowsWghtDist.3000m.sum",
+               "KRD_nPoultryWghtDist.3000m.sum", "KRD_nPigsWghtDist.3000m.sum",
                "ecoli_RF_preds","staph_RF_preds","tetw_RF_preds","meca_RF_preds" )
 
 # Create an empty list to store the ordered results
@@ -522,13 +849,66 @@ output_folder <- "../Output/DA_analysis/MaAsLin/CP_OP/"
 
 # Loop and save each result to a CSV file
 for (var in variables) {
-  result <- do_maaslin2(ps = ps_abs_genus_cp_op_filt, 
-                        var = var, 
-                        other_var = c("age", "gender", "sampling_season", "smoked_ever"), # adjust for these variables 
+  result <- do_maaslin2(ps = ps_abs_genus_cp_op_filt,
+                        var = var,
+                        other_var = c("age", "gender", "sampling_season", "smoked_ever"), # adjust for these variables
                         ref = c("gender,0", "sampling_season,Summer", "smoked_ever,0")) %>% # Set reference categories
     arrange(desc(coef))
   # Save to a CSV file
   write.csv(result, paste0(output_folder, "maaslin_cp_op_genuslevel_", var, "_ord.csv"))
+}
+
+# MULTIVARIABLE for livestock species
+# Run MaAsLin for the (distance-based) livestock exposure variables (with adjustment for the other livestock variables)
+# Goat farm exposure as main variable
+Goat_expo_maaslin_genus_cp_op <- do_maaslin2(ps = ps_abs_genus_cp_op_filt, 
+                                       var = "KRD_nGoatsWghtDist.3000m.sum",  # Including all livestock variables together
+                                       other_var = c("age", "gender", "sampling_season", "smoked_ever", "KRD_nCowsWghtDist.3000m.sum", "KRD_nPoultryWghtDist.3000m.sum", "KRD_nPigsWghtDist.3000m.sum"),  # Adjusting for these variables
+                                       ref = c("gender,0", "sampling_season,Summer", "smoked_ever,0")) %>%  # Set reference categories
+  arrange(desc(coef))
+# Save results as csv
+write.csv(Goat_expo_maaslin_genus_cp_op, paste0("../Output/DA_analysis/MaAsLin/CP_OP/genus_level/", "Genus_level_maaslin_cp_op_goatfarmexposure.csv"))
+
+# Cattle farm exposure as main variable
+Cow_expo_maaslin_genus_cp_op <- do_maaslin2(ps = ps_abs_genus_cp_op_filt, 
+                                      var = "KRD_nCowsWghtDist.3000m.sum",  # Including all livestock variables together
+                                      other_var = c("age", "gender", "sampling_season", "smoked_ever", "KRD_nGoatsWghtDist.3000m.sum", "KRD_nPoultryWghtDist.3000m.sum", "KRD_nPigsWghtDist.3000m.sum"),  # Adjusting for these variables
+                                      ref = c("gender,0", "sampling_season,Summer", "smoked_ever,0")) %>%  # Set reference categories
+  arrange(desc(coef))
+# Save results as csv
+write.csv(Cow_expo_maaslin_genus_cp_op, paste0("../Output/DA_analysis/MaAsLin/CP_OP/genus_level/", "Genus_level_maaslin_cp_op_cattlefarmexposure.csv"))
+
+# Poultry farm exposure as main variable
+Poultry_expo_maaslin_genus_cp_op <- do_maaslin2(ps = ps_abs_genus_cp_op_filt, 
+                                          var = "KRD_nPoultryWghtDist.3000m.sum",  # Including all livestock variables together
+                                          other_var = c("age", "gender", "sampling_season", "smoked_ever", "KRD_nGoatsWghtDist.3000m.sum", "KRD_nCowsWghtDist.3000m.sum", "KRD_nPigsWghtDist.3000m.sum"),  # Adjusting for these variables
+                                          ref = c("gender,0", "sampling_season,Summer", "smoked_ever,0")) %>%  # Set reference categories
+  arrange(desc(coef))
+# Save results as csv
+write.csv(Poultry_expo_maaslin_genus_cp_op, paste0("../Output/DA_analysis/MaAsLin/CP_OP/genus_level/", "Genus_level_maaslin_cp_op_poultryfarmexposure.csv"))
+
+# Pig farm exposure as main variable=
+Pig_expo_maaslin_genus_cp_op <- do_maaslin2(ps = ps_abs_genus_cp_op_filt, 
+                                      var = "KRD_nPigsWghtDist.3000m.sum",  # Including all livestock variables together
+                                      other_var = c("age", "gender", "sampling_season", "smoked_ever", "KRD_nCowsWghtDist.3000m.sum", "KRD_nPoultryWghtDist.3000m.sum", "KRD_nGoatsWghtDist.3000m.sum"),  # Adjusting for these variables
+                                      ref = c("gender,0", "sampling_season,Summer", "smoked_ever,0")) %>%  # Set reference categories
+  arrange(desc(coef))
+# Save results as csv
+write.csv(Pig_expo_maaslin_genus_cp_op, paste0("../Output/DA_analysis/MaAsLin/CP_OP/genus_level/", "Genus_level_maaslin_cp_op_pigfarmexposure.csv"))
+
+
+# Loop for individual models for modelled exposures: ecoli, staph, tetw, and meca
+RF_modelled_variables <- c("ecoli_RF_preds","staph_RF_preds","tetw_RF_preds","meca_RF_preds")
+
+# Loop and save each result to a CSV file
+for (var in RF_modelled_variables) {
+  result <- do_maaslin2(ps = ps_abs_genus_cp_op_filt,
+                        var = var,
+                        other_var = c("age", "gender", "sampling_season", "smoked_ever"), # adjust for these variables
+                        ref = c("gender,0", "sampling_season,Summer", "smoked_ever,0")) %>% # Set reference categories
+    arrange(desc(coef))
+  # Save to a CSV file
+  write.csv(result, paste0("../Output/DA_analysis/MaAsLin/CP_OP/Genus_level/", "Genus_level_maaslin_cp_op_", var, ".csv"))
 }
 
 ```
@@ -546,7 +926,7 @@ maaslin_cp_gf_np <- do_maaslin2(ps = ps_np_cp_gf_abs_filt,
 maaslin_cp_gf_np_ord <- maaslin_cp_gf_np %>%
   arrange(desc(coef))
 
-write.csv(maaslin_cp_gf_np_ord, "../Output/DA_analysis/MaAsLin/CP_GF_NP/maaslin_cp_gf_asv_level_np_ord.csv")
+write.csv(maaslin_cp_gf_np_ord, "../Output/DA_analysis/MaAsLin/CP_GF_NP/ASV_level/ASV_level_maaslin_cp_gf_np.csv")
 ```
 #### OP niche
 ```{r}
@@ -560,7 +940,7 @@ maaslin_cp_gf_op <- do_maaslin2(ps = ps_op_cp_gf_abs_filt,
 maaslin_cp_gf_op_ord <- maaslin_cp_gf_op %>%
   arrange(desc(coef))
 
-write.csv(maaslin_cp_gf_op_ord, "../Output/DA_analysis/MaAsLin/CP_GF_OP/maaslin_cp_gf_asv_level_op_ord.csv")
+write.csv(maaslin_cp_gf_op_ord, "../Output/DA_analysis/MaAsLin/CP_GF_OP/ASV_level/ASV_level_maaslin_cp_gf_op.csv")
 ```
 
 ### Genus level 
@@ -576,7 +956,7 @@ maaslin_cp_gf_genus_np <- do_maaslin2(ps = ps_np_cp_gf_abs_genus_filt,
 maaslin_cp_gf_genus_np_ord <- maaslin_cp_gf_genus_np %>%
   arrange(desc(coef))
 
-write.csv(maaslin_cp_gf_genus_np_ord, "../Output/DA_analysis/MaAsLin/CP_GF_NP/maaslin_cp_gf_genus_np_ord.csv")
+write.csv(maaslin_cp_gf_genus_np_ord, "../Output/DA_analysis/MaAsLin/CP_GF_NP/Genus_level/maaslin_cp_gf_genus_np_ord.csv")
 ```
 #### OP niche
 ```{r}
@@ -590,19 +970,79 @@ maaslin_cp_gf_genus_op <- do_maaslin2(ps = ps_op_cp_gf_abs_genus_filt,
 maaslin_cp_gf_genus_op_ord <- maaslin_cp_gf_genus_op %>%
   arrange(desc(coef))
 
-write.csv(maaslin_cp_gf_genus_op_ord, "../Output/DA_analysis/MaAsLin/CP_GF_OP/maaslin_cp_gf_genus_op_ord.csv")
+write.csv(maaslin_cp_gf_genus_op_ord, "../Output/DA_analysis/MaAsLin/CP_GF_OP/Genus_level/maaslin_cp_gf_genus_op_ord.csv")
 ```
 
 # Heatmaps
 ## CP only
 ### ASV level 
-#### NP 
+#### NP (univariable species)
 ```{r}
 # Define the directory
 np_folder <- "../Output/DA_analysis/MaAsLin/CP_NP/"
 
 # Read NP results
-np_files_cp_asvlevel <- list.files(np_folder, pattern = "np_asvlevel", full.names = TRUE)
+np_files_cp_asvlevel_univar <- list.files(np_folder, pattern = "ASV_level_maaslin", full.names = TRUE)
+np_results_cp_asvlevel_univar <- lapply(np_files_cp_asvlevel_univar, read.csv)
+np_results_cp_asvlevel_univar <- bind_rows(np_results_cp_asvlevel_univar) 
+
+# Extract relevant columns for the heatmap
+np_heatmap_data_univar <- np_results_cp_asvlevel_univar %>%
+  select(feature, metadata, coef, label) %>%
+  group_by(feature, metadata) 
+
+# Define the custom order of metadata
+custom_metadata_order <- c("ecoli_RF_preds", "staph_RF_preds", "tetw_RF_preds", 
+                           "meca_RF_preds", "KRD_nPigsWghtDist.3000m.sum", 
+                           "KRD_nGoatsWghtDist.3000m.sum", "KRD_nPoultryWghtDist.3000m.sum", 
+                           "KRD_nCowsWghtDist.3000m.sum")
+
+# Reorder metadata variables 
+np_heatmap_data_univar$metadata <- factor(np_heatmap_data_univar$metadata, levels = custom_metadata_order)
+
+# Rename metadata variables
+np_heatmap_data_univar <- np_heatmap_data_univar %>%
+  mutate(metadata = dplyr::recode(metadata,
+    "ecoli_RF_preds" = "RF-modelled E. coli exposure",
+    "staph_RF_preds" = "RF-modelled Staphylococcus spp. exposure",
+    "tetw_RF_preds" = "RF-modelled tetW ARG exposure",
+    "meca_RF_preds" = "RF-modelled mecA ARG exposure",
+    "KRD_nPigsWghtDist.3000m.sum" = "Distance weighted number of pigs in 3000m",
+    "KRD_nGoatsWghtDist.3000m.sum" = "Distance weighted number of goats in 3000m",
+    "KRD_nPoultryWghtDist.3000m.sum" = "Distance weighted number of chickens in 3000m",
+    "KRD_nCowsWghtDist.3000m.sum" = "Distance weighted number of cattle in 3000m"
+  ))
+
+
+# Create the heatmap
+np_heatmap_univar <- ggplot(np_heatmap_data_univar, aes(x = metadata, y = feature, fill = coef)) +
+  geom_tile(color = "white") +  # Create the heatmap tiles
+  scale_fill_gradient2(
+    low = carto_pal(7, "Geyser")[1], 
+    mid = carto_pal(7, "Geyser")[4], 
+    high = carto_pal(7, "Geyser")[7], 
+    midpoint = 0,
+    name = "Coefficient"
+  ) +
+  geom_text(aes(label = label), color = "white", size = 3) +  # Add labels inside the cells
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels
+    axis.title.x = element_blank(),  # Remove x-axis title
+    axis.title.y = element_blank(),   # Remove y-axis title
+    plot.title = element_text(hjust = 0.5)  # Center the title
+  ) +
+  labs(title = "Heatmap of Coefficients by residential\n livestock exposure (NP niche) \nUnivariable animal species")
+
+ggsave("../Output/DA_analysis/MaAsLin/CP_NP/ASV_level/Heatmap_Maaslin_resutls_cp_np_asvlevel_univar.svg", np_heatmap_univar, width = 6, height = 8)
+```
+#### NP (multivariable species)
+```{r}
+# Define the directory
+np_folder <- "../Output/DA_analysis/MaAsLin/CP_NP/ASV_level/"
+
+# Read NP results
+np_files_cp_asvlevel <- list.files(np_folder, pattern = "np_", full.names = TRUE)
 np_results_cp_asvlevel <- lapply(np_files_cp_asvlevel, read.csv)
 np_results_cp_asvlevel <- bind_rows(np_results_cp_asvlevel) 
 
@@ -611,6 +1051,7 @@ np_heatmap_data <- np_results_cp_asvlevel %>%
   select(feature, metadata, coef, label) %>%
   group_by(feature, metadata) 
 
+np_heatmap_data$metadata
 # Define the custom order of metadata
 custom_metadata_order <- c("ecoli_RF_preds", "staph_RF_preds", "tetw_RF_preds", 
                            "meca_RF_preds", "KRD_nPigsWghtDist.3000m.sum", 
@@ -622,7 +1063,7 @@ np_heatmap_data$metadata <- factor(np_heatmap_data$metadata, levels = custom_met
 
 # Rename metadata variables
 np_heatmap_data <- np_heatmap_data %>%
-  mutate(metadata = recode(metadata,
+  mutate(metadata = dplyr::recode(metadata,
     "ecoli_RF_preds" = "RF-modelled E. coli exposure",
     "staph_RF_preds" = "RF-modelled Staphylococcus spp. exposure",
     "tetw_RF_preds" = "RF-modelled tetW ARG exposure",
@@ -652,17 +1093,17 @@ heatmap_cp_np_asvlevel <- ggplot(np_heatmap_data, aes(x = metadata, y = feature,
     axis.title.y = element_blank(),   # Remove y-axis title
     plot.title = element_text(hjust = 0.5)  # Center the title
   ) +
-  labs(title = "Heatmap of Coefficients by residential\n livestock exposure (NP niche)")
+  labs(title = "Heatmap of Coefficients by residential\n livestock exposure (NP niche) \nMultivariable animal species")
 
-ggsave("../Output/DA_analysis/MaAsLin/CP_NP/heatmap_cp_np_asvlevel.svg", heatmap_cp_np_asvlevel)
+ggsave("../Output/DA_analysis/MaAsLin/CP_NP/ASV_level/Heatmap_Maaslin_results_cp_np_asvlevel.svg", heatmap_cp_np_asvlevel, width = 6, height = 8)
 ```
-#### OP
+#### OP (univariable species)
 ```{r}
 # Define the directory
-op_folder <- "../Output/DA_analysis/MaAsLin/CP_op/"
+op_folder <- "../Output/DA_analysis/MaAsLin/CP_OP/"
 
 # Read OP results
-op_files_cp_asvlevel <- list.files(op_folder, pattern = "OP_asvlevel", full.names = TRUE)
+op_files_cp_asvlevel <- list.files(op_folder, pattern = "maaslin_cp_OP_asvlevel", full.names = TRUE)
 op_results_cp_asvlevel <- lapply(op_files_cp_asvlevel, read.csv)
 op_results_cp_asvlevel <- bind_rows(op_results_cp_asvlevel) 
 
@@ -673,24 +1114,85 @@ op_heatmap_data <- op_results_cp_asvlevel %>%
 
 # Define the custom order of metadata
 custom_metadata_order <- c("ecoli_RF_preds", "staph_RF_preds", "tetw_RF_preds", 
-                           "meca_RF_preds", "KRD_nPigsWghtDist.2000m.sum", 
-                           "KRD_nGoatsWghtDist.2000m.sum", "KRD_nPoultryWghtDist.2000m.sum", 
-                           "KRD_nCowsWghtDist.2000m.sum")
+                           "meca_RF_preds", "KRD_nPigsWghtDist.3000m.sum", 
+                           "KRD_nGoatsWghtDist.3000m.sum", "KRD_nPoultryWghtDist.3000m.sum", 
+                           "KRD_nCowsWghtDist.3000m.sum")
 
 # Reorder metadata variables 
 op_heatmap_data$metadata <- factor(op_heatmap_data$metadata, levels = custom_metadata_order)
 
 # Rename metadata variables
 op_heatmap_data <- op_heatmap_data %>%
-  mutate(metadata = recode(metadata,
+  mutate(metadata = dplyr::recode(metadata,
     "ecoli_RF_preds" = "RF-modelled E. coli exposure",
     "staph_RF_preds" = "RF-modelled Staphylococcus spp. exposure",
     "tetw_RF_preds" = "RF-modelled tetW ARG exposure",
     "meca_RF_preds" = "RF-modelled mecA ARG exposure",
-    "KRD_nPigsWghtDist.2000m.sum" = "Distance weighted number of pigs in 2000m",
-    "KRD_nGoatsWghtDist.2000m.sum" = "Distance weighted number of goats in 2000m",
-    "KRD_nPoultryWghtDist.2000m.sum" = "Distance weighted number of chickens in 2000m",
-    "KRD_nCowsWghtDist.2000m.sum" = "Distance weighted number of cattle in 2000m"
+    "KRD_nPigsWghtDist.3000m.sum" = "Distance weighted number of pigs in 3000m",
+    "KRD_nGoatsWghtDist.3000m.sum" = "Distance weighted number of goats in 3000m",
+    "KRD_nPoultryWghtDist.3000m.sum" = "Distance weighted number of chickens in 3000m",
+    "KRD_nCowsWghtDist.3000m.sum" = "Distance weighted number of cattle in 3000m"
+  ))
+
+# Create the heatmap
+heatmap_cp_op_asvlevel_univar <- ggplot(op_heatmap_data, aes(x = metadata, y = feature, fill = coef)) +
+  geom_tile(color = "white") +  # Create the heatmap tiles
+  scale_fill_gradient2(
+    low = carto_pal(7, "Geyser")[1], 
+    mid = carto_pal(7, "Geyser")[4], 
+    high = carto_pal(7, "Geyser")[7], 
+    midpoint = 0,
+    name = "Coefficient"
+  ) +
+  geom_text(aes(label = label), color = "white", size = 3) +  # Add labels inside the cells
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels
+    axis.title.x = element_blank(),  # Remove x-axis title
+    axis.title.y = element_blank(),   # Remove y-axis title
+    plot.title = element_text(hjust = 0.5)  # Center the title
+    ) +
+  labs(title = "Heatmap of Coefficients by residential\n livestock exposure (OP niche)\nUnivariable livestock species")
+
+ggsave("../Output/DA_analysis/MaAsLin/CP_OP/ASV_level/Heatmap_Maaslin_resutls_cp_op_asvlevel_univar.svg", heatmap_cp_op_asvlevel_univar, width = 6, height = 8)
+```
+
+
+#### OP (multivariable species)
+```{r}
+# Define the directory
+op_folder <- "../Output/DA_analysis/MaAsLin/CP_OP/ASV_level"
+
+# Read OP results
+op_files_cp_asvlevel <- list.files(op_folder, pattern = "op_", full.names = TRUE)
+op_results_cp_asvlevel <- lapply(op_files_cp_asvlevel, read.csv)
+op_results_cp_asvlevel <- bind_rows(op_results_cp_asvlevel) 
+
+# Extract relevant columns for the heatmap
+op_heatmap_data <- op_results_cp_asvlevel %>%
+  select(feature, metadata, coef, label) %>%
+  group_by(feature, metadata) 
+
+# Define the custom order of metadata
+custom_metadata_order <- c("ecoli_RF_preds", "staph_RF_preds", "tetw_RF_preds", 
+                           "meca_RF_preds", "KRD_nPigsWghtDist.3000m.sum", 
+                           "KRD_nGoatsWghtDist.3000m.sum", "KRD_nPoultryWghtDist.3000m.sum", 
+                           "KRD_nCowsWghtDist.3000m.sum")
+
+# Reorder metadata variables 
+op_heatmap_data$metadata <- factor(op_heatmap_data$metadata, levels = custom_metadata_order)
+
+# Rename metadata variables
+op_heatmap_data <- op_heatmap_data %>%
+  mutate(metadata = dplyr::recode(metadata,
+    "ecoli_RF_preds" = "RF-modelled E. coli exposure",
+    "staph_RF_preds" = "RF-modelled Staphylococcus spp. exposure",
+    "tetw_RF_preds" = "RF-modelled tetW ARG exposure",
+    "meca_RF_preds" = "RF-modelled mecA ARG exposure",
+    "KRD_nPigsWghtDist.3000m.sum" = "Distance weighted number of pigs in 3000m",
+    "KRD_nGoatsWghtDist.3000m.sum" = "Distance weighted number of goats in 3000m",
+    "KRD_nPoultryWghtDist.3000m.sum" = "Distance weighted number of chickens in 3000m",
+    "KRD_nCowsWghtDist.3000m.sum" = "Distance weighted number of cattle in 3000m"
   ))
 
 # Create the heatmap
@@ -711,19 +1213,79 @@ heatmap_cp_op_asvlevel <- ggplot(op_heatmap_data, aes(x = metadata, y = feature,
     axis.title.y = element_blank(),   # Remove y-axis title
     plot.title = element_text(hjust = 0.5)  # Center the title
     ) +
-  labs(title = "Heatmap of Coefficients by residential\n livestock exposure (OP niche)")
+  labs(title = "Heatmap of Coefficients by residential\n livestock exposure (OP niche)\nMultivariable livestock species")
 
-ggsave("../Output/DA_analysis/MaAsLin/CP_op/heatmap_cp_op_asvlevel.svg", heatmap_cp_op_asvlevel)
+ggsave("../Output/DA_analysis/MaAsLin/CP_OP/ASV_level/Heatmap_Maaslin_results_cp_op_asvlevel_multivar.svg", heatmap_cp_op_asvlevel, width = 6, height = 8)
 ```
 
 ### Genus level 
-#### NP 
+#### NP (univariable livestock species)
 ```{r}
 # Define the directory
-np_folder <- "../Output/DA_analysis/MaAsLin/CP_NP/"
+np_folder_genus_univar <- "../Output/DA_analysis/MaAsLin/CP_NP/"
 
 # Read NP results
-np_files_cp_genuslevel <- list.files(np_folder, pattern = "np_genuslevel", full.names = TRUE)
+np_files_cp_genuslevel <- list.files(np_folder_genus_univar, pattern = "maaslin_cp_np_genuslevel_", full.names = TRUE)
+np_results_cp_genuslevel <- lapply(np_files_cp_genuslevel, read.csv)
+np_results_cp_genuslevel <- bind_rows(np_results_cp_genuslevel) 
+
+# Extract relevant columns for the heatmap
+np_heatmap_data_univar <- np_results_cp_genuslevel %>%
+  select(feature, metadata, coef, label) %>%
+  group_by(feature, metadata) 
+
+# Define the custom order of metadata
+custom_metadata_order <- c("ecoli_RF_preds", "staph_RF_preds", "tetw_RF_preds", 
+                           "meca_RF_preds", "KRD_nPigsWghtDist.3000m.sum", 
+                           "KRD_nGoatsWghtDist.3000m.sum", "KRD_nPoultryWghtDist.3000m.sum", 
+                           "KRD_nCowsWghtDist.3000m.sum")
+
+# Reorder metadata variables 
+np_heatmap_data_univar$metadata <- factor(np_heatmap_data_univar$metadata, levels = custom_metadata_order)
+
+# Rename metadata variables
+np_heatmap_data_univar <- np_heatmap_data_univar %>%
+  mutate(metadata = dplyr::recode(metadata,
+                           "ecoli_RF_preds" = "RF-modelled E. coli exposure",
+                           "staph_RF_preds" = "RF-modelled Staphylococcus spp. exposure",
+                           "tetw_RF_preds" = "RF-modelled tetW ARG exposure",
+                           "meca_RF_preds" = "RF-modelled mecA ARG exposure",
+                           "KRD_nPigsWghtDist.3000m.sum" = "Distance weighted number of pigs in 3000m",
+                           "KRD_nGoatsWghtDist.3000m.sum" = "Distance weighted number of goats in 3000m",
+                           "KRD_nPoultryWghtDist.3000m.sum" = "Distance weighted number of chickens in 3000m",
+                           "KRD_nCowsWghtDist.3000m.sum" = "Distance weighted number of cattle in 3000m"
+  ))
+
+
+# Create the heatmap
+heatmap_cp_np_genuslevel_univar <- ggplot(np_heatmap_data_univar, aes(x = metadata, y = feature, fill = coef)) +
+  geom_tile(color = "white") +  # Create the heatmap tiles
+  scale_fill_gradient2(
+    low = carto_pal(7, "Geyser")[1], 
+    mid = carto_pal(7, "Geyser")[4], 
+    high = carto_pal(7, "Geyser")[7], 
+    midpoint = 0,
+    name = "Coefficient"
+  ) +
+  geom_text(aes(label = label), color = "white", size = 3) +  # Add labels inside the cells
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels
+    axis.title.x = element_blank(),  # Remove x-axis title
+    axis.title.y = element_blank(),   # Remove y-axis title
+    plot.title = element_text(hjust = 0.5)  # Center the title
+  ) +
+  labs(title = "Heatmap of Coefficients by residential\n livestock exposure (NP niche)\nUnivariable livestock species")
+
+ggsave("../Output/DA_analysis/MaAsLin/CP_NP/Genus_level/Heatmap_Maaslin_results_cp_np_genuslevel_univar.svg", heatmap_cp_np_genuslevel_univar, width = 5, height = 6)
+```
+#### NP (multivariable livestock species)
+```{r}
+# Define the directory
+np_folder_genus <- "../Output/DA_analysis/MaAsLin/CP_NP/Genus_level/"
+
+# Read NP results
+np_files_cp_genuslevel <- list.files(np_folder_genus, pattern = "np_", full.names = TRUE)
 np_results_cp_genuslevel <- lapply(np_files_cp_genuslevel, read.csv)
 np_results_cp_genuslevel <- bind_rows(np_results_cp_genuslevel) 
 
@@ -734,24 +1296,24 @@ np_heatmap_data <- np_results_cp_genuslevel %>%
 
 # Define the custom order of metadata
 custom_metadata_order <- c("ecoli_RF_preds", "staph_RF_preds", "tetw_RF_preds", 
-                           "meca_RF_preds", "KRD_nPigsWghtDist.2000m.sum", 
-                           "KRD_nGoatsWghtDist.2000m.sum", "KRD_nPoultryWghtDist.2000m.sum", 
-                           "KRD_nCowsWghtDist.2000m.sum")
+                           "meca_RF_preds", "KRD_nPigsWghtDist.3000m.sum", 
+                           "KRD_nGoatsWghtDist.3000m.sum", "KRD_nPoultryWghtDist.3000m.sum", 
+                           "KRD_nCowsWghtDist.3000m.sum")
 
 # Reorder metadata variables 
 np_heatmap_data$metadata <- factor(np_heatmap_data$metadata, levels = custom_metadata_order)
 
 # Rename metadata variables
 np_heatmap_data <- np_heatmap_data %>%
-  mutate(metadata = recode(metadata,
+  mutate(metadata = dplyr::recode(metadata,
                            "ecoli_RF_preds" = "RF-modelled E. coli exposure",
                            "staph_RF_preds" = "RF-modelled Staphylococcus spp. exposure",
                            "tetw_RF_preds" = "RF-modelled tetW ARG exposure",
                            "meca_RF_preds" = "RF-modelled mecA ARG exposure",
-                           "KRD_nPigsWghtDist.2000m.sum" = "Distance weighted number of pigs in 2000m",
-                           "KRD_nGoatsWghtDist.2000m.sum" = "Distance weighted number of goats in 2000m",
-                           "KRD_nPoultryWghtDist.2000m.sum" = "Distance weighted number of chickens in 2000m",
-                           "KRD_nCowsWghtDist.2000m.sum" = "Distance weighted number of cattle in 2000m"
+                           "KRD_nPigsWghtDist.3000m.sum" = "Distance weighted number of pigs in 3000m",
+                           "KRD_nGoatsWghtDist.3000m.sum" = "Distance weighted number of goats in 3000m",
+                           "KRD_nPoultryWghtDist.3000m.sum" = "Distance weighted number of chickens in 3000m",
+                           "KRD_nCowsWghtDist.3000m.sum" = "Distance weighted number of cattle in 3000m"
   ))
 
 
@@ -773,17 +1335,78 @@ heatmap_cp_np_genuslevel <- ggplot(np_heatmap_data, aes(x = metadata, y = featur
     axis.title.y = element_blank(),   # Remove y-axis title
     plot.title = element_text(hjust = 0.5)  # Center the title
   ) +
-  labs(title = "Heatmap of Coefficients by residential\n livestock exposure (NP niche)")
+  labs(title = "Heatmap of Coefficients by residential\n livestock exposure (NP niche)\nMultivariable livestock species")
 
-ggsave("../Output/DA_analysis/MaAsLin/CP_NP/heatmap_cp_np_genuslevel.svg", heatmap_cp_np_genuslevel)
+ggsave("../Output/DA_analysis/MaAsLin/CP_NP/Genus_level/Heatmap_Maaslin_resutls_cp_np_genuslevel.svg", heatmap_cp_np_genuslevel, width=5, height=6)
 ```
-#### OP
+#### OP (univariable livestock species)
 ```{r}
 # Define the directory
-op_folder <- "../Output/DA_analysis/MaAsLin/CP_OP/"
+op_folder_genus_univar <- "../Output/DA_analysis/MaAsLin/CP_OP/"
 
 # Read OP results
-op_files_cp_genuslevel <- list.files(op_folder, pattern = "op_genuslevel", full.names = TRUE)
+op_files_cp_genuslevel_univar <- list.files(op_folder_genus_univar, pattern = "op_", full.names = TRUE)
+op_results_cp_genuslevel_univar <- lapply(op_files_cp_genuslevel_univar, read.csv)
+op_results_cp_genuslevel_univar <- bind_rows(op_results_cp_genuslevel_univar) 
+
+# Extract relevant columns for the heatmap
+op_heatmap_data_univar <- op_results_cp_genuslevel_univar %>%
+  select(feature, metadata, coef, label) %>%
+  group_by(feature, metadata) 
+
+# Define the custom order of metadata
+custom_metadata_order <- c("ecoli_RF_preds", "staph_RF_preds", "tetw_RF_preds", 
+                           "meca_RF_preds", "KRD_nPigsWghtDist.3000m.sum", 
+                           "KRD_nGoatsWghtDist.3000m.sum", "KRD_nPoultryWghtDist.3000m.sum", 
+                           "KRD_nCowsWghtDist.3000m.sum")
+
+# Reorder metadata variables 
+op_heatmap_data_univar$metadata <- factor(op_heatmap_data_univar$metadata, levels = custom_metadata_order)
+
+# Rename metadata variables
+op_heatmap_data_univar <- op_heatmap_data_univar %>%
+  mutate(metadata = dplyr::recode(metadata,
+                           "ecoli_RF_preds" = "RF-modelled E. coli exposure",
+                           "staph_RF_preds" = "RF-modelled Staphylococcus spp. exposure",
+                           "tetw_RF_preds" = "RF-modelled tetW ARG exposure",
+                           "meca_RF_preds" = "RF-modelled mecA ARG exposure",
+                           "KRD_nPigsWghtDist.3000m.sum" = "Distance weighted number of pigs in 3000m",
+                           "KRD_nGoatsWghtDist.3000m.sum" = "Distance weighted number of goats in 3000m",
+                           "KRD_nPoultryWghtDist.3000m.sum" = "Distance weighted number of chickens in 3000m",
+                           "KRD_nCowsWghtDist.3000m.sum" = "Distance weighted number of cattle in 3000m"
+  ))
+
+# Create the heatmap
+heatmap_cp_op_genuslevel_univar <- ggplot(op_heatmap_data_univar, aes(x = metadata, y = feature, fill = coef)) +
+  geom_tile(color = "white") +  # Create the heatmap tiles
+  scale_fill_gradient2(
+    low = carto_pal(7, "Geyser")[1], 
+    mid = carto_pal(7, "Geyser")[4], 
+    high = carto_pal(7, "Geyser")[7], 
+    midpoint = 0,
+    name = "Coefficient"
+  ) +
+  geom_text(aes(label = label), color = "white", size = 3) +  # Add labels inside the cells
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels
+    axis.title.x = element_blank(),  # Remove x-axis title
+    axis.title.y = element_blank(),   # Remove y-axis title
+    plot.title = element_text(hjust = 0.5)  # Center the title
+  ) +
+  labs(title = "Heatmap of Coefficients by residential\n livestock exposure (OP niche)\nUnivariable livestock species")
+
+ggsave("../Output/DA_analysis/MaAsLin/CP_OP/Genus_level/Heatmap_Maaslin_results_cp_op_genuslevel_univar.svg", heatmap_cp_op_genuslevel_univar, width = 6, height =7)
+
+```
+
+#### OP (multivariable livestock species)
+```{r}
+# Define the directory
+op_folder_genus <- "../Output/DA_analysis/MaAsLin/CP_OP/Genus_level/"
+
+# Read OP results
+op_files_cp_genuslevel <- list.files(op_folder_genus, pattern = "op_", full.names = TRUE)
 op_results_cp_genuslevel <- lapply(op_files_cp_genuslevel, read.csv)
 op_results_cp_genuslevel <- bind_rows(op_results_cp_genuslevel) 
 
@@ -794,24 +1417,24 @@ op_heatmap_data <- op_results_cp_genuslevel %>%
 
 # Define the custom order of metadata
 custom_metadata_order <- c("ecoli_RF_preds", "staph_RF_preds", "tetw_RF_preds", 
-                           "meca_RF_preds", "KRD_nPigsWghtDist.2000m.sum", 
-                           "KRD_nGoatsWghtDist.2000m.sum", "KRD_nPoultryWghtDist.2000m.sum", 
-                           "KRD_nCowsWghtDist.2000m.sum")
+                           "meca_RF_preds", "KRD_nPigsWghtDist.3000m.sum", 
+                           "KRD_nGoatsWghtDist.3000m.sum", "KRD_nPoultryWghtDist.3000m.sum", 
+                           "KRD_nCowsWghtDist.3000m.sum")
 
 # Reorder metadata variables 
 op_heatmap_data$metadata <- factor(op_heatmap_data$metadata, levels = custom_metadata_order)
 
 # Rename metadata variables
 op_heatmap_data <- op_heatmap_data %>%
-  mutate(metadata = recode(metadata,
+  mutate(metadata = dplyr::recode(metadata,
                            "ecoli_RF_preds" = "RF-modelled E. coli exposure",
                            "staph_RF_preds" = "RF-modelled Staphylococcus spp. exposure",
                            "tetw_RF_preds" = "RF-modelled tetW ARG exposure",
                            "meca_RF_preds" = "RF-modelled mecA ARG exposure",
-                           "KRD_nPigsWghtDist.2000m.sum" = "Distance weighted number of pigs in 2000m",
-                           "KRD_nGoatsWghtDist.2000m.sum" = "Distance weighted number of goats in 2000m",
-                           "KRD_nPoultryWghtDist.2000m.sum" = "Distance weighted number of chickens in 2000m",
-                           "KRD_nCowsWghtDist.2000m.sum" = "Distance weighted number of cattle in 2000m"
+                           "KRD_nPigsWghtDist.3000m.sum" = "Distance weighted number of pigs in 3000m",
+                           "KRD_nGoatsWghtDist.3000m.sum" = "Distance weighted number of goats in 3000m",
+                           "KRD_nPoultryWghtDist.3000m.sum" = "Distance weighted number of chickens in 3000m",
+                           "KRD_nCowsWghtDist.3000m.sum" = "Distance weighted number of cattle in 3000m"
   ))
 
 # Create the heatmap
@@ -832,9 +1455,9 @@ heatmap_cp_op_genuslevel <- ggplot(op_heatmap_data, aes(x = metadata, y = featur
     axis.title.y = element_blank(),   # Remove y-axis title
     plot.title = element_text(hjust = 0.5)  # Center the title
   ) +
-  labs(title = "Heatmap of Coefficients by residential\n livestock exposure (OP niche)")
+  labs(title = "Heatmap of Coefficients by residential\n livestock exposure (OP niche)\nMultivariable livestock species")
 
-ggsave("../Output/DA_analysis/MaAsLin/CP_op/heatmap_cp_op_genuslevel.svg", heatmap_cp_op_genuslevel)
+ggsave("../Output/DA_analysis/MaAsLin/CP_OP/Genus_level/Heatmap_Maaslin_results_cp_op_genuslevel_multivar.svg", heatmap_cp_op_genuslevel,width = 6, height =7)
 ```
 ## CP and GF
 ### ASV level 
@@ -846,7 +1469,7 @@ np_cp_gf_heatmap_data <- maaslin_cp_gf_np_ord %>%
 
 # Rename metadata variables
 np_cp_gf_heatmap_data <- np_cp_gf_heatmap_data %>%
-  mutate(metadata = recode(metadata,
+  mutate(metadata = dplyr::recode(metadata,
                            "population" = "Population (GF vs CP)"))
 
 
@@ -870,7 +1493,7 @@ heatmap_cp_gf_np_asvlevel <- ggplot(np_cp_gf_heatmap_data, aes(x = metadata, y =
   ) +
   labs(title = "Heatmap of coefficients by occupational\n livestock exposure (NP niche) - ASV level")
 
-ggsave("../Output/DA_analysis/MaAsLin/CP_GF_NP/heatmap_cp_gf_np_asvlevel.svg", heatmap_cp_gf_np_asvlevel, width = 5, height=8)
+ggsave("../Output/DA_analysis/MaAsLin/CP_GF_NP/ASV_level/Heatmap_Maaslin_results_cp_gf_np_asvlevel.svg", heatmap_cp_gf_np_asvlevel, width = 5, height=8)
 ```
 #### OP
 ```{r}
@@ -880,7 +1503,7 @@ op_cp_gf_heatmap_data <- maaslin_cp_gf_op_ord %>%
 
 # Rename metadata variables
 op_cp_gf_heatmap_data <- op_cp_gf_heatmap_data %>%
-  mutate(metadata = recode(metadata,
+  mutate(metadata = dplyr::recode(metadata,
                            "population" = "Population (GF vs CP)"))
 
 
@@ -904,7 +1527,7 @@ heatmap_cp_gf_op_asvlevel <- ggplot(op_cp_gf_heatmap_data, aes(x = metadata, y =
   ) +
   labs(title = "Heatmap of coefficients by occupational\n livestock exposure (OP niche) - ASV level")
 
-ggsave("../Output/DA_analysis/MaAsLin/CP_GF_OP/heatmap_cp_gf_op_asvlevel.svg", heatmap_cp_gf_op_asvlevel, width = 5, height=8)
+ggsave("../Output/DA_analysis/MaAsLin/CP_GF_OP/ASV_level/Heatmap_Maaslin_results_cp_gf_op_asvlevel.svg", heatmap_cp_gf_op_asvlevel, width = 5, height=8)
 ```
 
 ### Genus level 
@@ -940,7 +1563,7 @@ heatmap_cp_gf_np_genuslevel <- ggplot(np_cp_gf_genus_heatmap_data, aes(x = metad
   ) +
   labs(title = "Heatmap of coefficients by occupational\n livestock exposure (NP niche) - Genus level")
 
-ggsave("../Output/DA_analysis/MaAsLin/CP_GF_NP/heatmap_cp_gf_np_genuslevel.svg", heatmap_cp_gf_np_genuslevel, width = 5, height=8)
+ggsave("../Output/DA_analysis/MaAsLin/CP_GF_NP/Genus_level/Heatmap_Maaslin_results_cp_gf_np_genuslevel.svg", heatmap_cp_gf_np_genuslevel, width = 5, height=8)
 ```
 #### OP
 ```{r}
@@ -974,7 +1597,34 @@ heatmap_cp_gf_op_genuslevel <- ggplot(op_cp_gf_genus_heatmap_data, aes(x = metad
   ) +
   labs(title = "Heatmap of coefficients by occupational\n livestock exposure (op niche) - Genus level")
 
-ggsave("../Output/DA_analysis/MaAsLin/CP_GF_op/heatmap_cp_gf_op_genuslevel.svg", heatmap_cp_gf_op_genuslevel, width = 5, height=8)
+ggsave("../Output/DA_analysis/MaAsLin/CP_GF_op/Genus_level/Heatmap_Maaslin_results_cp_gf_op_genuslevel.svg", heatmap_cp_gf_op_genuslevel, width = 5, height=8)
 ```
+# Check some sequences of interest using BLAST
+```{r}
+# Make a dataframe of all sequences in the microbiome
+seq <- refseq(ps_new_metadata_RFpreds) %>%
+  as.data.frame()
+
+# ASVs of interest
+which(rownames(seq) == "Moraxella_5") # 5
+which(rownames(seq) == "Staphylococcus_2") # 2
+which(rownames(seq) == "Corynebacterium_7") # 7
+which(rownames(seq) == "Sphingomonas_175") # 131
+which(rownames(seq) == "Corynebacterium_stationis_251") # 
+
+# Check the sequences for all of these ASVs
+print(seq[5, ])
+print(seq[2, ])
+print(seq[7, ])
+print(seq[194, ])
+
+# Extract the tax_table from the phyloseq object
+tax_table_data <- tax_table(ps_new_metadata_RFpreds)
+tax_table_data[1:20,]
+# View the filtered data
+corynebacterium_data
+
+```
+
 
 # ANCOM-BC2 analysis is not possible with a continuous variable
