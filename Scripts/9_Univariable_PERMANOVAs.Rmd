@@ -1,6 +1,7 @@
 ---
 title: "Univariable PERMANOVAs"
-author: Beatrice Cornu Hewitt
+author: "Beatrice Cornu Hewitt" 
+date: "`r Sys.time()`"
 ---
 
 # Packages
@@ -239,7 +240,7 @@ write.csv(perm_op_cp, "../Output/Beta_diversity/Univariable_PERMANOVAs/univariab
 
 ```
 
-## Combine PERMANOVA results for
+## Combine PERMANOVA results for NP and OP for CP
 ```{r}
 Univar_perm_CP <- rbind(perm_np_cp, perm_op_cp)
 
