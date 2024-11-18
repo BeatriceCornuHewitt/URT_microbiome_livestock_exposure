@@ -14,6 +14,23 @@ library(phyloseq); library(microbiomer)
 ps <- readRDS("../Output/Phyloseq/ps_complete_new_metadata.rds")
 ```
 
+```{r}
+ps@sam_data$age
+ps_CP <- ps 
+
+ps_cp <- subset_samples(ps, population == "CP")
+# Extract the sample data from the phyloseq object
+sample_data_df <- data.frame(sample_data(ps_cp))
+sample_data_df$KRD_nAnyFarmWghtDist_2000m
+
+
+# Calculate Pearson correlation
+cor.test(sample_data_df$age, sample_data_df$KRD_nAnyFarmWghtDist_2000m)
+cor.test(sample_data_df$age, sample_data_df$KRD_nGoatFarmWghtDist.2000m.sum)
+cor.test(sample_data_df$age, sample_data_df$KRD_nGoatsWghtDist.2000m.sum) # p-value = 0.2522
+cor.test(sample_data_df$age, sample_data_df$KRD_MindistGoatFarm50.NEG) # p-value = 0.6065
+
+```
 
 ```{r}
 # Remove low abundant ASVs and convert counts to relative abundances
@@ -23,18 +40,277 @@ ps_np_filtered <- subset_samples(ps, niche == "NP") %>% pres_abund_filter() %>% 
 ps_np_cp <- subset_samples(ps_np_filtered, population == "CP")
 otu_np_cp <- as.data.frame(otu_table(ps_np_cp)) %>% t()
 meta_np_cp <- meta_to_df(ps_np_cp)
+```
+
+# Linear models - NP
+```{r}
+
+# We use linear models to test the effect of various metadata variables on the Shannon index, observed species and bacterial density. This was done for each niche separately. Models were corrected for age, season of sampling, sex and smoking status of the participant. We visualize the results as boxplots including the p-values from the tests.
+# NP niche
+lm_cattle2km_np <- lm(Shannon ~  KRD_nCowsWghtDist.2000m.sum + age + sampling_season + gender + smoked_ever, data = meta_np_cp)%>% 
+  broom::tidy(., conf.int = T)
+lm_cattle2km_np$livestock <- "Cattle"
+lm_cattle2km_np$niche <- "NP"
+
+lm_goats2km_np <- lm(Shannon ~  KRD_nGoatsWghtDist.2000m.sum + age + sampling_season + gender + smoked_ever, data = meta_np_cp)%>% 
+  broom::tidy(., conf.int = T)
+lm_goats2km_np$livestock <- "Goats"
+lm_goats2km_np$niche <- "NP"
+
+lm_pigs2km_np <- lm(Shannon ~  KRD_nPigsWghtDist.2000m.sum + age + sampling_season + gender + smoked_ever, data = meta_np_cp)%>% 
+  broom::tidy(., conf.int = T)
+lm_pigs2km_np$livestock <- "Pigs"
+lm_pigs2km_np$niche <- "NP"
+
+lm_poultry2km_np <- lm(Shannon ~  KRD_nPoultryWghtDist.2000m.sum + age + sampling_season + gender + smoked_ever, data = meta_np_cp)%>% 
+  broom::tidy(., conf.int = T)
+lm_poultry2km_np$livestock <- "Poultry"
+lm_poultry2km_np$niche <- "NP"
+
+# OP niche
+lm_cattle2km_op <- lm(Shannon ~  KRD_nCowsWghtDist.2000m.sum + age + sampling_season + gender + smoked_ever, data = meta_op_cp) %>% 
+  broom::tidy(., conf.int = T)
+lm_cattle2km_op$livestock <- "Cattle"
+lm_cattle2km_op$niche <- "OP"
+
+lm_goats2km_op <- lm(Shannon ~  KRD_nGoatsWghtDist.2000m.sum + age + sampling_season + gender + smoked_ever, data = meta_op_cp)%>% 
+  broom::tidy(., conf.int = T)
+lm_goats2km_op$livestock <- "Goats"
+lm_goats2km_op$niche <- "OP"
+
+lm_pigs2km_op <- lm(Shannon ~  KRD_nPigsWghtDist.2000m.sum + age + sampling_season + gender + smoked_ever, data = meta_op_cp)%>% 
+  broom::tidy(., conf.int = T)
+lm_pigs2km_op$livestock <- "Pigs"
+lm_pigs2km_op$niche <- "OP"
+
+lm_poultry2km_op <- lm(Shannon ~  KRD_nPoultryWghtDist.2000m.sum + age + sampling_season + gender + smoked_ever, data = meta_op_cp)%>% 
+  broom::tidy(., conf.int = T)
+lm_poultry2km_op$livestock <- "Poultry"
+lm_poultry2km_op$niche <- "OP"
+
+
+# Combine all the tidy data
+combined_data <- bind_rows(lm_cattle2km_np, lm_goats2km_np, lm_pigs2km_np, lm_poultry2km_np,
+                           lm_cattle2km_op, lm_goats2km_op, lm_pigs2km_op, lm_poultry2km_op)
+
+# Filter to include only livestock exposure terms (e.g., KRD variables)
+livestock_terms <- combined_data %>%
+  filter(term %in% c("KRD_nCowsWghtDist.2000m.sum", 
+                     "KRD_nGoatsWghtDist.2000m.sum", 
+                     "KRD_nPigsWghtDist.2000m.sum", 
+                     "KRD_nPoultryWghtDist.2000m.sum"))
+
+# Apply multiple testing correction (Benjamini-Hochberg) for NP
+livestock_terms_np <- livestock_terms %>%
+  filter(niche == "NP") %>%
+  mutate(p.adjusted = p.adjust(p.value, method = "BH"))
+
+# Apply multiple testing correction (Benjamini-Hochberg) for OP
+livestock_terms_op <- livestock_terms %>%
+  filter(niche == "OP") %>%
+  mutate(p.adjusted = p.adjust(p.value, method = "BH"))
+    
+# Combine the results for NP and OP niches
+livestock_terms_corrected <- bind_rows(livestock_terms_np, livestock_terms_op)
+
+# Add adjusted p-value labels
+livestock_terms_corrected <- livestock_terms_corrected %>% mutate(
+  label = ifelse(p.adjusted > 0.001, round(p.adjusted, digits = 3), NA),
+  label = ifelse(p.adjusted < 0.001, "<0.001", label),
+  label = ifelse(p.adjusted > 0.05, NA, label))
+
+# Coefficient plot with styled facet titles
+livestock_expo_shannon <- ggplot(livestock_terms_corrected, aes(x = livestock, y = estimate, color = niche)) +
+  geom_point(position = position_dodge(width = 0.5), size = 3) +  # Plot points
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.2, 
+                position = position_dodge(width = 0.5)) +  # Error bars for confidence intervals
+  geom_hline(yintercept = 0, linetype = "dotted", color = "black") +  # Add dotted line at 0
+  labs(title = "Coefficient Plot of Livestock Exposure on Shannon Diversity",
+       x = "Livestock Type", 
+       y = "Shannon diversity regression Coefficient (95% CI)",
+       color = "Niche") +
+  theme_minimal(base_size = 14) +  # Use minimal theme with large base font
+  theme(
+    legend.position = "top",  # Move legend to the top
+    panel.border = element_rect(color = "black", fill = NA),  # Add black borders around the facets
+    strip.text = element_text(colour = 'white', face = 'bold'),  # White bold text for facet titles
+    strip.background = element_rect(fill = "#2F4858", color = "#2F4858")  # Color facet box and border
+  ) +
+  scale_color_manual(values = c("NP" = "steelblue", "OP" = "darkorange")) +  # Custom colors for NP and OP
+  facet_wrap(~ niche, scales = "free_y") +  # Facet by niche (NP and OP)
+  coord_flip()   # Flip coordinates for better readability
+
+
+
+
+library(ggplot2)
+library(dplyr)
+
+# Assuming all previous code has been executed.
+
+livestock_expo_shannon <- ggplot(livestock_terms_corrected, aes(x = livestock, y = estimate, color = niche)) +
+  geom_point(position = position_dodge(width = 0.5), size = 3) +  # Plot points
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.2, 
+                position = position_dodge(width = 0.5)) +  # Error bars for confidence intervals
+  geom_hline(yintercept = 0, linetype = "dotted", color = "black") +  # Add dotted line at 0
+  labs(x = "Livestock Type (Number of distance-weighted animals)", 
+       y = "Shannon Diversity Regression Coefficient (95% CI)",
+       color = "Niche") +
+  theme_minimal(base_size = 16) +  # Increase base font size
+  theme(
+    legend.position = "top",  # Move legend to the top
+    panel.border = element_rect(color = "black", fill = NA),  # Add black borders around the facets
+    strip.text = element_text(colour = 'white', face = 'bold', size = 16),  # Increase size for facet titles
+    strip.background = element_rect(fill = "#2F4858", color = "#2F4858"),  # Color facet box and border
+    axis.title = element_text(size = 14),  # Increase size of axis titles
+    axis.text = element_text(size = 12),   # Increase size of axis text
+    plot.title = element_text(size = 18)   # Increase size of the plot title
+  ) +
+  scale_color_manual(values = c("NP" = "steelblue", "OP" = "darkorange")) +  # Custom colors for NP and OP
+  facet_wrap(~ niche, scales = "free_y") +  # Facet by niche (NP and OP)
+  coord_flip()   # Flip coordinates for better readability
+
+# Save the plot
+ggsave("../Output/Alpha_diversity/livestock_expo_shannon.svg", livestock_expo_shannon)
+
+```
+
+```{r}
+# We use linear models to test the effect of various metadata variables on the Observed index, Observed species and bacterial density. This was done for each niche separately. Models were corrected for age, season of sampling, sex and smoking status of the participant. We visualize the results as boxplots including the p-values from the tests.
+# NP niche
+
+lm_cattle2km_np_observed <- lm(Observed ~  KRD_nCowsWghtDist.2000m.sum + age + sampling_season + gender + smoked_ever, data = meta_np_cp)%>% 
+  broom::tidy(., conf.int = T)
+lm_cattle2km_np_observed$livestock <- "Cattle"
+lm_cattle2km_np_observed$niche <- "NP"
+
+lm_goats2km_np_observed <- lm(Observed ~  KRD_nGoatsWghtDist.2000m.sum + age + sampling_season + gender + smoked_ever, data = meta_np_cp)%>% 
+  broom::tidy(., conf.int = T)
+lm_goats2km_np_observed$livestock <- "Goats"
+lm_goats2km_np_observed$niche <- "NP"
+
+lm_pigs2km_np_observed <- lm(Observed ~  KRD_nPigsWghtDist.2000m.sum + age + sampling_season + gender + smoked_ever, data = meta_np_cp)%>% 
+  broom::tidy(., conf.int = T)
+lm_pigs2km_np_observed$livestock <- "Pigs"
+lm_pigs2km_np_observed$niche <- "NP"
+
+lm_poultry2km_np_observed <- lm(Observed ~  KRD_nPoultryWghtDist.2000m.sum + age + sampling_season + gender + smoked_ever, data = meta_np_cp)%>% 
+  broom::tidy(., conf.int = T)
+lm_poultry2km_np_observed$livestock <- "Poultry"
+lm_poultry2km_np_observed$niche <- "NP"
+
+# OP niche
+lm_cattle2km_op_observed <- lm(Observed ~  KRD_nCowsWghtDist.2000m.sum + age + sampling_season + gender + smoked_ever, data = meta_op_cp) %>% 
+  broom::tidy(., conf.int = T)
+lm_cattle2km_op_observed$livestock <- "Cattle"
+lm_cattle2km_op_observed$niche <- "OP"
+
+lm_goats2km_op_observed <- lm(Observed ~  KRD_nGoatsWghtDist.2000m.sum + age + sampling_season + gender + smoked_ever, data = meta_op_cp)%>% 
+  broom::tidy(., conf.int = T)
+lm_goats2km_op_observed$livestock <- "Goats"
+lm_goats2km_op_observed$niche <- "OP"
+
+lm_pigs2km_op_observed <- lm(Observed ~  KRD_nPigsWghtDist.2000m.sum + age + sampling_season + gender + smoked_ever, data = meta_op_cp)%>% 
+  broom::tidy(., conf.int = T)
+lm_pigs2km_op_observed$livestock <- "Pigs"
+lm_pigs2km_op_observed$niche <- "OP"
+
+lm_poultry2km_op_observed <- lm(Observed ~  KRD_nPoultryWghtDist.2000m.sum + age + sampling_season + gender + smoked_ever, data = meta_op_cp)%>% 
+  broom::tidy(., conf.int = T)
+lm_poultry2km_op_observed$livestock <- "Poultry"
+lm_poultry2km_op_observed$niche <- "OP"
+
+
+# Combine all the tidy data
+combined_data_observed <- bind_rows(lm_cattle2km_np_observed, lm_goats2km_np_observed, lm_pigs2km_np_observed, lm_poultry2km_np_observed,
+                           lm_cattle2km_op, lm_goats2km_op, lm_pigs2km_op, lm_poultry2km_op)
+
+# Filter to include only livestock exposure terms (e.g., KRD variables)
+livestock_terms_observed <- combined_data %>%
+  filter(term %in% c("KRD_nCowsWghtDist.2000m.sum", 
+                     "KRD_nGoatsWghtDist.2000m.sum", 
+                     "KRD_nPigsWghtDist.2000m.sum", 
+                     "KRD_nPoultryWghtDist.2000m.sum"))
+
+# Apply multiple testing correction (Benjamini-Hochberg) for NP
+livestock_terms_np_observed <- livestock_terms %>%
+  filter(niche == "NP") %>%
+  mutate(p.adjusted = p.adjust(p.value, method = "BH"))
+
+# Apply multiple testing correction (Benjamini-Hochberg) for OP
+livestock_terms_op_observed <- livestock_terms %>%
+  filter(niche == "OP") %>%
+  mutate(p.adjusted = p.adjust(p.value, method = "BH"))
+
+# Combine the results for NP and OP niches
+livestock_terms_corrected_observed <- bind_rows(livestock_terms_np, livestock_terms_op)
+
+# Add adjusted p-value labels
+livestock_terms_corrected <- livestock_terms_corrected %>% mutate(
+  label = ifelse(p.adjusted > 0.001, round(p.adjusted, digits = 3), NA),
+  label = ifelse(p.adjusted < 0.001, "<0.001", label),
+  label = ifelse(p.adjusted > 0.05, NA, label))
+
+# Coefficient plot with styled facet titles
+livestock_expo_Observed <- ggplot(livestock_terms_corrected, aes(x = livestock, y = estimate, color = niche)) +
+  geom_point(position = position_dodge(width = 0.5), size = 3) +  # Plot points
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.2, 
+                position = position_dodge(width = 0.5)) +  # Error bars for confidence intervals
+  geom_hline(yintercept = 0, linetype = "dotted", color = "black") +  # Add dotted line at 0
+  labs(title = "Coefficient Plot of Livestock Exposure on Observed Diversity",
+       x = "Livestock Type", 
+       y = "Observed diversity regression Coefficient (95% CI)",
+       color = "Niche") +
+  theme_minimal(base_size = 14) +  # Use minimal theme with large base font
+  theme(
+    legend.position = "top",  # Move legend to the top
+    panel.border = element_rect(color = "black", fill = NA),  # Add black borders around the facets
+    strip.text = element_text(colour = 'white', face = 'bold'),  # White bold text for facet titles
+    strip.background = element_rect(fill = "#2F4858", color = "#2F4858")  # Color facet box and border
+  ) +
+  scale_color_manual(values = c("NP" = "steelblue", "OP" = "darkorange")) +  # Custom colors for NP and OP
+  facet_wrap(~ niche, scales = "free_y") +  # Facet by niche (NP and OP)
+  coord_flip()   # Flip coordinates for better readability
+
+
+
+# Assuming all previous code has been executed.
+
+livestock_expo_Observed <- ggplot(livestock_terms_corrected, aes(x = livestock, y = estimate, color = niche)) +
+  geom_point(position = position_dodge(width = 0.5), size = 3) +  # Plot points
+  geom_errorbar(aes(ymin = conf.low, ymax = conf.high), width = 0.2, 
+                position = position_dodge(width = 0.5)) +  # Error bars for confidence intervals
+  geom_hline(yintercept = 0, linetype = "dotted", color = "black") +  # Add dotted line at 0
+  labs(x = "Livestock Type (Number of distance-weighted animals)", 
+       y = "Observed Diversity Regression Coefficient (95% CI)",
+       color = "Niche") +
+  theme_minimal(base_size = 16) +  # Increase base font size
+  theme(
+    legend.position = "top",  # Move legend to the top
+    panel.border = element_rect(color = "black", fill = NA),  # Add black borders around the facets
+    strip.text = element_text(colour = 'white', face = 'bold', size = 16),  # Increase size for facet titles
+    strip.background = element_rect(fill = "#2F4858", color = "#2F4858"),  # Color facet box and border
+    axis.title = element_text(size = 14),  # Increase size of axis titles
+    axis.text = element_text(size = 12),   # Increase size of axis text
+    plot.title = element_text(size = 18)   # Increase size of the plot title
+  ) +
+  scale_color_manual(values = c("NP" = "steelblue", "OP" = "darkorange")) +  # Custom colors for NP and OP
+  facet_wrap(~ niche, scales = "free_y") +  # Facet by niche (NP and OP)
+  coord_flip()   # Flip coordinates for better readability
+
+# Save the plot
+ggsave("../Output/Alpha_diversity/livestock_expo_Observed.svg", livestock_expo_Observed)
+
+
 
 
 ```
 
 
-We use linear models to test the effect of various metadata variables on the Shannon index, observed species and bacterial density. This was done for each niche separately. Models were corrected for age, season of sampling, sex and smoking status of the participant. We visualize the results as boxplots including the p-values from the tests.
 
+
+# Model assumption checking
 ```{r}
-meta_np_cp$KRD_nGoatsWghtDist.2000m.sum
-lm_cattle2km_np <- lm(Shannon ~  KRD_nCowsWghtDist.2000m.sum + age + sampling_season + gender + smoked_ever, data = meta_np_cp)
-lm_goats2km_np <- lm(Shannon ~  KRD_nGoatsWghtDist.2000m.sum + age + sampling_season + gender + smoked_ever, data = meta_np_cp)
-
 # Check associations between Shannon and livestock exposure variables - check if linear
 plot(meta_np_cp$KRD_nGoatsWghtDist.2000m.sum, meta_np_cp$Shannon,
      xlab = "Livestock Exposure (KRD_nGoatsWghtDist.2000m.sum)",
