@@ -176,6 +176,15 @@ ps_matched_cp_gf;ps_new_metadata_RFpreds
 sum(ps_matched_cp_gf@sam_data$population=='CP')# 355 CP samples (both OP and NP)
 sum(ps_matched_cp_gf@sam_data$population== 'GF')# 169 GF samples (both OP and NP)
 
+# Number of participants in each group
+length(unique(ps_matched_cp_gf@sam_data$VGO3_ID[ps_matched_cp_gf@sam_data$population == "CP"]))# 186 CPs 
+length(unique(ps_matched_cp_gf@sam_data$VGO3_ID[ps_matched_cp_gf@sam_data$population == "GF"]))# 93 GFs 
+
+# Print the result
+print(num_unique_cp_vgo3_ids)
+sum(unique(ps_matched_cp_gf@sam_data$population =='CP'& ps_matched_cp_gf@sam_data$VGO3_ID))# 355 CP samples (both OP and NP)
+sum(ps_matched_cp_gf@sam_data$population== 'GF')# 169 GF samples (both OP and NP)
+
 # NP samples
 sum(ps_matched_cp_gf@sam_data$population=='CP' & ps_matched_cp_gf@sam_data$niche=='NP')# 160 CP NP samples 
 sum(ps_matched_cp_gf@sam_data$population=='GF' & ps_matched_cp_gf@sam_data$niche=='NP')# 77 GF NP samples 
