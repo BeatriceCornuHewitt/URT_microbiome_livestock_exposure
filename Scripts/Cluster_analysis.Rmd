@@ -106,7 +106,12 @@ ps_cpall_gf <- prune_taxa(taxa_sums(ps_cpall_gf) > 0, ps_cpall_gf) # Also remove
 ```{r}
 # First, we remove the low abundant ASVs, calculate the relative abundance of each ASV per sample and subset the nasopharyngeal samples
 ps_RA_cpall_gf_np <- ps_cpall_gf %>% pres_abund_filter() %>% to_RA() %>%
-  prune_samples(sample_data(ps_cpall_gf)$niche == "NP", .) 
+  prune_samples(sample_data(ps_cpall_gf)$niche == "NP", .)  %>% 
+    # Ensure only unique VGO3_ID samples are kept
+  prune_samples(
+    !duplicated(sample_data(.)$VGO3_ID), 
+    .
+  )
 # A total of 2567 ASVs were found to be present at or above a level of confident detection (0.1% relative abundance) in at least 2 samples (n = 17462 ASVs excluded).
 
 # Next, using the OTU table and meta data, we created a Bray Curtis dissimilarity matrix. This matrix is used to determine the number of clusters/which samples have a more similar microbial profile (belong to the same cluster)
@@ -221,7 +226,7 @@ print(cluster_counts_15)
 # k = 9
 dend_9clusters <- color_branches(dend_cpall_gf_np, k = 9, groupLabels=T)
 plot(stats::dendrapply(dend_9clusters, noLabel))
-cluster_assignments_9 <- cutree(dend, k = 9)
+cluster_assignments_9 <- cutree(dend_9clusters, k = 9)
 cluster_counts_9 <- table(cluster_assignments_9)
 print(cluster_counts_9)
 
@@ -449,14 +454,45 @@ hm_pop_cpall_gf_np <- meta_hm_cpall_gf_np_order %>%
 hm_pop_cpall_gf_np
 
 # Prevalence plot
+# # Using original phyloseq (not RA)
+# df_pres_np <- ps_cpall_gf %>% ps_to_df()
+# # Check dimensions
+# colnames(df_pres_np)
+# dim(df_pres_np)
+# # Convert counts to binary
+# df_pres_np[, colnames(df_pres_np)[700:1989]] <- lapply(df_pres_np[, colnames(df_pres_np)[700:1989]], function(x) ifelse(x > 2, 1, 0))
+# df_pres_np <- df_pres_np[700:1989]
+# 
+# prev <- colMeans(df_pres_np)
+# prev_np <- data.frame(Taxa = colnames(df_pres_np), Prevalence = prev)
+# prev_np$Taxa <- format_OTU(prev_np$Taxa)
+# prev_np <- subset(prev_np, Taxa %in% hm_cpall_gf_np_data$OTU)
+# prev_np$Taxa <- factor(prev_np$Taxa, levels = levels(hm_cpall_gf_np_data$OTU))
+# 
+# p_prev_np <- ggplot(prev_np, aes(x = Prevalence, y = Taxa)) +
+#   geom_bar(stat = "identity", fill = "azure4", width = 0.5) +
+#   labs(x = "Prevalence") +
+#   theme_minimal() + 
+#   theme(axis.text.y = element_blank(), 
+#         axis.title.y = element_blank(),
+#         axis.ticks.y = element_blank()) +
+#   scale_x_continuous(breaks = c(0, 0.5, 1),
+#                      labels = scales::percent_format())
+# p_prev_np
+
+
+# Prevalence plot
 # Using original phyloseq (not RA)
-df_pres_np <- ps_cpall_gf %>% ps_to_df()
+df_pres_np <- ps_cpall_gf %>%
+  prune_samples(sample_data(.)$niche == "NP", .) %>%
+  ps_to_df()
+
 # Check dimensions
 colnames(df_pres_np)
 dim(df_pres_np)
 # Convert counts to binary
-df_pres_np[, colnames(df_pres_np)[700:1989]] <- lapply(df_pres_np[, colnames(df_pres_np)[700:1989]], function(x) ifelse(x > 2, 1, 0))
-df_pres_np <- df_pres_np[700:1989]
+df_pres_np[, colnames(df_pres_np)[700:20728]] <- lapply(df_pres_np[, colnames(df_pres_np)[700:20728]], function(x) ifelse(x > 2, 1, 0))
+df_pres_np <- df_pres_np[700:20728]
 
 prev <- colMeans(df_pres_np)
 prev_np <- data.frame(Taxa = colnames(df_pres_np), Prevalence = prev)
@@ -474,6 +510,8 @@ p_prev_np <- ggplot(prev_np, aes(x = Prevalence, y = Taxa)) +
   scale_x_continuous(breaks = c(0, 0.5, 1),
                      labels = scales::percent_format())
 p_prev_np
+
+
 # Make patchwork of plot
 layout_cp_gf <- "
 AAAAAA#
@@ -508,9 +546,14 @@ ggsave("../Output/Cluster_analysis/CPall_GF_NP/heatmap_cluster_cpall_gf_np.png",
 
 ### OP 
 ```{r}
-# First, we remove the low abundant ASVs, calculate the relative abundance of each ASV per sample and subset the nasopharyngeal samples
+# First, we remove the low abundant ASVs, calculate the relative abundance of each ASV per sample and  subset the nasopharyngeal samples
 ps_RA_cpall_gf_op <- ps_cpall_gf %>% pres_abund_filter() %>% to_RA() %>%
-  prune_samples(sample_data(ps_cpall_gf)$niche == "OP", .) 
+  prune_samples(sample_data(ps_cpall_gf)$niche == "OP", .) %>% 
+    # Ensure only unique VGO3_ID samples are kept
+  prune_samples(
+    !duplicated(sample_data(.)$VGO3_ID), 
+    .
+  )
 # A total of 2567 ASVs were found to be present at or above a level of confident detection (0.1% relative abundance) in at least 2 samples (n = 17462 ASVs excluded).
 
 # Next, using the OTU table and meta data, we created a Bray Curtis dissimilarity matrix. This matrix is used to determine the number of clusters/which samples have a more similar microbial profile (belong to the same cluster)
@@ -586,19 +629,18 @@ cluster_counts_12 <- table(cluster_assignments_12)
 print(cluster_counts_12)
 
 
-# 6 clusters appears optimal
 
-# k = 6
-# 6 clusters
-dend_6clusters <- color_branches(dend_cpall_gf_op, k = 6, groupLabels=T)
-plot(stats::dendrapply(dend_6clusters, noLabel))
-cluster_assignments_6 <- cutree(dend_cpall_gf_op, k = 6)
-cluster_counts_6 <- table(cluster_assignments_6)
-print(cluster_counts_6)
+# k = 7
+# 7 clusters
+dend_7clusters <- color_branches(dend_cpall_gf_op, k = 7, groupLabels=T)
+plot(stats::dendrapply(dend_7clusters, noLabel))
+cluster_assignments_7 <- cutree(dend_cpall_gf_op, k = 7)
+cluster_counts_7 <- table(cluster_assignments_7)
+print(cluster_counts_7)
 
-# The function 'cuttree' is used to cut the tree at k = 4 as determined by the indices (see peak in CH index)
-groups_cpall_gf_op_c6 <- cutree(hc_cpall_gf_op_clust, k=6)
-ps_RA_cpall_gf_op@sam_data$cluster <- groups_cpall_gf_op_c6[order(rownames(ps_RA_cpall_gf_op@sam_data))]
+# The function 'cuttree' is used to cut the tree at k = 7 as determined by the indices (see peak in CH index)
+groups_cpall_gf_op_c7 <- cutree(hc_cpall_gf_op_clust, k=7)
+ps_RA_cpall_gf_op@sam_data$cluster <- groups_cpall_gf_op_c7[order(rownames(ps_RA_cpall_gf_op@sam_data))]
 ps_RA_cpall_gf_op@sam_data$cluster <- ps_RA_cpall_gf_op@sam_data$cluster %>% as.character()
 
 # Determine the top 3 ASVs for each cluster
@@ -663,22 +705,17 @@ get_cluster_name <- function(top_asvs_string) {
 # Rename based on these rules
 top_3_asvs_df_cpall_gf_op$Cluster_Name <- sapply(top_3_asvs_df_cpall_gf_op$Top_3_ASVs, get_cluster_name)
 
-# [1] "Streptococcus_4, Prevotella_histicola_12, and Veillonella_6-dominated cluster"                      
-# [2] "Veillonella_6, Streptococcus_4, and Prevotella_melaninogenica_11-dominated cluster"                 
-# [3] "Streptococcus_4 and Veillonella_6-dominated cluster"                                                
-# [4] "Streptococcus_8, Neisseria_13, and Haemophilus_14-dominated cluster"                                
-# [5] "Streptococcus_8 and Gemella_27-dominated cluster"                                                   
-# [6] "Fusobacterium_nucleatum_72, Porphyromonas_endodontalis_76, and Prevotellaceae_128-dominated cluster"
 
 # Shorten the names made above for plotting 
 # Define the new cluster names in the same order as the original clusters
 new_cluster_names_cpall_gf_op <- c(
-  "Strep(4)/Prev(12)/Veill(6) clust",
-  "Veill(6)/Strep(4)/Prev(11) clust",
-  "Strep(4)/Veill(6) clust",
-  "Strep(8)/Neis(13)/Hae(14) clust",
+  "Strep(4)/Veill(6)/Prev_hist(12) clust",
+  "Neis(13)/Strep(8)/Hae(14) clust",
   "Strep(8)/Gem(27) clust",
-  "Fuso(72)/Por(76)/Prev(128) clust"
+  "Veill(6)/Strep(4)/Prev(16) cluster",
+  "Fuso_nuc(72)/Por_endo(76)/Prev(128) clust",
+  "Strep(4) clust",
+  "Strep(10)/Roth_muci(49)/Veill(6) clust"
 )
 
 # Assign the new names to 'Cluster_Name' in 'top_3_asvs_df'
@@ -705,7 +742,7 @@ bar_clusters_cpall_gf_op <- ggplot(data = cluster_counts_cpall_gf_op, aes(x = Cl
        x = "Clusters",            # X-axis now represents clusters
        y = "% of samples",          # Y-axis represents proportions
        fill = "Cluster") +
-  scale_fill_manual(values = c(paletteer_d("pals::stepped")[c(13,20,10,16,1,18)])) +
+  scale_fill_manual(values = c(paletteer_d("pals::stepped")[c(16,9,4,3,20,18,5)])) +
   theme_minimal() +
   theme(axis.text.x = element_blank(),      # Remove x-axis labels if needed
         axis.ticks.x = element_blank(),     # Remove x-axis ticks if needed
@@ -715,24 +752,45 @@ bar_clusters_cpall_gf_op
 ggsave("../Output/Cluster_analysis/CPall_GF_OP/Bar_plot_cluster_proportions_clusters.svg", bar_clusters_cpall_gf_op, width = 8, height = 5)
 
 ```
+
 #### Visualisations for manuscript
 ```{r}
+
 dendro_cpall_gf_op <- create_dendro_gg(hc_cpall_gf_op_clust, size = 0.15)
 
 otu_hm_cpall_gf_op <- as(otu_table(ps_RA_cpall_gf_op), "matrix")
-# Order the otu data based on the mean RA across samples
-otu_hm_cpall_gf_op_order <- otu_hm_cpall_gf_op[order(rowMeans(otu_hm_cpall_gf_op), decreasing = T)[1:45], hc_cpall_gf_op_clust$order]
-# Order the metadata according to the clustering order
+otu_hm_cpall_gf_op_order <- otu_hm_cpall_gf_op[order(rowMeans(otu_hm_cpall_gf_op), decreasing = T)[1:40], hc_cpall_gf_op_clust$order]
 meta_hm_cpall_gf_op_order <- ps_RA_cpall_gf_op %>% meta_to_df()
 meta_hm_cpall_gf_op_order <- meta_hm_cpall_gf_op_order[hc_cpall_gf_op_clust$order,]
+meta_hm_cpall_gf_op_order$cluster
 
-# Confirm that the order of samples in the otu data matches the order of samples in the cluster plot
 all(colnames(otu_hm_cpall_gf_op_order) == hc_cpall_gf_op_clust$labels[hc_cpall_gf_op_clust$order])
 
+prep_hm_data <- function(otu_ordered) {
+  # Convert matrix to data frame and move row names to a column called "OTU"
+  otu_ordered <- otu_ordered %>%
+    as.data.frame() %>%
+    tibble::rownames_to_column("OTU")
+  # Format data for heatmap
+  hm_data <- otu_ordered %>%
+    tidyr::pivot_longer(cols = -OTU, names_to = "sample_id", values_to = "RA") %>%
+    dplyr::mutate(
+      RA = dplyr::if_else(RA == "0", NA_real_, as.numeric(RA)),  # Convert "0" to NA for heatmap
+      OTU = format_OTU(OTU) %>% forcats::fct_inorder() %>% forcats::fct_rev(),  # Format OTUs
+      sample_id = forcats::fct_inorder(sample_id)
+    )
+  return(hm_data)
+}
+
+# Call prep_hm_data with the data frame
 hm_cpall_gf_op_data <- prep_hm_data(otu_hm_cpall_gf_op_order)
 
+# Ensure OTU data is ordered by hierarchical clustering order
+otu_hm_cpall_gf_op_order <- otu_hm_cpall_gf_op[order(rowMeans(otu_hm_cpall_gf_op), decreasing = TRUE), hc_cpall_gf_op_clust$order]
+meta_hm_cpall_gf_op_order <- meta_hm_cpall_gf_op_order[hc_cpall_gf_op_clust$order, ]
+
 # Overall heatmap
-hm_cpall_gf <- hm_cpall_gf_op_data %>%
+hm_cpall_gf_op <- hm_cpall_gf_op_data %>%
   ggplot(aes(x = sample_id, y = OTU, fill = RA)) +
   geom_tile() +
   scale_fill_gradientn(name="Relative abundance", 
@@ -741,33 +799,41 @@ hm_cpall_gf <- hm_cpall_gf_op_data %>%
                        guide = guide_colorbar(title.position = "top", title.hjust = 0.5)) +
   theme_grey(base_size = 10) + 
   theme(axis.text.x = element_blank(), 
-        axis.text.y = element_markdown(size = 10), # Uniform y-axis text size
+        axis.text.y = element_markdown(size = 10),  # Set y-axis text size
         axis.ticks.x = element_blank(), 
         legend.position = "bottom",
         legend.key.height = grid::unit(0.2, "cm"),
         legend.key.width = grid::unit(0.8, "cm"),
-        legend.text = element_text(size = 10),     # Uniform legend text size
+        legend.text = element_text(size = 10),      # Set legend text size
         plot.background = element_blank()) +
   xlab("Sample") + 
   ylab("ASV")
-hm_cpall_gf
+hm_cpall_gf_op
 
 # Cluster plot
-meta_hm_cpall_gf_op_order$sample_id <- factor(meta_hm_cpall_gf_op_order$sample_id, levels = unique(meta_hm_cpall_gf_op_order$sample_id[order(meta_hm_cpall_gf_op_order$cluster)]))
+# Ensure the metadata (meta_hm_cpall_gf_op_order) is also ordered according to the same clustering order
+meta_hm_cpall_gf_op_order <- meta_hm_cpall_gf_op_order[hc_cpall_gf_op_clust$order, ]
+# Reorder the Sample IDs for Consistency
+meta_hm_cpall_gf_op_order$sample_id <- factor(meta_hm_cpall_gf_op_order$sample_id,
+                                              levels = hc_cpall_gf_op_clust$labels[hc_cpall_gf_op_clust$order])
+
+# Reorder data for the Cluster Plot
+meta_hm_cpall_gf_op_order$cluster <- factor(meta_hm_cpall_gf_op_order$cluster,
+                                            levels =unique(meta_hm_cpall_gf_op_order$cluster[order(meta_hm_cpall_gf_op_order$cluster)]))
 
 
 hm_cluster_cpall_gf_op <- meta_hm_cpall_gf_op_order %>%
   ggplot(aes(x = sample_id, y = "Cluster", fill = cluster)) +
   theme_void() + 
   geom_tile() + 
-  scale_fill_manual(values = c(paletteer_d("pals::stepped")[c(13,15,12,10,1,3,19,20,5,7,23)])) + 
+  scale_fill_manual(values = c(paletteer_d("pals::stepped")[c(16,9,4,3,20,18,5)])) + 
   labs(fill = "Cluster") + 
-  theme(axis.text.y = element_text(size = 10), # Uniform y-axis text size
+  theme(axis.text.y = element_text(size = 10),  # Set y-axis text size
         axis.ticks.length.y = unit(.18, "cm"),
         legend.direction = "vertical", 
         legend.box = "vertical",
         legend.key.size = unit(0.8, "lines"),
-        legend.text = element_text(size = 10))    # Uniform legend text size
+        legend.text = element_text(size = 10))    # Set legend text size
 hm_cluster_cpall_gf_op
 
 # Population plot 
@@ -777,27 +843,71 @@ hm_pop_cpall_gf_op <- meta_hm_cpall_gf_op_order %>%
   geom_tile() + 
   scale_fill_brewer(palette = "Set2") + 
   labs(fill = "Population") + 
-  theme(axis.text.y = element_text(size = 10), # Uniform y-axis text size
+  theme(axis.text.y = element_text(size = 10),  # Set y-axis text size
         axis.ticks.length.y = unit(.18, "cm"),
         legend.direction = "vertical", 
         legend.box = "vertical",
         legend.key.size = unit(0.8, "lines"),
-        legend.text = element_text(size = 10))   # Uniform legend text size
+        legend.text = element_text(size = 10))    # Set legend text size
 hm_pop_cpall_gf_op
 
 # Prevalence plot
-p_prev_cpall_gf_op <- ggplot(prev_cpall_gf_op, aes(x = Prevalence, y = Taxa)) +
+# # Using original phyloseq (not RA)
+# df_pres_op <- ps_cpall_gf %>% ps_to_df()
+# # Check dimensions
+# colnames(df_pres_op)
+# dim(df_pres_op)
+# # Convert counts to binary
+# df_pres_op[, colnames(df_pres_op)[700:1989]] <- lapply(df_pres_op[, colnames(df_pres_op)[700:1989]], function(x) ifelse(x > 2, 1, 0))
+# df_pres_op <- df_pres_op[700:1989]
+# 
+# prev <- colMeans(df_pres_op)
+# prev_op <- data.frame(Taxa = colnames(df_pres_op), Prevalence = prev)
+# prev_op$Taxa <- format_OTU(prev_op$Taxa)
+# prev_op <- subset(prev_op, Taxa %in% hm_cpall_gf_op_data$OTU)
+# prev_op$Taxa <- factor(prev_op$Taxa, levels = levels(hm_cpall_gf_op_data$OTU))
+# 
+# p_prev_op <- ggplot(prev_op, aes(x = Prevalence, y = Taxa)) +
+#   geom_bar(stat = "identity", fill = "azure4", width = 0.5) +
+#   labs(x = "Prevalence") +
+#   theme_minimal() + 
+#   theme(axis.text.y = element_blank(), 
+#         axis.title.y = element_blank(),
+#         axis.ticks.y = element_blank()) +
+#   scale_x_continuous(breaks = c(0, 0.5, 1),
+#                      labels = scales::percent_format())
+# p_prev_op
+
+
+# Prevalence plot
+# Using original phyloseq (not RA)
+df_pres_op <- ps_cpall_gf %>%
+  prune_samples(sample_data(.)$niche == "OP", .) %>%
+  ps_to_df()
+
+# Check dimensions
+colnames(df_pres_op)
+dim(df_pres_op)
+# Convert counts to binary
+df_pres_op[, colnames(df_pres_op)[700:20728]] <- lapply(df_pres_op[, colnames(df_pres_op)[700:20728]], function(x) ifelse(x > 2, 1, 0))
+df_pres_op <- df_pres_op[700:20728]
+
+prev <- colMeans(df_pres_op)
+prev_op <- data.frame(Taxa = colnames(df_pres_op), Prevalence = prev)
+prev_op$Taxa <- format_OTU(prev_op$Taxa)
+prev_op <- subset(prev_op, Taxa %in% hm_cpall_gf_op_data$OTU)
+prev_op$Taxa <- factor(prev_op$Taxa, levels = levels(hm_cpall_gf_op_data$OTU))
+
+p_prev_op <- ggplot(prev_op, aes(x = Prevalence, y = Taxa)) +
   geom_bar(stat = "identity", fill = "azure4", width = 0.5) +
   labs(x = "Prevalence") +
   theme_minimal() + 
   theme(axis.text.y = element_blank(), 
         axis.title.y = element_blank(),
-        axis.ticks.y = element_blank(),
-        axis.text.x = element_text(size = 10),   # Uniform x-axis text size
-        legend.text = element_text(size = 10)) + # Uniform legend text size
+        axis.ticks.y = element_blank()) +
   scale_x_continuous(breaks = c(0, 0.5, 1),
                      labels = scales::percent_format())
-p_prev_cpall_gf_op
+p_prev_op
 
 
 # Make patchwork of plot
@@ -820,13 +930,15 @@ DDDDDDE
 DDDDDDE
 "
 
-dendro_cpall_gf_op$plot + hm_pop_cpall_gf_op + hm_cluster_cpall_gf_op + hm_cpall_gf + p_prev_cpall_gf_op + plot_layout(design = layout_cp_gf, guides = "collect") & theme(legend.position = 'bottom')
+dendro_cpall_gf_op$plot + hm_pop_cpall_gf_op + hm_cluster_cpall_gf_op + hm_cpall_gf_op + p_prev_op + plot_layout(design = layout_cp_gf, guides = "collect") & theme(legend.position = 'bottom')
 
-ggsave("../Output/Cluster_analysis/CPall_GF_OP/heatmap_cluster_cpall_gf_op.svg", height = 10, width = 8)
-ggsave("../Output/Cluster_analysis/CPall_GF_OP/heatmap_cluster_cpall_gf_op.png", height = 10, width = 8)
+ggsave("../Output/Cluster_analysis/CPall_GF_op/heatmap_cluster_cpall_gf_op.svg", height = 10, width = 8)
+ggsave("../Output/Cluster_analysis/CPall_GF_op/heatmap_cluster_cpall_gf_op.png", height = 10, width = 8)
 
 
 ```
+
+
 
 # Control population only
 ## NP
@@ -937,6 +1049,9 @@ ggsave("../Output/Cluster_analysis/CP_NP/Bar_plot_cluster_proportions_clusters.s
 ```{r}
 # Convert sample data to a dataframe
 sample_data_df_cp_np <- data.frame(ps_RA_cp_np@sam_data)
+
+sample_data_df_cp_np <- sample_data_df_cp_np %>%
+   distinct(VGO3_ID, .keep_all = TRUE)
 
 #### Logistic regression for continuous variables ####
 # We conduct logistic regression to determine whether the probability of belonging to a specific cluster increases with higher values of each continuous variable.
@@ -1243,6 +1358,55 @@ heatmap_residential_expo_cp_np
 ggsave("../Output/Cluster_analysis/CP_NP/Residential_livestock_expo_heatmap.svg", heatmap_residential_expo_cp_np, width = 6, height = 5)
 
 
+
+# Reorder Variable factor levels
+heatmap_long_cp_np$Variable <- factor(
+  heatmap_long_cp_np$Variable,
+  levels = c(
+    "RF-modelled E. coli exposure",
+    "RF-modelled Staphylococcus spp. exposure",
+    "RF-modelled tetW ARG exposure",
+    "RF-modelled mecA ARG exposure",
+    "Distance weighted number of pigs in 3000m",
+    "Distance weighted number of goats in 3000m",
+    "Distance weighted number of chickens in 3000m",
+    "Distance weighted number of cattle in 3000m"
+  )
+)
+
+# FLip plot 
+heatmap_residential_expo_cp_np_flip <- ggplot(heatmap_long_cp_np, aes(x = Variable, y = Cluster, fill = OR)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient2(
+    low = carto_pal(7, "Geyser")[1], 
+    mid = carto_pal(7, "Geyser")[4], 
+    high = carto_pal(7, "Geyser")[7], 
+    midpoint = 1,
+    name = "Odds Ratio"
+  ) +
+  scale_x_discrete(labels = c(
+    "RF-modelled E. coli exposure" = "E. coli exposure",
+    "RF-modelled Staphylococcus spp. exposure" = "Staph spp. exposure",
+    "RF-modelled tetW ARG exposure" = "tetW  exposure",
+    "RF-modelled mecA ARG exposure" = "mecA exposure",
+    "Distance weighted number of pigs in 3000m" = "Pigs",
+    "Distance weighted number of goats in 3000m" = "Goats",
+    "Distance weighted number of chickens in 3000m" = "Chickens",
+    "Distance weighted number of cattle in 3000m" = "Cattle"
+  )) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size =14),  # Use element_text for line breaks
+    plot.title = element_text(hjust = 0.5),
+    axis.text.y = element_text( size =14)  # Regular text for y-axis
+  ) +
+  geom_text(aes(label = Significance), color = "black", size = 5, vjust = 0.5) 
+
+heatmap_residential_expo_cp_np_flip
+# Save the heatmap
+ggsave("../Output/Cluster_analysis/CP_NP/Residential_livestock_expo_heatmap_flip.svg", heatmap_residential_expo_cp_np_flip, width = 6, height = 4)
+
+
 # #### With Dolo(1) ref category ####
 # # Present the Odds ratio instead of the estimate - this tells us how the odds of belonging to a specific cluster change with each unit increase in the predictor variable. 
 # # only include columns of interest
@@ -1428,9 +1592,9 @@ ggsave("../Output/Cluster_analysis/CP_NP/Residential_livestock_expo_forestplot.s
 ps_RA_cp_op <- subset_samples(ps_RA_cpall_gf_op, population != "GF")
 ps_RA_cp_op <- prune_taxa(taxa_sums(ps_RA_cp_op) > 0, ps_RA_cp_op)
 
+
 # Check number in each cluster in the CP op samples
 table(ps_RA_cp_op@sam_data$cluster)
-
 # Create the plot with geom_bar for vertical stacking
 # Count the number of samples in each cluster
 cluster_counts_cp_op <- as.data.frame(table(ps_RA_cp_op@sam_data$cluster))
@@ -1445,7 +1609,7 @@ bar_clusters_cp_op <- ggplot(data = cluster_counts_cp_op, aes(x = Cluster, y = (
        x = "Clusters",            # X-axis now represents clusters
        y = "% of samples",          # Y-axis represents proportions
        fill = "Cluster") +
-  scale_fill_manual(values = c(paletteer_d("pals::stepped")[c(13,20,10,16,3,23)])) +
+  scale_fill_manual(values = c(paletteer_d("pals::stepped")[c(16,9,4,3,20,18,5)])) +
   theme_minimal() +
   theme(axis.text.x = element_blank(),      # Remove x-axis labels if needed
         axis.ticks.x = element_blank(),     # Remove x-axis ticks if needed
@@ -1459,6 +1623,8 @@ ggsave("../Output/Cluster_analysis/CP_OP/Bar_plot_cluster_proportions_clusters.s
 # Convert sample data to a dataframe
 sample_data_df_cp_op <- data.frame(ps_RA_cp_op@sam_data)
 
+sample_data_df_cp_op <- sample_data_df_cp_op %>%
+  distinct(VGO3_ID, .keep_all = TRUE)
 #### Logistic regression for continuous variables ####
 # We conduct logistic regression to determine whether the probability of belonging to a specific cluster increases with higher values of each continuous variable.
 # For RF-modelled concentrations, we use a multivariable logistic regression model per exposure agent i.e. cluster1 ~ e.coli + age + gender + season + smoking
@@ -1767,8 +1933,60 @@ heatmap_residential_expo_cp_op
 ggsave("../Output/Cluster_analysis/CP_OP/Residential_livestock_expo_heatmap.svg", heatmap_residential_expo_cp_op, width = 6, height = 5)
 
 
+# Reorder Variable factor levels
+heatmap_long_cp_op$Variable <- factor(
+  heatmap_long_cp_op$Variable,
+  levels = c(
+    "RF-modelled E. coli exposure",
+    "RF-modelled Staphylococcus spp. exposure",
+    "RF-modelled tetW ARG exposure",
+    "RF-modelled mecA ARG exposure",
+    "Distance weighted number of pigs in 3000m",
+    "Distance weighted number of goats in 3000m",
+    "Distance weighted number of chickens in 3000m",
+    "Distance weighted number of cattle in 3000m"
+  )
+)
 
-# 
+# Plot
+heatmap_residential_expo_cp_op_flip <- ggplot(heatmap_long_cp_op, aes(x = Variable, y = Cluster, fill = OR)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient2(
+    low = carto_pal(7, "Geyser")[1], 
+    mid = carto_pal(7, "Geyser")[4], 
+    high = carto_pal(7, "Geyser")[7], 
+    midpoint = 1,
+    name = "Odds Ratio"
+  ) +
+  labs(
+    x = "Variables",
+    y = "Cluster"
+  ) +
+  scale_x_discrete(labels = c(
+    "RF-modelled E. coli exposure" = "E. coli exposure",
+    "RF-modelled Staphylococcus spp. exposure" = "Staph spp. exposure",
+    "RF-modelled tetW ARG exposure" = "tetW  exposure",
+    "RF-modelled mecA ARG exposure" = "mecA exposure",
+    "Distance weighted number of pigs in 3000m" = "Pigs",
+    "Distance weighted number of goats in 3000m" = "Goats",
+    "Distance weighted number of chickens in 3000m" = "Chickens",
+    "Distance weighted number of cattle in 3000m" = "Cattle"
+  )) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1, size =14),  # Use element_text for line breaks
+    plot.title = element_text(hjust = 0.5),
+    axis.text.y = element_text( size =14)  # Regular text for y-axis
+  ) +
+  geom_text(aes(label = Significance), color = "black", size = 5, vjust = 0.5) 
+
+heatmap_residential_expo_cp_op_flip
+
+
+# Save the heatmap
+ggsave("../Output/Cluster_analysis/CP_OP/Residential_livestock_expo_heatmap_flip.svg", heatmap_residential_expo_cp_op_flip, width = 7, height = 4)
+
+
 # #### With  ref category ####
 # # Present the Odds ratio instead of the estimate - this tells us how the odds of belonging to a specific cluster change with each unit increase in the predictor variable. 
 # filtered_results_df_cp_op_plot_ref <- filtered_results_df_cp_op_ref %>%
@@ -2233,7 +2451,7 @@ print(combined_forest_plot)
 
 # Save the plot
 ggsave("../Output/Cluster_analysis/CP_GF_NP/Combined_forestplot_np.svg", 
-       combined_forest_plot, width = 3, height = 4)
+       combined_forest_plot, width = 4, height = 4)
 
 ```
 
@@ -2278,7 +2496,7 @@ bar_clusters_GF <- ggplot(data = cluster_counts_GF, aes(x = Cluster, y = (Propor
        x = "Clusters",
        y = "% of samples",
        fill = "Cluster") +
-  scale_fill_manual(values = c(paletteer_d("pals::stepped")[c(13,20,10,16,3,23)])) +
+  scale_fill_manual(values = c(paletteer_d("pals::stepped")[c(16,9,4,3,20,18,5)])) +
   theme_minimal() +
   theme(axis.text.x = element_blank(),
         axis.ticks.x = element_blank(),
@@ -2294,7 +2512,7 @@ bar_clusters_CP <- ggplot(data = cluster_counts_CP, aes(x = Cluster, y = (Propor
        x = "Clusters",
        y = "% of samples",
        fill = "Cluster") +
-  scale_fill_manual(values = c(paletteer_d("pals::stepped")[c(13,20,10,16,3,23)])) +
+  scale_fill_manual(values = c(paletteer_d("pals::stepped")[c(16,9,4,3,20,18,5)])) +
   theme_minimal() +
   theme(axis.text.x = element_blank(),
         axis.ticks.x = element_blank(),
@@ -2551,16 +2769,7 @@ print(combined_forest_plot)
 ggsave("../Output/Cluster_analysis/CP_GF_OP/Combined_forestplot.svg", 
        combined_forest_plot, width = 4.5, height = 4)
 
-
-
-
-
-
-
-
 ```
-
-
 
 # Combine heatmaps together
 ```{r}
