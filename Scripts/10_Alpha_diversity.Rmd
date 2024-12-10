@@ -6,7 +6,7 @@ date: "`r Sys.time()`"
 
 # Packages
 ```{r}
-library(phyloseq); library(microbiomer); library(ggplot2); library(cowplot); library(patchwork); library(scales)
+library(phyloseq); library(microbiomer); library(ggplot2); library(cowplot); library(patchwork); library(scales); library(tidyverse)
 ```
 # Residential livestock exposure
 ## Data
@@ -307,7 +307,7 @@ livestock_expo_shannon <- ggplot(livestock_terms_corrected_shannon, aes(x = live
     axis.text = element_text(size = 12),   # Increase size of axis text
     plot.title = element_text(size = 18)   # Increase size of the plot title
   ) +
-  scale_color_manual(values = c("NP" = "steelblue", "OP" = "darkorange")) +  # Custom colors for NP and OP
+  scale_color_manual(values = c("NP" = "#dd968e", "OP" = "#547484")) +  # Custom colors for NP and OP
   facet_wrap(~ niche, scales = "free_x") +  # Facet by niche (NP and OP)
   coord_flip()   # Flip coordinates for better readability
 livestock_expo_shannon
@@ -336,7 +336,7 @@ livestock_expo_shannon2 <- ggplot(livestock_terms_corrected_shannon, aes(x = liv
     axis.text.x = element_text(size = 12, angle = 45, hjust = 1),  # Rotate labels to 45 degrees
     plot.margin = margin(1, 1, 1.5, 1, "cm")  # Increase space below plot
   ) +
-  scale_color_manual(values = c("NP" = "steelblue", "OP" = "darkorange")) +  # Custom colors for NP and OP
+  scale_color_manual(values = c("NP" = "#dd968e", "OP" = "#547484")) +  # Custom colors for NP and OP
   facet_wrap(~ niche, scales = "free_y")  # Use free scales for y-axis
 
 # Display the plot
@@ -520,7 +520,7 @@ livestock_expo_observed <- ggplot(livestock_terms_corrected_observed, aes(x = li
     axis.text = element_text(size = 12),   # Increase size of axis text
     plot.title = element_text(size = 18)   # Increase size of the plot title
   ) +
-  scale_color_manual(values = c("NP" = "steelblue", "OP" = "darkorange")) +  # Custom colors for NP and OP
+  scale_color_manual(values = c("NP" = "#dd968e", "OP" = "#547484")) +  # Custom colors for NP and OP
   facet_wrap(~ niche, scales = "free_x") +  # Facet by niche (NP and OP)
   coord_flip()   # Flip coordinates for better readability
 livestock_expo_observed
@@ -740,7 +740,7 @@ livestock_expo_qPCR <- ggplot(livestock_terms_corrected_qPCR, aes(x = livestock,
     axis.text = element_text(size = 12),   # Increase size of axis text
     plot.title = element_text(size = 18)   # Increase size of the plot title
   ) +
-  scale_color_manual(values = c("NP" = "steelblue", "OP" = "darkorange")) +  # Custom colors for NP and OP
+  scale_color_manual(values = c("NP" = "#dd968e", "OP" = "#547484")) +  # Custom colors for NP and OP
   facet_wrap(~ niche, scales = "free_x") +  # Facet by niche (NP and OP)
   coord_flip()   # Flip coordinates for better readability
 livestock_expo_qPCR
