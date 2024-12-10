@@ -288,9 +288,7 @@ write.csv(CP_metadata_multiplex_inge, "../Output/CP_metadata_multiplex_inge.csv"
 ```
 
 # GOAT FARMERS
-
 ## GF data input
-
 ### GF house visit data
 
 ```{r}
@@ -825,8 +823,6 @@ VGO3_GP_metadata_clean$eerste_ziektedag <- as.Date(VGO3_GP_metadata_clean$eerste
 # Add population column to dataframe
 VGO3_GP_metadata_clean$population <- "GP"
 ```
-
-
 
 # Rename metadata columns
 ```{r}
