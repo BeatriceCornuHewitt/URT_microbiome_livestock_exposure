@@ -424,6 +424,15 @@ ps_complete@tax_table["Haemophilus_26"]# haemolyticus/influenzae/parainfluenzae
 ps_complete@tax_table["Haemophilus_26"]# haemolyticus/influenzae/parainfluenzae
 
 
+
+ps_complete@tax_table["Streptococcus_4"]
+
+which(rownames(seq) == "Streptococcus_4") # 4
+print(seq[4, ]) # Not identified in BLAST
+
+which(rownames(seq) == "Veillonella_6") # 6
+print(seq[6, ]) # Not identified in BLAST
+
 which(rownames(seq) == "Haemophilus_44") 
 print(seq[36, ])
 
@@ -439,7 +448,6 @@ which(rownames(seq) == "Haemophilus_26") # 23
 print(seq[23, ])
 
 
- Haemophilus_26 
 ```
 
 
