@@ -50,7 +50,7 @@ do_permanova_com <- function(ord, meta, var) {
 
 # Load data 
 ```{r}
-ps <- readRDS("../Output/Phyloseq/ps_complete_new_metadata.rds")
+ps <- readRDS("../Output/Phyloseq/ps_complete_new_metadata_RFpreds.rds")
 
 names <- readxl::read_xlsx("../Output/Metadata/Codebook_metadata_all.xlsx")
 
@@ -84,9 +84,9 @@ variables_cp_np <- c("gender", "age", "smoked_ever", "sampling_season", "animal_
                      "antibiotics_lastyr", "antacids_lastyr", "lung_med", "beta_blockers", 
                      "heart_vascu_disorder", "diabetes", "nasal_allergy", "asthma_ever", 
                      "COPD_emphysema_diag", "EAA_diag", "cort_inhaler_lastyr", 
-                     "pneumonia_last3yr", "pets_last5yrs", "imm_def",
-                     "KRD_nGoatsWghtDist.2000m.sum", "KRD_nPoultryWghtDist.2000m.sum", 
-                     "KRD_nPigsWghtDist.2000m.sum", "KRD_nCowsWghtDist.2000m.sum") # Add other variables when ready (endotoxin dispersion-modelled and RF modelled microbial agents)
+                     "pneumonia_last3yr", "pets_last5yrs", "imm_def", "ecoli_RF_preds", "staph_RF_preds", "tetw_RF_preds", "meca_RF_preds",
+                     "KRD_nGoatsWghtDist.3000m.sum", "KRD_nPoultryWghtDist.3000m.sum", 
+                     "KRD_nPigsWghtDist.3000m.sum", "KRD_nCowsWghtDist.3000m.sum") # Add other variables when ready (endotoxin dispersion-modelled and RF modelled microbial agents)
 
 
 
@@ -138,7 +138,7 @@ perm_np_cp <- variable_list_np %>% mutate(
 perm_np_cp$type <- "Bray Curtis"
 perm_np_cp$population <- "CP"
 perm_np_cp$niche <- "NP"
-
+1
 # Add the variable description to the dataframe
 perm_np_cp <- perm_np_cp %>%
   left_join(names, by = c("Var" = "Variable name"))
@@ -173,9 +173,9 @@ variables_cp_op <- c("gender", "age", "smoked_ever", "sampling_season", "animal_
                      "antibiotics_lastyr", "antacids_lastyr", "lung_med", "beta_blockers", 
                      "heart_vascu_disorder", "diabetes", "nasal_allergy", "asthma_ever", 
                      "COPD_emphysema_diag", "EAA_diag", "cort_inhaler_lastyr", 
-                     "pneumonia_last3yr", "pets_last5yrs", "imm_def",
-                     "KRD_nGoatsWghtDist.2000m.sum", "KRD_nPoultryWghtDist.2000m.sum", 
-                     "KRD_nPigsWghtDist.2000m.sum", "KRD_nCowsWghtDist.2000m.sum") # Add other variables when ready (endotoxin dispersion-modelled and RF modelled microbial agents)
+                     "pneumonia_last3yr", "pets_last5yrs", "imm_def", "ecoli_RF_preds", "staph_RF_preds", "tetw_RF_preds", "meca_RF_preds",
+                     "KRD_nGoatsWghtDist.3000m.sum", "KRD_nPoultryWghtDist.3000m.sum", 
+                     "KRD_nPigsWghtDist.3000m.sum", "KRD_nCowsWghtDist.3000m.sum") # Add other variables when ready (endotoxin dispersion-modelled and RF modelled microbial agents)
 
 # Ensure variables are correctly typed
 meta_op_cp[variables_cp_op] <- lapply(meta_op_cp[variables_cp_op], function(x) {
@@ -255,8 +255,16 @@ write.csv(Univar_perm_CP, "../Output/Beta_diversity/Univariable_PERMANOVAs/univa
 # Check the structure of Univar_perm_CP
 # Ensure that only R2 and p-value columns are used in pivot_longer
 Univar_perm_CP$Description <- ifelse(Univar_perm_CP$Var == "beta_blockers", "Are you using beta blockers", Univar_perm_CP$Description)
-Univar_perm_CP$Description <- ifelse(Univar_perm_CP$Var == "acute_resp_infec_lastyr", "Have you had an acute respiratory infection in the past year?", Univar_perm_CP$Description)
-
+Univar_perm_CP$Description <- ifelse(Univar_perm_CP$Var == "acute_resp_infec_lastyr", "Acute respiratory infection in the past year", Univar_perm_CP$Description)
+Univar_perm_CP$Description <- ifelse(Univar_perm_CP$Var == "KRD_nGoatsWghtDist.3000m.sum", "Distance weighted number of goats in 3000m", Univar_perm_CP$Description)
+Univar_perm_CP$Description <- ifelse(Univar_perm_CP$Var == "KRD_nPoultryWghtDist.3000m.sum", "Distance weighted number of chickens in 3000m", Univar_perm_CP$Description)
+Univar_perm_CP$Description <- ifelse(Univar_perm_CP$Var == "KRD_nPigsWghtDist.3000m.sum", "Distance weighted number of pigs in 3000m", Univar_perm_CP$Description)
+Univar_perm_CP$Description <- ifelse(Univar_perm_CP$Var == "KRD_nCowsWghtDist.3000m.sum", "Distance weighted number of cattle in 3000m", Univar_perm_CP$Description)
+Univar_perm_CP$Description <- ifelse(Univar_perm_CP$Var == "beta_blockers", "Are you using beta blockers", Univar_perm_CP$Description)
+Univar_perm_CP$Description <- ifelse(Univar_perm_CP$Var == "ecoli_RF_preds", "RF-modelled E. coli exposure", Univar_perm_CP$Description)
+Univar_perm_CP$Description <- ifelse(Univar_perm_CP$Var == "staph_RF_preds", "RF-modelled Staph spp. exposure", Univar_perm_CP$Description)
+Univar_perm_CP$Description <- ifelse(Univar_perm_CP$Var == "tetw_RF_preds", "RF-modelled tetW exposure", Univar_perm_CP$Description)
+Univar_perm_CP$Description <- ifelse(Univar_perm_CP$Var == "meca_RF_preds", "RF-modelled mecA exposure", Univar_perm_CP$Description)
 
 long_data <- Univar_perm_CP %>%
   select(niche, Var, Description, R2, label_q.value)  # Select only necessary columns
@@ -297,18 +305,18 @@ long_data <- Univar_perm_CP %>%
   mutate(Category = case_when(
     Var %in% c("gender", "age", "smoked_ever", "sampling_season", "animal_contact_lastmth", 
                "abroad_lastmth", "pets_last5yrs") ~ "Personal characteristics",
-    Var %in% c("KRD_nGoatsWghtDist.2000m.sum", "KRD_nPoultryWghtDist.2000m.sum", 
-               "KRD_nPigsWghtDist.2000m.sum", "KRD_nCowsWghtDist.2000m.sum") ~ "Livestock exposure variables",
     Var %in% c("asthma_ever", "nasal_allergy", "heart_vascu_disorder", "covid19", "diabetes",
                "acute_resp_infec_lastyr", "pneumonia_lastyr", "pneumonia_last3yr", "imm_def", 
                "COPD_emphysema_diag", "EAA_diag", "antibiotics_lastyr", "antacids_lastyr", 
-               "lung_med", "beta_blockers", "cort_inhaler_lastyr", "flu_vacc", "pneumococcal_vacc") ~ "Health factors"
+               "lung_med", "beta_blockers", "cort_inhaler_lastyr", "flu_vacc", "pneumococcal_vacc") ~ "Health factors",
+    Var %in% c("ecoli_RF_preds", "staph_RF_preds","tetw_RF_preds", "meca_RF_preds", "KRD_nGoatsWghtDist.3000m.sum", "KRD_nPoultryWghtDist.3000m.sum", 
+               "KRD_nPigsWghtDist.3000m.sum", "KRD_nCowsWghtDist.3000m.sum") ~ "Livestock exposure variables",
   ))
 
-
+Univar_perm_CP$Var
 # Ensure the categories appear in the desired order
 long_data$Category <- factor(long_data$Category, 
-                             levels = c("Personal characteristics", "Livestock exposure variables", "Health factors"))
+                             levels = c("Personal characteristics", "Health factors", "Livestock exposure variables"))
 
 # Reorder the Description if necessary for better visualization
 long_data <- long_data %>%
@@ -335,9 +343,11 @@ hm <- ggplot(long_data, aes(x = niche, y = Description, fill = R2)) +
        caption = "q-values: * < 0.25, ** < 0.1, *** < 0.05") +  # Add q-value information to legend
   guides(fill = guide_colourbar(title.position = "top", title.hjust = 0.5)) + 
   facet_wrap(~ Category, scales = "free_y", ncol = 1, strip.position = "top")  # Add facet wrapping by Category
+hm
 
 # Save the plot as an SVG
-ggsave("../Output/Beta_diversity/Univariable_PERMANOVAs/heatmap.svg", plot = hm, width = 8, height = 8)
+ggsave("../Output/Beta_diversity/Univariable_PERMANOVAs/Univar_PERMANOVA_heatmap_OP_NP.svg", plot = hm, width = 8, height = 8)
+ggsave("../Output/Beta_diversity/Univariable_PERMANOVAs/Univar_PERMANOVA_heatmap_OP_NP.png", plot = hm, width = 8, height = 8)
 
 ```
 
