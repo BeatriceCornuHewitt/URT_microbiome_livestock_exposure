@@ -196,7 +196,7 @@ write.csv(metadata_uniq,"../Output/Participant_descriptives/VGO3_population_data
 
 <!-- ``` -->
 
-# Statistics table - all populations together
+# Table1
 ```{r}
 metadata_uniq$gender <- 
   factor(metadata_uniq$gender, levels=c(0,1),
@@ -338,7 +338,93 @@ CP_livestock_summary
 write.csv(CP_livestock_summary, file = "../Output/Participant_descriptives/CP_livestock_summary_table1.csv")
 ```
 
+# Explore distribution of livestock exposures 
+```{r}
+library(ggplot2)
+library(tidyr)
 
+# Create a long-format dataset for easier visualization
+livestock_long <- metadata_cp %>%
+  select(ecoli_RF_preds, staph_RF_preds, tetw_RF_preds, meca_RF_preds, 
+         KRD_nCowsWghtDist.3000m.sum, KRD_nGoatsWghtDist.3000m.sum, 
+         KRD_nPigsWghtDist.3000m.sum, KRD_nPoultryWghtDist.3000m.sum) %>%
+  pivot_longer(cols = everything(), names_to = "Variable", values_to = "Value")
+
+# Histogram for all variables
+distribution_livestock <- ggplot(livestock_long, aes(x = Value)) +
+  geom_histogram(binwidth = 0.1, fill = "blue", color = "black", alpha = 0.7) +
+  facet_wrap(~ Variable, scales = "free") +
+  labs(title = "Distribution of Livestock Variables", x = "Value", y = "Frequency") +
+  theme_minimal()
+
+
+ggsave("../Output/Participant_descriptives/Livestock_var_distribution.svg",  distribution_livestock)
+
+library(psych)
+
+# Summarize livestock variables
+summary_stats <- describe(metadata_cp %>%
+                            select(ecoli_RF_preds, staph_RF_preds, tetw_RF_preds, meca_RF_preds, 
+                                   KRD_nCowsWghtDist.3000m.sum, KRD_nGoatsWghtDist.3000m.sum, 
+                                   KRD_nPigsWghtDist.3000m.sum, KRD_nPoultryWghtDist.3000m.sum))
+print(summary_stats)
+summary_stats <- describe(metadata_cp %>%
+                            select(
+                                   KRD_nCowsWghtDist.3000m.sum, KRD_nGoatsWghtDist.3000m.sum, 
+                                   KRD_nPigsWghtDist.3000m.sum, KRD_nPoultryWghtDist.3000m.sum))
+
+# RF-modelled agents appear normally distributed - can use as continuous in analyses 
+# distance-weighted animal variables are highly skewed, try separating into tertiles and compare T1 vs T3
+
+sum(metadata_cp$KRD_nCowsWghtDist.3000m.sum == 0)#0 
+sum(metadata_cp$KRD_nGoatsWghtDist.3000m.sum == 0)#162
+sum(metadata_cp$KRD_nPigsWghtDist.3000m.sum == 0)#0 
+sum(metadata_cp$KRD_nPoultryWghtDist.3000m.sum == 0)#11 
+
+
+
+metadata_cp$sqrt_KRD_nGoats <- sqrt(metadata_cp$KRD_nGoatsWghtDist.3000m.sum + 1)
+metadata_cp$log_KRD_nGoats <- log(metadata_cp$KRD_nGoatsWghtDist.3000m.sum + 1)
+
+hist(metadata_cp$sqrt_KRD_nGoats)
+hist(metadata_cp$log_KRD_nGoats)
+
+metadata_cp$sqrt_KRD_ncows <- sqrt(metadata_cp$KRD_nCowsWghtDist.3000m.sum + 1)
+metadata_cp$log_KRD_ncows <- log(metadata_cp$KRD_nCowsWghtDist.3000m.sum + 1)
+
+hist(metadata_cp$sqrt_KRD_ncows)
+hist(metadata_cp$log_KRD_ncows)
+
+
+
+
+cor(metadata_cp$Shannon, metadata_cp$KRD_nCowsWghtDist.3000m.sum)
+
+
+# Scatter plot to visualize the relationship
+plot(metadata_cp$KRD_nCowsWghtDist.3000m.sum, metadata_cp$Shannon,
+     xlab = "KRD_nCowsWghtDist.3000m.sum", ylab = "Shannon Diversity",
+     main = "Scatter plot of Shannon Diversity vs. Cattle Distance")
+
+
+plot(metadata_cp$log_KRD_ncows, metadata_cp$Shannon,
+     xlab = "KRD_nCowsWghtDist.3000m.sum", ylab = "Shannon Diversity",
+     main = "Scatter plot of Shannon Diversity vs. Cattle Distance")
+
+# Apply the log transformation to the KRD_nCowsWghtDist.3000m.sum variable
+
+# Fit the linear regression model using the transformed variable
+lm_cattle_log <- lm(Shannon ~ log_KRD_ncows + age + sampling_season + gender + smoked_ever, data = metadata_cp)
+
+# Summarize the results
+summary(lm_cattle_log)
+
+# Check residuals for the fit
+plot(lm_cattle_log, which = 1)  # Residuals vs Fitted values
+
+
+
+```
 
 
 
