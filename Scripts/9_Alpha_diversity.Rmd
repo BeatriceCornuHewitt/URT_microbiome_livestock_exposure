@@ -6,7 +6,8 @@ date: "`r Sys.time()`"
 
 # Packages
 ```{r}
-library(phyloseq); library(microbiomer); library(ggplot2); library(cowplot); library(patchwork); library(scales); library(tidyverse)
+library(phyloseq); library(microbiomer); library(ggplot2); library(cowplot); library(patchwork); library(scales); library(tidyverse); library(car); library(lmtest)
+
 ```
 # Residential livestock exposure
 ## Data
@@ -140,25 +141,30 @@ ggsave("../Output/Alpha_diversity/NP_vs_OP_violin_boxplot_with_pvalue.png", comb
 
 # SHANNON
 # NP niche
-lm_cattle2km_np <- lm(Shannon ~  KRD_nCowsWghtDist.3000m.sum + age + sampling_season + gender + smoked_ever, data = meta_np_cp)%>% 
+lm_animals3km_np <- lm(Shannon ~  KRD_nCowsWghtDist.3000m.sum + KRD_nGoatsWghtDist.3000m.sum + KRD_nPigsWghtDist.3000m.sum + KRD_nPoultryWghtDist.3000m.sum + age + sampling_season + gender + smoked_ever, data = meta_np_cp)%>% 
   broom::tidy(., conf.int = T)
-lm_cattle2km_np$livestock <- "Cattle"
-lm_cattle2km_np$niche <- "NP"
+lm_animals3km_np$niche <- "NP"
+# Loop through the coefficients and add the 'livestock' label based on the variable name
+lm_animals3km_np$livestock <- ifelse(grepl("KRD_nCowsWghtDist.3000m.sum", lm_animals3km_np$term), "Cattle", 
+                                     ifelse(grepl("KRD_nGoatsWghtDist.3000m.sum", lm_animals3km_np$term), "Goats", 
+                                            ifelse(grepl("KRD_nPigsWghtDist.3000m.sum", lm_animals3km_np$term), "Pigs", 
+                                                   ifelse(grepl("KRD_nPoultryWghtDist.3000m.sum", lm_animals3km_np$term), "Poultry", NA))))
 
-lm_goats2km_np <- lm(Shannon ~  KRD_nGoatsWghtDist.3000m.sum + age + sampling_season + gender + smoked_ever, data = meta_np_cp)%>% 
-  broom::tidy(., conf.int = T)
-lm_goats2km_np$livestock <- "Goats"
-lm_goats2km_np$niche <- "NP"
 
-lm_pigs2km_np <- lm(Shannon ~  KRD_nPigsWghtDist.3000m.sum + age + sampling_season + gender + smoked_ever, data = meta_np_cp)%>% 
-  broom::tidy(., conf.int = T)
-lm_pigs2km_np$livestock <- "Pigs"
-lm_pigs2km_np$niche <- "NP"
-
-lm_poultry2km_np <- lm(Shannon ~  KRD_nPoultryWghtDist.3000m.sum + age + sampling_season + gender + smoked_ever, data = meta_np_cp)%>% 
-  broom::tidy(., conf.int = T)
-lm_poultry2km_np$livestock <- "Poultry"
-lm_poultry2km_np$niche <- "NP"
+# lm_goats2km_np <- lm(Shannon ~  KRD_nGoatsWghtDist.3000m.sum + age + sampling_season + gender + smoked_ever, data = meta_np_cp)%>% 
+#   broom::tidy(., conf.int = T)
+# lm_goats2km_np$livestock <- "Goats"
+# lm_goats2km_np$niche <- "NP"
+# 
+# lm_pigs2km_np <- lm(Shannon ~  KRD_nPigsWghtDist.3000m.sum + age + sampling_season + gender + smoked_ever, data = meta_np_cp)%>% 
+#   broom::tidy(., conf.int = T)
+# lm_pigs2km_np$livestock <- "Pigs"
+# lm_pigs2km_np$niche <- "NP"
+# 
+# lm_poultry2km_np <- lm(Shannon ~  KRD_nPoultryWghtDist.3000m.sum + age + sampling_season + gender + smoked_ever, data = meta_np_cp)%>% 
+#   broom::tidy(., conf.int = T)
+# lm_poultry2km_np$livestock <- "Poultry"
+# lm_poultry2km_np$niche <- "NP"
 
 # RF- modelled microbial agents
 lm_ecoliexpo_np <- lm(Shannon ~  ecoli_RF_preds + age + sampling_season + gender + smoked_ever, data = meta_np_cp)%>% 
@@ -185,25 +191,32 @@ lm_mecaexpo_np$niche <- "NP"
 
 
 # OP niche
-lm_cattle2km_op <- lm(Shannon ~  KRD_nCowsWghtDist.3000m.sum + age + sampling_season + gender + smoked_ever, data = meta_op_cp) %>% 
+lm_animals3km_op <- lm(Shannon ~  KRD_nCowsWghtDist.3000m.sum + KRD_nGoatsWghtDist.3000m.sum + KRD_nPigsWghtDist.3000m.sum + KRD_nPoultryWghtDist.3000m.sum + age + sampling_season + gender + smoked_ever, data = meta_op_cp) %>% 
   broom::tidy(., conf.int = T)
-lm_cattle2km_op$livestock <- "Cattle"
-lm_cattle2km_op$niche <- "OP"
+lm_animals3km_op$niche <- "OP"
 
-lm_goats2km_op <- lm(Shannon ~  KRD_nGoatsWghtDist.3000m.sum + age + sampling_season + gender + smoked_ever, data = meta_op_cp)%>% 
-  broom::tidy(., conf.int = T)
-lm_goats2km_op$livestock <- "Goats"
-lm_goats2km_op$niche <- "OP"
+lm_animals3km_op$livestock <- ifelse(grepl("KRD_nCowsWghtDist.3000m.sum", lm_animals3km_op$term), "Cattle", 
+                                     ifelse(grepl("KRD_nGoatsWghtDist.3000m.sum", lm_animals3km_op$term), "Goats", 
+                                            ifelse(grepl("KRD_nPigsWghtDist.3000m.sum", lm_animals3km_op$term), "Pigs", 
+                                                   ifelse(grepl("KRD_nPoultryWghtDist.3000m.sum", lm_animals3km_op$term), "Poultry", NA))))
 
-lm_pigs2km_op <- lm(Shannon ~  KRD_nPigsWghtDist.3000m.sum + age + sampling_season + gender + smoked_ever, data = meta_op_cp)%>% 
-  broom::tidy(., conf.int = T)
-lm_pigs2km_op$livestock <- "Pigs"
-lm_pigs2km_op$niche <- "OP"
-
-lm_poultry2km_op <- lm(Shannon ~  KRD_nPoultryWghtDist.3000m.sum + age + sampling_season + gender + smoked_ever, data = meta_op_cp)%>% 
-  broom::tidy(., conf.int = T)
-lm_poultry2km_op$livestock <- "Poultry"
-lm_poultry2km_op$niche <- "OP"
+# lm_cattle2km_op$livestock <- "Cattle"
+# lm_cattle2km_op$niche <- "OP"
+# 
+# lm_goats2km_op <- lm(Shannon ~  KRD_nGoatsWghtDist.3000m.sum + age + sampling_season + gender + smoked_ever, data = meta_op_cp)%>% 
+#   broom::tidy(., conf.int = T)
+# lm_goats2km_op$livestock <- "Goats"
+# lm_goats2km_op$niche <- "OP"
+# 
+# lm_pigs2km_op <- lm(Shannon ~  KRD_nPigsWghtDist.3000m.sum + age + sampling_season + gender + smoked_ever, data = meta_op_cp)%>% 
+#   broom::tidy(., conf.int = T)
+# lm_pigs2km_op$livestock <- "Pigs"
+# lm_pigs2km_op$niche <- "OP"
+# 
+# lm_poultry2km_op <- lm(Shannon ~  KRD_nPoultryWghtDist.3000m.sum + age + sampling_season + gender + smoked_ever, data = meta_op_cp)%>% 
+#   broom::tidy(., conf.int = T)
+# lm_poultry2km_op$livestock <- "Poultry"
+# lm_poultry2km_op$niche <- "OP"
 
 # RF modelled microbial agents
 lm_ecoliexpo_op <- lm(Shannon ~  ecoli_RF_preds + age + sampling_season + gender + smoked_ever, data = meta_op_cp)%>% 
@@ -228,7 +241,7 @@ lm_mecaexpo_op$niche <- "OP"
 
 
 # Combine all the tidy data
-combined_data_shannon <- bind_rows(lm_cattle2km_np, lm_goats2km_np, lm_pigs2km_np, lm_poultry2km_np, lm_ecoliexpo_np, lm_staphexpo_np, lm_tetwexpo_np, lm_mecaexpo_np, lm_cattle2km_op, lm_goats2km_op, lm_pigs2km_op, lm_poultry2km_op, lm_ecoliexpo_op, lm_staphexpo_op, lm_tetwexpo_op, lm_mecaexpo_op)
+combined_data_shannon <- bind_rows(lm_animals3km_np, lm_ecoliexpo_np, lm_staphexpo_np, lm_tetwexpo_np, lm_mecaexpo_np, lm_animals3km_op, lm_ecoliexpo_op, lm_staphexpo_op, lm_tetwexpo_op, lm_mecaexpo_op)
 
 # Filter to include only livestock exposure terms
 livestock_terms_shannon <- combined_data_shannon %>%
@@ -270,14 +283,14 @@ write.csv(livestock_terms_corrected_shannon,"../Output/Alpha_diversity/Residenti
 
 # Define the desired order of the variables and their new names
 reordered_variables <- c(
-  "Cattle" = "Distance weighted number of cattle in 3000m",
-  "Poultry" = "Distance weighted number of chickens in 3000m",
-  "Goats" = "Distance weighted number of goats in 3000m",
-  "Pigs" = "Distance weighted number of pigs in 3000m",
-  "RF-modelled mecA" = "RF-modelled mecA ARG exposure",
-  "RF-modelled tetW" = "RF-modelled tetW ARG exposure",
-  "RF-modelled Staph" = "RF-modelled Staphylococcus spp. exposure",
-  "RF-modelled E. coli" = "RF-modelled E. coli exposure"
+  "Cattle" = "Cattle",
+  "Poultry" = "Chickens",
+  "Goats" = "Goats",
+  "Pigs" = "Pigs",
+  "RF-modelled mecA" = "mecA exposure",
+  "RF-modelled tetW" = "tetW exposure",
+  "RF-modelled Staph" = "Staph spp. exposure",
+  "RF-modelled E. coli" = "E. coli exposure"
 )
 
 # Reorder and rename the levels of 'livestock' variable
@@ -348,32 +361,35 @@ theme(
   plot.margin = margin(1, 1, 2, 1, "cm")  # More space at the bottom (2 cm)
 )
 
-ggsave("../Output/Alpha_diversity/livestock_expo_shannon.svg", livestock_expo_shannon, width = 8, height = 5)
+ggsave("../Output/Alpha_diversity/livestock_expo_shannon.svg", livestock_expo_shannon, width = 6, height = 5)
 ggsave("../Output/Alpha_diversity/livestock_expo_shannon_flipped.svg", livestock_expo_shannon2, width = 10, height = 10)
 
 
 # OBSERVED
 # We use linear models to test the effect of various metadata variables on the Observed index, Observed species and bacterial density. This was done for each niche separately. Models were corrected for age, season of sampling, sex and smoking status of the participant. We visualize the results as boxplots including the p-values from the tests.
 # NP niche
-lm_cattle2km_np_observed <- lm(Observed ~  KRD_nCowsWghtDist.3000m.sum + age + sampling_season + gender + smoked_ever, data = meta_np_cp)%>% 
+lm_animals3km_np_observed <- lm(Observed ~  KRD_nCowsWghtDist.3000m.sum +KRD_nGoatsWghtDist.3000m.sum + KRD_nPigsWghtDist.3000m.sum + KRD_nPoultryWghtDist.3000m.sum + age + sampling_season + gender + smoked_ever, data = meta_np_cp)%>% 
   broom::tidy(., conf.int = T)
-lm_cattle2km_np_observed$livestock <- "Cattle"
-lm_cattle2km_np_observed$niche <- "NP"
+lm_animals3km_np_observed$niche <- "NP"
+lm_animals3km_np_observed$livestock <- ifelse(grepl("KRD_nCowsWghtDist.3000m.sum", lm_animals3km_np_observed$term), "Cattle", 
+                                     ifelse(grepl("KRD_nGoatsWghtDist.3000m.sum", lm_animals3km_np_observed$term), "Goats", 
+                                            ifelse(grepl("KRD_nPigsWghtDist.3000m.sum", lm_animals3km_np_observed$term), "Pigs", 
+                                                   ifelse(grepl("KRD_nPoultryWghtDist.3000m.sum", lm_animals3km_np_observed$term), "Poultry", NA))))
 
-lm_goats2km_np_observed <- lm(Observed ~  KRD_nGoatsWghtDist.3000m.sum + age + sampling_season + gender + smoked_ever, data = meta_np_cp)%>% 
-  broom::tidy(., conf.int = T)
-lm_goats2km_np_observed$livestock <- "Goats"
-lm_goats2km_np_observed$niche <- "NP"
-
-lm_pigs2km_np_observed <- lm(Observed ~  KRD_nPigsWghtDist.3000m.sum + age + sampling_season + gender + smoked_ever, data = meta_np_cp)%>% 
-  broom::tidy(., conf.int = T)
-lm_pigs2km_np_observed$livestock <- "Pigs"
-lm_pigs2km_np_observed$niche <- "NP"
-
-lm_poultry2km_np_observed <- lm(Observed ~  KRD_nPoultryWghtDist.3000m.sum + age + sampling_season + gender + smoked_ever, data = meta_np_cp)%>% 
-  broom::tidy(., conf.int = T)
-lm_poultry2km_np_observed$livestock <- "Poultry"
-lm_poultry2km_np_observed$niche <- "NP"
+# lm_goats2km_np_observed <- lm(Observed ~  KRD_nGoatsWghtDist.3000m.sum + age + sampling_season + gender + smoked_ever, data = meta_np_cp)%>% 
+#   broom::tidy(., conf.int = T)
+# lm_goats2km_np_observed$livestock <- "Goats"
+# lm_goats2km_np_observed$niche <- "NP"
+# 
+# lm_pigs2km_np_observed <- lm(Observed ~  KRD_nPigsWghtDist.3000m.sum + age + sampling_season + gender + smoked_ever, data = meta_np_cp)%>% 
+#   broom::tidy(., conf.int = T)
+# lm_pigs2km_np_observed$livestock <- "Pigs"
+# lm_pigs2km_np_observed$niche <- "NP"
+# 
+# lm_poultry2km_np_observed <- lm(Observed ~  KRD_nPoultryWghtDist.3000m.sum + age + sampling_season + gender + smoked_ever, data = meta_np_cp)%>% 
+#   broom::tidy(., conf.int = T)
+# lm_poultry2km_np_observed$livestock <- "Poultry"
+# lm_poultry2km_np_observed$niche <- "NP"
 
 # RF- modelled microbial agents
 lm_ecoliexpo_np_observed <- lm(Observed ~  ecoli_RF_preds + age + sampling_season + gender + smoked_ever, data = meta_np_cp)%>% 
@@ -400,25 +416,28 @@ lm_mecaexpo_np_observed$niche <- "NP"
 
 
 # OP niche
-lm_cattle2km_op_observed <- lm(Observed ~  KRD_nCowsWghtDist.3000m.sum + age + sampling_season + gender + smoked_ever, data = meta_op_cp) %>% 
+lm_animals3km_op_observed <- lm(Observed ~  KRD_nCowsWghtDist.3000m.sum +KRD_nGoatsWghtDist.3000m.sum + KRD_nPigsWghtDist.3000m.sum + KRD_nPoultryWghtDist.3000m.sum + age + sampling_season + gender + smoked_ever, data = meta_op_cp)%>% 
   broom::tidy(., conf.int = T)
-lm_cattle2km_op_observed$livestock <- "Cattle"
-lm_cattle2km_op_observed$niche <- "OP"
+lm_animals3km_op_observed$niche <- "OP"
+lm_animals3km_op_observed$livestock <- ifelse(grepl("KRD_nCowsWghtDist.3000m.sum", lm_animals3km_op_observed$term), "Cattle", 
+                                     ifelse(grepl("KRD_nGoatsWghtDist.3000m.sum", lm_animals3km_op_observed$term), "Goats", 
+                                            ifelse(grepl("KRD_nPigsWghtDist.3000m.sum", lm_animals3km_op_observed$term), "Pigs", 
+                                                   ifelse(grepl("KRD_nPoultryWghtDist.3000m.sum", lm_animals3km_op_observed$term), "Poultry", NA))))
 
-lm_goats2km_op_observed <- lm(Observed ~  KRD_nGoatsWghtDist.3000m.sum + age + sampling_season + gender + smoked_ever, data = meta_op_cp)%>% 
-  broom::tidy(., conf.int = T)
-lm_goats2km_op_observed$livestock <- "Goats"
-lm_goats2km_op_observed$niche <- "OP"
-
-lm_pigs2km_op_observed <- lm(Observed ~  KRD_nPigsWghtDist.3000m.sum + age + sampling_season + gender + smoked_ever, data = meta_op_cp)%>% 
-  broom::tidy(., conf.int = T)
-lm_pigs2km_op_observed$livestock <- "Pigs"
-lm_pigs2km_op_observed$niche <- "OP"
-
-lm_poultry2km_op_observed <- lm(Observed ~  KRD_nPoultryWghtDist.3000m.sum + age + sampling_season + gender + smoked_ever, data = meta_op_cp)%>% 
-  broom::tidy(., conf.int = T)
-lm_poultry2km_op_observed$livestock <- "Poultry"
-lm_poultry2km_op_observed$niche <- "OP"
+# lm_goats2km_op_observed <- lm(Observed ~  KRD_nGoatsWghtDist.3000m.sum + age + sampling_season + gender + smoked_ever, data = meta_op_cp)%>% 
+#   broom::tidy(., conf.int = T)
+# lm_goats2km_op_observed$livestock <- "Goats"
+# lm_goats2km_op_observed$niche <- "OP"
+# 
+# lm_pigs2km_op_observed <- lm(Observed ~  KRD_nPigsWghtDist.3000m.sum + age + sampling_season + gender + smoked_ever, data = meta_op_cp)%>% 
+#   broom::tidy(., conf.int = T)
+# lm_pigs2km_op_observed$livestock <- "Pigs"
+# lm_pigs2km_op_observed$niche <- "OP"
+# 
+# lm_poultry2km_op_observed <- lm(Observed ~  KRD_nPoultryWghtDist.3000m.sum + age + sampling_season + gender + smoked_ever, data = meta_op_cp)%>% 
+#   broom::tidy(., conf.int = T)
+# lm_poultry2km_op_observed$livestock <- "Poultry"
+# lm_poultry2km_op_observed$niche <- "OP"
 
 # RF modelled microbial agents
 lm_ecoliexpo_op_observed <- lm(Shannon ~  ecoli_RF_preds + age + sampling_season + gender + smoked_ever, data = meta_op_cp)%>% 
@@ -442,7 +461,7 @@ lm_mecaexpo_op_observed$livestock <- "RF-modelled mecA"
 lm_mecaexpo_op_observed$niche <- "OP"
 
 # Combine all the tidy data
-combined_data_observed <- bind_rows(lm_cattle2km_np_observed, lm_goats2km_np_observed, lm_pigs2km_np_observed, lm_poultry2km_np_observed, lm_ecoliexpo_np_observed, lm_staphexpo_np_observed, lm_tetwexpo_np_observed, lm_mecaexpo_np_observed, lm_cattle2km_op, lm_goats2km_op, lm_pigs2km_op, lm_poultry2km_op, lm_ecoliexpo_op_observed, lm_staphexpo_op_observed, lm_tetwexpo_op_observed, lm_mecaexpo_op_observed)
+combined_data_observed <- bind_rows(lm_animals3km_np_observed, lm_ecoliexpo_np_observed, lm_staphexpo_np_observed, lm_tetwexpo_np_observed, lm_mecaexpo_np_observed, lm_animals3km_op_observed, lm_ecoliexpo_op_observed, lm_staphexpo_op_observed, lm_tetwexpo_op_observed, lm_mecaexpo_op_observed)
 
 # Filter to include only livestock exposure terms (e.g., KRD variables)
 livestock_terms_observed <- combined_data_observed %>%
@@ -484,14 +503,14 @@ write.csv(livestock_terms_corrected_observed,"../Output/Alpha_diversity/Resident
 
 # Define the desired order of the variables and their new names
 reordered_variables <- c(
-  "Cattle" = "Distance weighted number of cattle in 3000m",
-  "Poultry" = "Distance weighted number of chickens in 3000m",
-  "Goats" = "Distance weighted number of goats in 3000m",
-  "Pigs" = "Distance weighted number of pigs in 3000m",
-  "RF-modelled mecA" = "RF-modelled mecA ARG exposure",
-  "RF-modelled tetW" = "RF-modelled tetW ARG exposure",
-  "RF-modelled Staph" = "RF-modelled Staphylococcus spp. exposure",
-  "RF-modelled E. coli" = "RF-modelled E. coli exposure"
+  "Cattle" = "Cattle",
+  "Poultry" = "Chickens",
+  "Goats" = "Goats",
+  "Pigs" = "Pigs",
+  "RF-modelled mecA" = "mecA exposure",
+  "RF-modelled tetW" = "tetW exposure",
+  "RF-modelled Staph" = "Staph spp. exposure",
+  "RF-modelled E. coli" = "E. coli exposure"
 )
 
 # Reorder and rename the levels of 'livestock' variable
@@ -526,43 +545,249 @@ livestock_expo_observed <- ggplot(livestock_terms_corrected_observed, aes(x = li
 livestock_expo_observed
 
 # Save 
-ggsave("../Output/Alpha_diversity/livestock_expo_observed.svg", livestock_expo_observed,width = 8, height=5 )
+ggsave("../Output/Alpha_diversity/livestock_expo_observed.svg", livestock_expo_observed,width = 6, height=5 )
 ```
 ### Model assumption checking
 ```{r}
-# Check associations between Shannon and livestock exposure variables - check if linear
-plot(meta_np_cp$KRD_nGoatsWghtDist.3000m.sum, meta_np_cp$Shannon,
-     xlab = "Livestock Exposure (KRD_nGoatsWghtDist.3000m.sum)",
-     ylab = "Shannon Diversity",
-     main = "Shannon Diversity vs. Goat Exposure")
-abline(lm(Shannon ~ KRD_nGoatsWghtDist.3000m.sum, data = meta_np_cp), col = "blue")
+# Shannon models
+# animals 3km
+lm_animals3km_np <- lm(Shannon ~ KRD_nCowsWghtDist.3000m.sum + KRD_nGoatsWghtDist.3000m.sum + KRD_nPigsWghtDist.3000m.sum + KRD_nPoultryWghtDist.3000m.sum + age + sampling_season + gender + smoked_ever, data = meta_np_cp)
+fitted_values <- fitted(lm_animals3km_np)
+residuals_values <- residuals(lm_animals3km_np)
+# Check Linearity
+plot(fitted_values, residuals_values, main="Fitted Values vs Residuals", xlab="Fitted Values", ylab="Residuals")
+abline(h=0, col="red") # residuals are randomly scattered around zero
+# Normality of residuals
+qqnorm(lm_animals3km_np$residuals)
+qqline(lm_animals3km_np$residuals, col = "red")
+hist(lm_animals3km_np$residuals, main = "Residuals Histogram", xlab = "Residuals", col = "lightgray", border = "black")
+# QQ plot shows points that fall approximately along a straight line = Normal distribution
+# Homoscedasticity
+plot(lm_animals3km_np$fitted.values, abs(lm_animals3km_np$residuals))
+abline(h = 0, col = "red")
+#  Independence of Residuals- are the residuals (errors) correlated with each other
+dwtest(lm_animals3km_np) # no autocorrelation
+# multicollinearity
+vif(lm_animals3km_np)
+# Outliers
+plot(lm_animals3km_np, which = 4)  # Cook's distance plot
 
 
-plot(meta_np_cp$KRD_nGoatFarm.3000m, meta_np_cp$Shannon,
-     xlab = "Livestock Exposure (KRD_nGoatFarm.3000m)",
-     ylab = "Shannon Diversity",
-     main = "Shannon Diversity vs. number of goat farms in 2km")
-abline(lm(Shannon ~ KRD_nGoatFarm.3000m, data = meta_np_cp), col = "blue")
+# ecoli 3km
+lm_ecoliexpo_np <- lm(Shannon ~  ecoli_RF_preds + age + sampling_season + gender + smoked_ever, data = meta_np_cp)
+fitted_values <- fitted(lm_ecoliexpo_np)
+residuals_values <- residuals(lm_ecoliexpo_np)
+# Check Linearity
+plot(fitted_values, residuals_values, main="Fitted Values vs Residuals", xlab="Fitted Values", ylab="Residuals")
+abline(h=0, col="red") # residuals are randomly scattered around zero
+# Normality of residuals
+qqnorm(lm_ecoliexpo_np$residuals)
+qqline(lm_ecoliexpo_np$residuals, col = "red")
+hist(lm_ecoliexpo_np$residuals, main = "Residuals Histogram", xlab = "Residuals", col = "lightgray", border = "black")
+# QQ plot shows points that fall approximately along a straight line = Normal distribution
+# Homoscedasticity
+plot(lm_ecoliexpo_np$fitted.values, abs(lm_ecoliexpo_np$residuals))
+abline(h = 0, col = "red")# points are randomly scattered acros the range of fitted values
+#  Independence of Residuals- are the residuals (errors) correlated with each other
+dwtest(lm_ecoliexpo_np) # no autocorrelation
+# multicollinearity
+vif(lm_ecoliexpo_np)
+# Outliers
+plot(lm_ecoliexpo_np, which = 4)  # Cook's distance plot
 
-plot(meta_np_cp$KRD_MindistGoatFarm50.NEG, meta_np_cp$Shannon,
-     xlab = "Livestock Exposure (KRD_MindistGoatFarm50.NEG)",
-     ylab = "Shannon Diversity",
-     main = "Shannon Diversity vs. min dist to goat farm")
-abline(lm(Shannon ~ KRD_MindistGoatFarm50.NEG, data = meta_np_cp), col = "blue")
 
 
-plot(meta_np_cp$KRD_nAnyFarm_3000m, meta_np_cp$Shannon,
-     xlab = "Livestock Exposure (KRD_nAnyFarm_3000m)",
-     ylab = "Shannon Diversity",
-     main = "Shannon Diversity vs. farm exposure")
-abline(lm(Shannon ~ KRD_nAnyFarm_3000m, data = meta_np_cp), col = "blue")
+# Staph model
+lm_staphexpo_np <- lm(Shannon ~  staph_RF_preds + age + sampling_season + gender + smoked_ever, data = meta_np_cp)
+fitted_values <- fitted(lm_staphexpo_np)
+residuals_values <- residuals(lm_staphexpo_np)
+# Check Linearity
+plot(fitted_values, residuals_values, main="Fitted Values vs Residuals", xlab="Fitted Values", ylab="Residuals")
+abline(h=0, col="red") # residuals are randomly scattered around zero
+# Normality of residuals
+qqnorm(lm_staphexpo_np$residuals)
+qqline(lm_staphexpo_np$residuals, col = "red")
+hist(lm_staphexpo_np$residuals, main = "Residuals Histogram", xlab = "Residuals", col = "lightgray", border = "black")
+# QQ plot shows points that fall approximately along a straight line = Normal distribution
+# Homoscedasticity
+plot(lm_staphexpo_np$fitted.values, abs(lm_staphexpo_np$residuals))
+abline(h = 0, col = "red")# points are randomly scattered acros the range of fitted values
+#  Independence of Residuals- are the residuals (errors) correlated with each other
+dwtest(lm_staphexpo_np) # no autocorrelation
+# multicollinearity
+vif(lm_staphexpo_np)
+# Outliers
+plot(lm_staphexpo_np, which = 4)  # Cook's distance plot
 
 
-plot(meta_np_cp$KRD_MindistAnyFarm.NEG, meta_np_cp$Shannon,
-     xlab = "Livestock Exposure (KRD_MindistAnyFarm.NEG)",
-     ylab = "Shannon Diversity",
-     main = "Shannon Diversity vs. min dist to farm")
-abline(lm(Shannon ~ KRD_MindistAnyFarm.NEG, data = meta_np_cp), col = "blue")
+
+# tetw model
+lm_tetwexpo_np <- lm(Shannon ~  tetw_RF_preds + age + sampling_season + gender + smoked_ever, data = meta_np_cp)
+fitted_values <- fitted(lm_tetwexpo_np)
+residuals_values <- residuals(lm_tetwexpo_np)
+# Check Linearity
+plot(fitted_values, residuals_values, main="Fitted Values vs Residuals", xlab="Fitted Values", ylab="Residuals")
+abline(h=0, col="red") # residuals are randomly scattered around zero
+# Normality of residuals
+qqnorm(lm_tetwexpo_np$residuals)
+qqline(lm_tetwexpo_np$residuals, col = "red")
+hist(lm_tetwexpo_np$residuals, main = "Residuals Histogram", xlab = "Residuals", col = "lightgray", border = "black")
+# QQ plot shows points that fall approximately along a straight line = Normal distribution
+# Homoscedasticity
+plot(lm_tetwexpo_np$fitted.values, abs(lm_tetwexpo_np$residuals))
+abline(h = 0, col = "red")# points are randomly scattered acros the range of fitted values
+#  Independence of Residuals- are the residuals (errors) correlated with each other
+dwtest(lm_tetwexpo_np) # no autocorrelation
+# multicollinearity
+vif(lm_tetwexpo_np)
+# Outliers
+plot(lm_tetwexpo_np, which = 4)  # Cook's distance plot
+
+
+# meca model
+lm_mecaexpo_np <- lm(Shannon ~  meca_RF_preds + age + sampling_season + gender + smoked_ever, data = meta_np_cp)
+fitted_values <- fitted(lm_mecaexpo_np)
+residuals_values <- residuals(lm_mecaexpo_np)
+# Check Linearity
+plot(fitted_values, residuals_values, main="Fitted Values vs Residuals", xlab="Fitted Values", ylab="Residuals")
+abline(h=0, col="red") # residuals are randomly scattered around zero
+# Normality of residuals
+qqnorm(lm_mecaexpo_np$residuals)
+qqline(lm_mecaexpo_np$residuals, col = "red")
+hist(lm_mecaexpo_np$residuals, main = "Residuals Histogram", xlab = "Residuals", col = "lightgray", border = "black")
+# QQ plot shows points that fall approximately along a straight line = Normal distribution
+# Homoscedasticity
+plot(lm_mecaexpo_np$fitted.values, abs(lm_mecaexpo_np$residuals))
+abline(h = 0, col = "red")# points are randomly scattered acros the range of fitted values
+#  Independence of Residuals- are the residuals (errors) correlated with each other
+dwtest(lm_mecaexpo_np) # no autocorrelation
+# multicollinearity
+vif(lm_mecaexpo_np)
+# Outliers
+plot(lm_mecaexpo_np, which = 4)  # Cook's distance plot
+
+
+
+
+
+
+# Observed diversity models
+# animals 3km
+lm_animals3km_np <- lm(Observed ~ KRD_nCowsWghtDist.3000m.sum + KRD_nGoatsWghtDist.3000m.sum + KRD_nPigsWghtDist.3000m.sum + KRD_nPoultryWghtDist.3000m.sum + age + sampling_season + gender + smoked_ever, data = meta_np_cp)
+fitted_values <- fitted(lm_animals3km_np)
+residuals_values <- residuals(lm_animals3km_np)
+# Check Linearity
+plot(fitted_values, residuals_values, main="Fitted Values vs Residuals", xlab="Fitted Values", ylab="Residuals")
+abline(h=0, col="red") # residuals are randomly scattered around zero
+# Normality of residuals
+qqnorm(lm_animals3km_np$residuals)
+qqline(lm_animals3km_np$residuals, col = "red")
+hist(lm_animals3km_np$residuals, main = "Residuals Histogram", xlab = "Residuals", col = "lightgray", border = "black")
+# QQ plot shows points that fall approximately along a straight line = Normal distribution
+# Homoscedasticity
+plot(lm_animals3km_np$fitted.values, abs(lm_animals3km_np$residuals))
+abline(h = 0, col = "red")
+#  Independence of Residuals- are the residuals (errors) correlated with each other
+dwtest(lm_animals3km_np) # no autocorrelation
+# multicollinearity
+vif(lm_animals3km_np)
+# Outliers
+plot(lm_animals3km_np, which = 4)  # Cook's distance plot
+
+
+# ecoli 3km
+lm_ecoliexpo_np <- lm(Observed ~  ecoli_RF_preds + age + sampling_season + gender + smoked_ever, data = meta_np_cp)
+fitted_values <- fitted(lm_ecoliexpo_np)
+residuals_values <- residuals(lm_ecoliexpo_np)
+# Check Linearity
+plot(fitted_values, residuals_values, main="Fitted Values vs Residuals", xlab="Fitted Values", ylab="Residuals")
+abline(h=0, col="red") # residuals are randomly scattered around zero
+# Normality of residuals
+qqnorm(lm_ecoliexpo_np$residuals)
+qqline(lm_ecoliexpo_np$residuals, col = "red")
+hist(lm_ecoliexpo_np$residuals, main = "Residuals Histogram", xlab = "Residuals", col = "lightgray", border = "black")
+# QQ plot shows points that fall approximately along a straight line = Normal distribution
+# Homoscedasticity
+plot(lm_ecoliexpo_np$fitted.values, abs(lm_ecoliexpo_np$residuals))
+abline(h = 0, col = "red")# points are randomly scattered acros the range of fitted values
+#  Independence of Residuals- are the residuals (errors) correlated with each other
+dwtest(lm_ecoliexpo_np) # no autocorrelation
+# multicollinearity
+vif(lm_ecoliexpo_np)
+# Outliers
+plot(lm_ecoliexpo_np, which = 4)  # Cook's distance plot
+
+
+
+# Staph model
+lm_staphexpo_np <- lm(Observed ~  staph_RF_preds + age + sampling_season + gender + smoked_ever, data = meta_np_cp)
+fitted_values <- fitted(lm_staphexpo_np)
+residuals_values <- residuals(lm_staphexpo_np)
+# Check Linearity
+plot(fitted_values, residuals_values, main="Fitted Values vs Residuals", xlab="Fitted Values", ylab="Residuals")
+abline(h=0, col="red") # residuals are randomly scattered around zero
+# Normality of residuals
+qqnorm(lm_staphexpo_np$residuals)
+qqline(lm_staphexpo_np$residuals, col = "red")
+hist(lm_staphexpo_np$residuals, main = "Residuals Histogram", xlab = "Residuals", col = "lightgray", border = "black")
+# QQ plot shows points that fall approximately along a straight line = Normal distribution
+# Homoscedasticity
+plot(lm_staphexpo_np$fitted.values, abs(lm_staphexpo_np$residuals))
+abline(h = 0, col = "red")# points are randomly scattered acros the range of fitted values
+#  Independence of Residuals- are the residuals (errors) correlated with each other
+dwtest(lm_staphexpo_np) # no autocorrelation
+# multicollinearity
+vif(lm_staphexpo_np)
+# Outliers
+plot(lm_staphexpo_np, which = 4)  # Cook's distance plot
+
+
+
+# tetw model
+lm_tetwexpo_np <- lm(Observed ~  tetw_RF_preds + age + sampling_season + gender + smoked_ever, data = meta_np_cp)
+fitted_values <- fitted(lm_tetwexpo_np)
+residuals_values <- residuals(lm_tetwexpo_np)
+# Check Linearity
+plot(fitted_values, residuals_values, main="Fitted Values vs Residuals", xlab="Fitted Values", ylab="Residuals")
+abline(h=0, col="red") # residuals are randomly scattered around zero
+# Normality of residuals
+qqnorm(lm_tetwexpo_np$residuals)
+qqline(lm_tetwexpo_np$residuals, col = "red")
+hist(lm_tetwexpo_np$residuals, main = "Residuals Histogram", xlab = "Residuals", col = "lightgray", border = "black")
+# QQ plot shows points that fall approximately along a straight line = Normal distribution
+# Homoscedasticity
+plot(lm_tetwexpo_np$fitted.values, abs(lm_tetwexpo_np$residuals))
+abline(h = 0, col = "red")# points are randomly scattered acros the range of fitted values
+#  Independence of Residuals- are the residuals (errors) correlated with each other
+dwtest(lm_tetwexpo_np) # no autocorrelation
+# multicollinearity
+vif(lm_tetwexpo_np)
+# Outliers
+plot(lm_tetwexpo_np, which = 4)  # Cook's distance plot
+
+
+# meca model
+lm_mecaexpo_np <- lm(Observed ~  meca_RF_preds + age + sampling_season + gender + smoked_ever, data = meta_np_cp)
+fitted_values <- fitted(lm_mecaexpo_np)
+residuals_values <- residuals(lm_mecaexpo_np)
+# Check Linearity
+plot(fitted_values, residuals_values, main="Fitted Values vs Residuals", xlab="Fitted Values", ylab="Residuals")
+abline(h=0, col="red") # residuals are randomly scattered around zero
+# Normality of residuals
+qqnorm(lm_mecaexpo_np$residuals)
+qqline(lm_mecaexpo_np$residuals, col = "red")
+hist(lm_mecaexpo_np$residuals, main = "Residuals Histogram", xlab = "Residuals", col = "lightgray", border = "black")
+# QQ plot shows points that fall approximately along a straight line = Normal distribution
+# Homoscedasticity
+plot(lm_mecaexpo_np$fitted.values, abs(lm_mecaexpo_np$residuals))
+abline(h = 0, col = "red")# points are randomly scattered acros the range of fitted values
+#  Independence of Residuals- are the residuals (errors) correlated with each other
+dwtest(lm_mecaexpo_np) # no autocorrelation
+# multicollinearity
+vif(lm_mecaexpo_np)
+# Outliers
+plot(lm_mecaexpo_np, which = 4)  # Cook's distance plot
+# All models meet the assumptions of multiple linear regression 
 ```
 
 ## Linear models on 16S qPCR
