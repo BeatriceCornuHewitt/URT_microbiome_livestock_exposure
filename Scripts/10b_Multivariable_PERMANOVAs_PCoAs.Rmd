@@ -6,7 +6,7 @@ date: "`r Sys.time()`"
 
 # Packages
 ```{r}
-library(tidyverse);library(magrittr);library(glue);library(here);library(ggtext);library(fs);library(phyloseq);library(microbiomer);library(vegan);library(microbiome);library(decontam);library(reshape2);library(colorspace);library(scales);library(ggpubr);library(ggvenn);library(ggnewscale);library(RColorBrewer);library(paletteer);library(broom);library(rcartocolor);library(microViz);library(ggside);library(emmeans); library(MatchIt)
+library(tidyverse);library(magrittr);library(glue);library(here);library(ggtext);library(fs);library(phyloseq);library(microbiomer);library(vegan);library(microbiome);library(decontam);library(reshape2);library(colorspace);library(scales);library(ggpubr);library(ggvenn);library(ggnewscale);library(RColorBrewer);library(paletteer);library(broom);library(rcartocolor);library(microViz);library(ggside);library(emmeans); library(MatchIt); library(glue)
 
 # Set theme for plots in notebook
 theme_set(theme_bw())
@@ -67,11 +67,11 @@ do_permanova_com <- function(ord, meta, var) {
 # Filter the ps object by niche and population
 # Apply a prevalence/abundance filter to the phyloseq objects
 # Then convert to RA
-ps_np <- subset_samples(ps_CP_GF, niche == "NP") %>% pres_abund_filter() %>% to_RA() 
-ps_op <- subset_samples(ps_CP_GF, niche == "OP") %>% pres_abund_filter() %>% to_RA() 
-ps_cp <- subset_samples(ps_CP_GF, population == "CP") %>% pres_abund_filter() %>% to_RA() 
-ps_gf <- subset_samples(ps_CP_GF, population == "GF") %>% pres_abund_filter() %>% to_RA()  
-ps_all <- ps_CP_GF %>% pres_abund_filter() %>% to_RA() 
+ps_np <- subset_samples(ps, niche == "NP") %>% pres_abund_filter() %>% to_RA() 
+ps_op <- subset_samples(ps, niche == "OP") %>% pres_abund_filter() %>% to_RA() 
+ps_cp <- subset_samples(ps, population == "CP") %>% pres_abund_filter() %>% to_RA() 
+ps_gf <- subset_samples(ps, population == "GF") %>% pres_abund_filter() %>% to_RA()  
+ps_all <- ps %>% pres_abund_filter() %>% to_RA() 
 
 # Convert the otu tables from the above phyloseq objects to dataframes
 otu_np <- as.data.frame(otu_table(ps_np)) %>% t()
@@ -422,6 +422,8 @@ livestock_expo_results$Description <- ifelse(livestock_expo_results$term == "sta
 livestock_expo_results$Description <- ifelse(livestock_expo_results$term == "tetw_RF_preds", "RF-modelled tetW exposure", livestock_expo_results$Description)
 livestock_expo_results$Description <- ifelse(livestock_expo_results$term == "meca_RF_preds", "RF-modelled mecA exposure", livestock_expo_results$Description)
 
+write.csv(livestock_expo_results, "../Output/Beta_diversity/Multivariable_PERMANOVAs/livestock_expo_results.csv")
+
 livestock_expo_results$q.value
 # Dot plot
 exposure_perm_results <- ggplot(livestock_expo_results, aes(x = R2_perc, y = Description)) +
@@ -451,6 +453,111 @@ exposure_perm_results
 
 ggsave("../Output/Beta_diversity/Multivariable_PERMANOVAs/Dot_plot_multivarPERM_livestock_exposures.svg", exposure_perm_results, width= 8, height = 3.5)
 
+
+
+```
+
+# check model assumptions 
+```{r}
+# Test homogeneity of dispersion
+
+# Goats
+# Binning the variable into quartiles
+df_np_cp$KRD_nGoatsWghtDist.3000m.sum_binned <- cut(
+  df_np_cp$KRD_nGoatsWghtDist.3000m.sum, 
+  breaks = quantile(df_np_cp$KRD_nGoatsWghtDist.3000m.sum, probs = seq(0, 1, 0.25), na.rm = TRUE), 
+  include.lowest = TRUE
+)
+
+ord_np_cp <- vegdist(otu_np_cp, method = "bray")  # Keep this as a 'dist' object
+
+dispersion_test <- betadisper(ord_np_cp, df_np_cp$KRD_nGoatsWghtDist.3000m.sum_binned)
+anova(dispersion_test)
+plot(dispersion_test)
+
+# Cattle
+# Binning the variable into quartiles
+df_np_cp$KRD_nCowsWghtDist.3000m.sum_binned <- cut(
+  df_np_cp$KRD_nCowsWghtDist.3000m.sum, 
+  breaks = quantile(df_np_cp$KRD_nCowsWghtDist.3000m.sum, probs = seq(0, 1, 0.25), na.rm = TRUE), 
+  include.lowest = TRUE
+)
+
+dispersion_test_cows <- betadisper(ord_np_cp, df_np_cp$KRD_nCowsWghtDist.3000m.sum_binned)
+anova(dispersion_test_cows)
+plot(dispersion_test_cows)
+
+# Poultry
+# Binning the variable into quartiles
+df_np_cp$KRD_nPoultryWghtDist.3000m.sum_binned <- cut(
+  df_np_cp$KRD_nPoultryWghtDist.3000m.sum, 
+  breaks = quantile(df_np_cp$KRD_nPoultryWghtDist.3000m.sum, probs = seq(0, 1, 0.25), na.rm = TRUE), 
+  include.lowest = TRUE
+)
+
+dispersion_test_poultry <- betadisper(ord_np_cp, df_np_cp$KRD_nPoultryWghtDist.3000m.sum_binned)
+anova(dispersion_test_poultry)
+plot(dispersion_test_poultry)
+
+# Pigs
+# Binning the variable into quartiles
+df_np_cp$KRD_nPigsWghtDist.3000m.sum_binned <- cut(
+  df_np_cp$KRD_nPigsWghtDist.3000m.sum, 
+  breaks = quantile(df_np_cp$KRD_nPigsWghtDist.3000m.sum, probs = seq(0, 1, 0.25), na.rm = TRUE), 
+  include.lowest = TRUE
+)
+
+dispersion_test_pigs <- betadisper(ord_np_cp, df_np_cp$KRD_nPigsWghtDist.3000m.sum_binned)
+anova(dispersion_test_pigs)
+plot(dispersion_test_pigs)
+
+# E. coli
+# Binning the variable into quartiles
+df_np_cp$ecoli_RF_preds_binned <- cut(
+  df_np_cp$ecoli_RF_preds, 
+  breaks = quantile(df_np_cp$ecoli_RF_preds, probs = seq(0, 1, 0.25), na.rm = TRUE), 
+  include.lowest = TRUE
+)
+
+dispersion_test_ecoli <- betadisper(ord_np_cp, df_np_cp$ecoli_RF_preds_binned)
+anova(dispersion_test_ecoli)
+plot(dispersion_test_ecoli)
+
+# Staph
+# Binning the variable into quartiles
+df_np_cp$staph_RF_preds_binned <- cut(
+  df_np_cp$staph_RF_preds, 
+  breaks = quantile(df_np_cp$staph_RF_preds, probs = seq(0, 1, 0.25), na.rm = TRUE), 
+  include.lowest = TRUE
+)
+
+dispersion_test_staph <- betadisper(ord_np_cp, df_np_cp$staph_RF_preds_binned)
+anova(dispersion_test_staph)
+plot(dispersion_test_staph)
+
+# tetw
+# Binning the variable into quartiles
+df_np_cp$tetw_RF_preds_binned <- cut(
+  df_np_cp$tetw_RF_preds, 
+  breaks = quantile(df_np_cp$tetw_RF_preds, probs = seq(0, 1, 0.25), na.rm = TRUE), 
+  include.lowest = TRUE
+)
+
+dispersion_test_tetw <- betadisper(ord_np_cp, df_np_cp$tetw_RF_preds_binned)
+anova(dispersion_test_tetw)
+plot(dispersion_test_tetw)
+
+# meca
+# Binning the variable into quartiles
+df_np_cp$meca_RF_preds_binned <- cut(
+  df_np_cp$meca_RF_preds, 
+  breaks = quantile(df_np_cp$meca_RF_preds, probs = seq(0, 1, 0.25), na.rm = TRUE), 
+  include.lowest = TRUE
+)
+
+dispersion_test_meca <- betadisper(ord_np_cp, df_np_cp$meca_RF_preds_binned)
+anova(dispersion_test_meca)
+plot(dispersion_test_meca)
 
 
 ```
