@@ -744,6 +744,8 @@ Goat_expo_maaslin <- do_maaslin2(ps = ps_abs_cp_np_filt,
                                other_var = c("age", "gender", "sampling_season", "smoked_ever", "KRD_nCowsWghtDist.3000m.sum", "KRD_nPoultryWghtDist.3000m.sum", "KRD_nPigsWghtDist.3000m.sum"),  # Adjusting for these variables
                                ref = c("gender,0", "sampling_season,Summer", "smoked_ever,0")) %>%  # Set reference categories
                                arrange(desc(coef))
+
+
 # Save results as csv
 write.csv(Goat_expo_maaslin, paste0("../Output/DA_analysis/MaAsLin/CP_NP/ASV_level/", "ASV_CP_NP_goat_continuous.csv"))
 
@@ -850,12 +852,525 @@ for (var in RF_modelled_variables_categorised) {
   # Save to a CSV file
   write.csv(result, paste0("../Output/DA_analysis/MaAsLin/CP_NP/ASV_level/", "ASV_CP_NP_", var, "_categorised.csv"))
 }
-
-
-
-
-
 ```
+
+##### Check model assumptions
+```{r}
+# Get the top 10 OTUs by abundance
+top_otus <- names(sort(rowSums(ps_cp@otu_table), decreasing = TRUE)[1:10])
+otu_top <- ps_cp@otu_table[top_otus,]  # Subset the top 10 OTUs
+
+# Convert OTU data to a dataframe and transpose it (samples as rows, OTUs as columns)
+otu_top_df <- as.data.frame(t(otu_top))  
+
+# Extract metadata as a dataframe
+meta_df <- meta_to_df(ps_cp)
+
+meta_df <- data.frame(sample_data(ps_cp))
+rownames(meta_df)
+
+# Align rownames between OTU data and metadata
+otu_top_df <- otu_top_df[rownames(otu_top_df) %in% rownames(meta_df), ]
+meta_df <- meta_df[rownames(meta_df) %in% rownames(otu_top_df), ]
+
+# Ensure rownames are in the same order
+otu_top_df <- otu_top_df[match(rownames(meta_df), rownames(otu_top_df)), ]
+
+# Combine OTU data and metadata (merge by column)
+combined_df <- cbind(otu_top_df, meta_df)
+
+
+# Select variables for correlation
+cor_vars <- c("age", "gender", "sampling_season", "smoked_ever", 
+              "KRD_nPigsWghtDist.3000m.sum", "KRD_nCowsWghtDist.3000m.sum", 
+              "KRD_nPoultryWghtDist.3000m.sum", "KRD_nGoatsWghtDist.3000m.sum")
+
+# Convert categorical variables to numeric (one-hot encoding, if needed)
+combined_df$gender <- as.numeric(as.factor(combined_df$gender))
+combined_df$sampling_season <- as.numeric(as.factor(combined_df$sampling_season))
+combined_df$smoked_ever <- as.numeric(as.factor(combined_df$smoked_ever))
+
+# Extract OTU columns and the variables of interest
+otu_cols <- colnames(otu_top_df)
+cor_data <- combined_df[, c(otu_cols, cor_vars)]
+# Compute correlation matrix
+cor_matrix <- cor(cor_data, use = "pairwise.complete.obs")
+
+# Extract correlations between OTUs and the selected variables
+cor_otu_vars <- cor_matrix[otu_cols, cor_vars]
+cor_otu_vars
+
+# Initialize an empty dataframe to store results
+cor_results <- data.frame()
+
+# Loop through OTUs and variables
+for (otu in otu_cols) {
+  for (var in cor_vars) {
+    test <- cor.test(combined_df[[otu]], combined_df[[var]], method = "pearson", use = "pairwise.complete.obs")
+    cor_results <- rbind(cor_results, data.frame(
+      OTU = otu,
+      Variable = var,
+      Correlation = test$estimate,
+      p.value = test$p.value
+    ))
+  }
+}
+
+# Adjust p-values for multiple comparisons (optional)
+cor_results$p.adjusted <- p.adjust(cor_results$p.value, method = "BH")
+cor_results
+
+library(ggplot2)
+library(reshape2)
+
+# Melt the correlation matrix for heatmap plotting
+cor_melt <- melt(cor_otu_vars)
+
+# Plot heatmap
+ggplot(cor_melt, aes(x = Var2, y = Var1, fill = value)) +
+  geom_tile() +
+  scale_fill_gradient2(low = "blue", mid = "white", high = "red", midpoint = 0) +
+  labs(x = "Variables", y = "OTUs", fill = "Correlation") +
+  theme_minimal(base_size = 14) +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+
+
+
+
+
+
+
+do_maaslin2_with_residuals <- function(ps, var, other_var, ref = NULL) { 
+  # Preprocessing
+  sample_data(ps) <- sample_data(ps)[!is.na(sample_data(ps)[,var])]
+  ps <- prune_taxa(taxa_sums(ps) > 0, ps)
+  otu <- ps@otu_table %>% as.data.frame() %>% t() %>% as.data.frame()
+  meta <- meta_to_df(ps)
+  rownames(meta) <- meta$sample_id
+  meta <- as.data.frame(meta)
+  otu <- otu[rownames(otu) %in% rownames(meta),]
+  
+  # Run MaAsLin2
+  ms = Maaslin2(
+    input_data = otu, 
+    input_metadata = meta, 
+    output = var, 
+    fixed_effects = c(var, other_var), 
+    normalization = "NONE",
+    min_abundance = 0,
+    min_prevalence = 0,
+    plot_heatmap = FALSE,
+    plot_scatter = FALSE,
+    reference = ref)
+  
+  # Edit dataframe
+  ms <- ms$results
+  ms$var <- var
+  
+  # Residual extraction
+  residuals_list <- list()
+  for (feature in unique(ms$feature)) {
+    # Fit linear model for each feature
+    formula <- as.formula(paste(feature, "~", paste(c(var, other_var), collapse = " + ")))
+    lm_model <- lm(formula, data = cbind(otu, meta))
+    
+    # Store residuals
+    residuals_list[[feature]] <- residuals(lm_model)
+  }
+  
+  # Combine residuals into a dataframe
+  residuals_df <- do.call(cbind, residuals_list)
+  residuals_df <- as.data.frame(residuals_df)
+  colnames(residuals_df) <- unique(ms$feature)
+  
+  # Return results with residuals
+  return(list(results = ms, residuals = residuals_df))
+}
+
+
+Goat_expo_maaslin_res <- do_maaslin2_with_residuals(
+  ps = ps_abs_cp_np_filt, 
+  var = "KRD_nGoatsWghtDist.3000m.sum",  # Including all livestock variables together
+  other_var = c("age", "gender", "sampling_season", "smoked_ever", "KRD_nCowsWghtDist.3000m.sum", "KRD_nPoultryWghtDist.3000m.sum", "KRD_nPigsWghtDist.3000m.sum"),  # Adjusting for these variables
+  ref = c("gender,0", "sampling_season,Summer", "smoked_ever,0")  # Set reference categories
+)
+
+# Access the `results` data frame and arrange it
+Goat_expo_results <- Goat_expo_maaslin_res$results %>% arrange(desc(coef))
+# Access the `residuals` data frame
+Goat_expo_residuals <- Goat_expo_maaslin_res$residuals
+
+
+# Loop through the first 10 OTUs
+for (i in 1:10) {
+  residuals_otu <- Goat_expo_residuals[, i]
+  otu_name <- colnames(Goat_expo_residuals)[i]
+  
+  # Plot residuals
+  plot(
+    residuals_otu, 
+    main = paste("Residuals for", otu_name), 
+    ylab = "Residuals", 
+    xlab = "Index", 
+    pch = 19, 
+    col = "blue"
+  )
+  
+  # Q-Q plot
+  qqnorm(residuals_otu, main = paste("Q-Q Plot for", otu_name))
+  qqline(residuals_otu, col = "red")
+  
+  # Histogram
+  hist(
+    residuals_otu, 
+    breaks = 20, 
+    main = paste("Histogram of Residuals for", otu_name), 
+    xlab = "Residuals", 
+    col = "lightgray", 
+    border = "black"
+  )
+}
+
+
+Goat_expo_maaslin_res$results
+
+shapiro.test(Goat_expo_maaslin_res$residuals[,"Finegoldia_magna_52"])
+shapiro.test(Goat_expo_maaslin_res$residuals[,"Lawsonella_clevelandensis_84"])
+shapiro.test(Goat_expo_maaslin_res$residuals[,"Peptoniphilus_53"])
+shapiro.test(Goat_expo_maaslin_res$residuals[,"Corynebacterium_3"])
+shapiro.test(Goat_expo_maaslin_res$residuals[,"Anaerococcus_octavius_83"])
+shapiro.test(Goat_expo_maaslin_res$residuals[,"Staphylococcus_2"])
+shapiro.test(Goat_expo_maaslin_res$residuals[,"Dolosigranulum_pigrum_1"])
+shapiro.test(Goat_expo_maaslin_res$residuals[,"Corynebacterium_67"])
+
+
+
+
+
+
+ecoli_expo_maaslin_res <- do_maaslin2_with_residuals(
+  ps = ps_abs_cp_np_filt, 
+  var = "ecoli_RF_preds",  # Including all livestock variables together
+  other_var = c("age", "gender", "sampling_season", "smoked_ever"),  # Adjusting for these variables
+  ref = c("gender,0", "sampling_season,Summer", "smoked_ever,0")  # Set reference categories
+)
+
+# Access the `results` data frame and arrange it
+ecoli_expo_maaslin_res_results <- ecoli_expo_maaslin_res$results %>% arrange(desc(coef))
+# Access the `residuals` data frame
+ecoli_expo_maaslin_res_residuals <- ecoli_expo_maaslin_res$residuals
+
+
+# Loop through the first 10 OTUs
+for (i in 1:10) {
+  residuals_otu <- Goat_expo_residuals[, i]
+  otu_name <- colnames(Goat_expo_residuals)[i]
+  
+  # Plot residuals
+  plot(
+    residuals_otu, 
+    main = paste("Residuals for", otu_name), 
+    ylab = "Residuals", 
+    xlab = "Index", 
+    pch = 19, 
+    col = "blue"
+  )
+  
+  # Q-Q plot
+  qqnorm(residuals_otu, main = paste("Q-Q Plot for", otu_name))
+  qqline(residuals_otu, col = "red")
+  
+  # Histogram
+  hist(
+    residuals_otu, 
+    breaks = 20, 
+    main = paste("Histogram of Residuals for", otu_name), 
+    xlab = "Residuals", 
+    col = "lightgray", 
+    border = "black"
+  )
+}
+
+
+shapiro.test(ecoli_expo_maaslin_res$residuals[,"Finegoldia_magna_52"])
+shapiro.test(ecoli_expo_maaslin_res$residuals[,"Lawsonella_clevelandensis_84"])
+shapiro.test(ecoli_expo_maaslin_res$residuals[,"Peptoniphilus_53"])
+shapiro.test(ecoli_expo_maaslin_res$residuals[,"Corynebacterium_3"])
+shapiro.test(ecoli_expo_maaslin_res$residuals[,"Anaerococcus_octavius_83"])
+shapiro.test(ecoli_expo_maaslin_res$residuals[,"Staphylococcus_2"])
+shapiro.test(ecoli_expo_maaslin_res$residuals[,"Dolosigranulum_pigrum_1"])
+shapiro.test(ecoli_expo_maaslin_res$residuals[,"Corynebacterium_67"])
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Function to extract residuals and fitted values from MaAsLin2
+do_maaslin2_with_residuals <- function(ps, var, other_var, ref = NULL) { 
+  # Preprocessing
+  sample_data(ps) <- sample_data(ps)[!is.na(sample_data(ps)[,var])]
+  ps <- prune_taxa(taxa_sums(ps) > 0, ps)
+  otu <- ps@otu_table %>% as.data.frame() %>% t() %>% as.data.frame()
+  meta <- meta_to_df(ps)
+  rownames(meta) <- meta$sample_id
+  meta <- as.data.frame(meta)
+  otu <- otu[rownames(otu) %in% rownames(meta),]
+  
+  # Run MaAsLin2
+  ms = Maaslin2(
+    input_data = otu, 
+    input_metadata = meta, 
+    output = var, 
+    fixed_effects = c(var, other_var), 
+    normalization = "NONE",
+    min_abundance = 0,
+    min_prevalence = 0,
+    plot_heatmap = FALSE,
+    plot_scatter = FALSE,
+    reference = ref)
+  
+  # Edit dataframe
+  ms <- ms$results
+  ms$var <- var
+  
+  # Residual and fitted values extraction
+  residuals_list <- list()
+  fitted_values_list <- list()
+  for (feature in unique(ms$feature)) {
+    # Fit linear model for each feature
+    formula <- as.formula(paste(feature, "~", paste(c(var, other_var), collapse = " + ")))
+    lm_model <- lm(formula, data = cbind(otu, meta))
+    
+    # Store residuals and fitted values
+    residuals_list[[feature]] <- residuals(lm_model)
+    fitted_values_list[[feature]] <- fitted(lm_model)
+  }
+  
+  # Combine residuals and fitted values into dataframes
+  residuals_df <- do.call(cbind, residuals_list)
+  residuals_df <- as.data.frame(residuals_df)
+  colnames(residuals_df) <- unique(ms$feature)
+  
+  fitted_values_df <- do.call(cbind, fitted_values_list)
+  fitted_values_df <- as.data.frame(fitted_values_df)
+  colnames(fitted_values_df) <- unique(ms$feature)
+  
+  # Return results with residuals and fitted values
+  return(list(results = ms, residuals = residuals_df, fitted_values = fitted_values_df))
+}
+
+# Run the MaAsLin2 analysis and extract residuals and fitted values
+Goat_expo_maaslin_res <- do_maaslin2_with_residuals(
+  ps = ps_abs_cp_np_filt, 
+  var = "KRD_nGoatsWghtDist.3000m.sum",  # Including all livestock variables together
+  other_var = c("age", "gender", "sampling_season", "smoked_ever", "KRD_nCowsWghtDist.3000m.sum", "KRD_nPoultryWghtDist.3000m.sum", "KRD_nPigsWghtDist.3000m.sum"),  # Adjusting for these variables
+  ref = c("gender,0", "sampling_season,Summer", "smoked_ever,0")  # Set reference categories
+)
+
+# Plotting the residuals vs fitted values for the first OTU (adjust for others as needed)
+library(ggplot2)
+
+# Create a plot for the first OTU (adjust to any specific OTU if needed)
+otu_name1 <- colnames(Goat_expo_maaslin_res$residuals)[1]  # For the first OTU
+# Get residuals and fitted values for this OTU
+residuals_otu <- Goat_expo_maaslin_res$residuals[, otu_name1]
+fitted_values_otu <- Goat_expo_maaslin_res$fitted_values[, otu_name1]
+# Create a dataframe for plotting
+residuals_fitted_df <- data.frame(
+  Residuals = residuals_otu,
+  Fitted_Values = fitted_values_otu
+)
+# Plot residuals vs fitted values
+ggplot(residuals_fitted_df, aes(x = Fitted_Values, y = Residuals)) +
+  geom_point(alpha = 0.5, color = "blue") +
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+  labs(title = paste("Residuals vs Fitted Values for", otu_name),
+       x = "Fitted Values",
+       y = "Residuals") +
+  theme_minimal()+
+  ylim(-1, 1)  # Set the maximum y-value to 1, allow minimum to adjust automatically
+
+
+# Create a plot for the first OTU (adjust to any specific OTU if needed)
+otu_name2 <- colnames(Goat_expo_maaslin_res$residuals)[2]  # For the first OTU
+# Get residuals and fitted values for this OTU
+residuals_otu2 <- Goat_expo_maaslin_res$residuals[, otu_name2]
+fitted_values_otu2 <- Goat_expo_maaslin_res$fitted_values[, otu_name2]
+# Create a dataframe for plotting
+residuals_fitted_df2 <- data.frame(
+  Residuals = residuals_otu2,
+  Fitted_Values = fitted_values_otu2
+)
+# Plot residuals vs fitted values
+ggplot(residuals_fitted_df2, aes(x = Fitted_Values, y = Residuals)) +
+  geom_point(alpha = 0.5, color = "blue") +
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+  labs(title = paste("Residuals vs Fitted Values for", otu_name2),
+       x = "Fitted Values",
+       y = "Residuals") +
+  theme_minimal()+
+  ylim(-1, 1)  # Set the maximum y-value to 1, allow minimum to adjust automatically
+
+
+
+# Create a plot for the first OTU (adjust to any specific OTU if needed)
+otu_name3 <- colnames(Goat_expo_maaslin_res$residuals)[3]  # For the first OTU
+# Get residuals and fitted values for this OTU
+residuals_otu3 <- Goat_expo_maaslin_res$residuals[, otu_name3]
+fitted_values_otu3 <- Goat_expo_maaslin_res$fitted_values[, otu_name3]
+# Create a dataframe for plotting
+residuals_fitted_df3 <- data.frame(
+  Residuals = residuals_otu3,
+  Fitted_Values = fitted_values_otu3
+)
+# Plot residuals vs fitted values
+ggplot(residuals_fitted_df3, aes(x = Fitted_Values, y = Residuals)) +
+  geom_point(alpha = 0.5, color = "blue") +
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+  labs(title = paste("Residuals vs Fitted Values for", otu_name3),
+       x = "Fitted Values",
+       y = "Residuals") +
+  theme_minimal()+
+  ylim(-1, 1)  # Set the maximum y-value to 1, allow minimum to adjust automatically
+
+# Fit a smoother line using geom_smooth() to confirm the pattern:
+ggplot(residuals_fitted_df3, aes(x = Fitted_Values, y = Residuals)) +
+  geom_point(alpha = 0.5, color = "blue") +
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+  geom_smooth(method = "loess", color = "black") +  # Add a LOESS curve to visualize trends
+  labs(title = paste("Residuals vs Fitted Values for", otu_name3),
+       x = "Fitted Values",
+       y = "Residuals") +
+  theme_minimal()+
+  ylim(-1, 1)  # Set the maximum y-value to 1, allow minimum to adjust automatically
+
+
+
+library(dplyr)
+residuals_fitted_df <- residuals_fitted_df %>%
+  mutate(Fitted_Group = cut(Fitted_Values, breaks = quantile(Fitted_Values, probs = c(0, 0.25, 0.5, 0.75, 1)), include.lowest = TRUE))
+
+residual_variance_by_group <- residuals_fitted_df %>%
+  group_by(Fitted_Group) %>%
+  summarise(Variance = var(Residuals))
+
+print(residual_variance_by_group)
+
+
+
+
+# Try log transform of predictor variables
+ps_abs_cp_np_filt@sam_data$log_cows <- log1p(ps_abs_cp_np_filt@sam_data$KRD_nCowsWghtDist.3000m.sum)
+ps_abs_cp_np_filt@sam_data$log_goats <- log1p(ps_abs_cp_np_filt@sam_data$KRD_nGoatsWghtDist.3000m.sum)
+ps_abs_cp_np_filt@sam_data$log_poultry <- log1p(ps_abs_cp_np_filt@sam_data$KRD_nPoultryWghtDist.3000m.sum )
+ps_abs_cp_np_filt@sam_data$log_pigs <- log1p(ps_abs_cp_np_filt@sam_data$KRD_nPigsWghtDist.3000m.sum)
+
+# Repeat with log transformation
+# Run the MaAsLin2 analysis and extract residuals and fitted values
+Goat_expo_maaslin_res_log <- do_maaslin2_with_residuals(
+  ps = ps_abs_cp_np_filt, 
+  var = "log_goats",  # Including all livestock variables together
+  other_var = c("age", "gender", "sampling_season", "smoked_ever", "log_cows", "log_poultry", "log_pigs"),  # Adjusting for these variables
+  ref = c("gender,0", "sampling_season,Summer", "smoked_ever,0")  # Set reference categories
+)
+
+# Plotting the residuals vs fitted values for the first OTU (adjust for others as needed)
+library(ggplot2)
+
+# Create a plot for the first OTU (adjust to any specific OTU if needed)
+otu_name <- colnames(Goat_expo_maaslin_res_log$residuals)[1]  # For the first OTU
+
+# Get residuals and fitted values for this OTU
+residuals_otu <- Goat_expo_maaslin_res_log$residuals[, otu_name]
+fitted_values_otu <- Goat_expo_maaslin_res_log$fitted_values[, otu_name]
+
+# Create a dataframe for plotting
+residuals_fitted_df <- data.frame(
+  Residuals = residuals_otu,
+  Fitted_Values = fitted_values_otu
+)
+
+# Plot residuals vs fitted values
+ggplot(residuals_fitted_df, aes(x = Fitted_Values, y = Residuals)) +
+  geom_point(alpha = 0.5, color = "blue") +
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+  labs(title = paste("Residuals vs Fitted Values for", otu_name),
+       x = "Fitted Values",
+       y = "Residuals") +
+  theme_minimal()
+
+
+residuals_fitted_df <- residuals_fitted_df %>%
+  mutate(Fitted_Group = cut(Fitted_Values, breaks = quantile(Fitted_Values, probs = c(0, 0.25, 0.5, 0.75, 1)), include.lowest = TRUE))
+
+residual_variance_by_group <- residuals_fitted_df %>%
+  group_by(Fitted_Group) %>%
+  summarise(Variance = var(Residuals))
+
+print(residual_variance_by_group)
+
+
+
+
+
+
+
+# Repeat with log transformation
+ps_abs_cp_np_filt@sam_data$Pigs_Category
+# Run the MaAsLin2 analysis and extract residuals and fitted values
+Goat_expo_maaslin_res_categories <- do_maaslin2_with_residuals(
+  ps = ps_abs_cp_np_filt, 
+  var = "Goats_Category",  # Including all livestock variables together
+  other_var = c("age", "gender", "sampling_season", "smoked_ever", "Cattle_Category", "Poultry_Category", "Pigs_Category"),  # Adjusting for these variables
+  ref = c("gender,0", "sampling_season,Summer", "smoked_ever,0","Cattle_Category,Low", "Poultry_Category,Low", "Pigs_Category,Low")  # Set reference categories
+)
+
+write.csv(Goat_expo_maaslin_res_categories, "../Output/DA_analysis/MaAsLin/CP_NP/ASV_level/ASV_CP_NP_goat_exp_categorised.csv")
+
+
+# Plotting the residuals vs fitted values for the first OTU (adjust for others as needed)
+# Create a plot for the first OTU (adjust to any specific OTU if needed)
+otu_name <- colnames(Goat_expo_maaslin_res_categories$residuals)[1]  # For the first OTU
+# Get residuals and fitted values for this OTU
+residuals_otu_cat <- Goat_expo_maaslin_res_categories$residuals[, otu_name]
+fitted_values_otu_cat <- Goat_expo_maaslin_res_categories$fitted_values[, otu_name]
+# Create a dataframe for plotting
+residuals_fitted_df <- data.frame(
+  Residuals = residuals_otu_cat,
+  Fitted_Values = fitted_values_otu_cat
+)
+
+# Plot residuals vs fitted values
+ggplot(residuals_fitted_df, aes(x = Fitted_Values, y = Residuals)) +
+  geom_point(alpha = 0.5, color = "blue") +
+  geom_hline(yintercept = 0, color = "red", linetype = "dashed") +
+  labs(title = paste("Residuals vs Fitted Values for", otu_name),
+       x = "Fitted Values",
+       y = "Residuals") +
+  theme_minimal()
+
+
+residuals_fitted_df <- residuals_fitted_df %>%
+  mutate(Fitted_Group = cut(Fitted_Values, breaks = quantile(Fitted_Values, probs = c(0, 0.25, 0.5, 0.75, 1)), include.lowest = TRUE))
+
+residual_variance_by_group <- residuals_fitted_df %>%
+  group_by(Fitted_Group) %>%
+  summarise(Variance = var(Residuals))
+
+print(residual_variance_by_group)
+```
+
+
 #### OP niche
 ```{r}
 # # UNIVARIABLE for livestock species
