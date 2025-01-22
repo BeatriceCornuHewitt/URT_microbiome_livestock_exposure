@@ -2291,6 +2291,111 @@ heatmap_cp_gf_op_genuslevel <- ggplot(op_cp_gf_genus_heatmap_data, aes(x = metad
 
 ggsave("../Output/DA_analysis/MaAsLin/CP_GF_op/Genus_level/Heatmap_Maaslin_results_cp_gf_op_genuslevel.svg", heatmap_cp_gf_op_genuslevel, width = 6, height=6)
 ```
+# Boxplots to check abundances - CP vs GF (NP)
+```{r}
+# Read in the MaAsLin2 results
+maaslin_results_cp_gf_np <- read.csv("../Output/DA_analysis/MaAsLin/CP_GF_NP/Genus_level/maaslin_cp_gf_genus_np_ord.csv")
+
+# Filter for significant results (e.g., FDR < 0.05)
+significant_genera_cp_gf_np <- maaslin_results_cp_gf_np %>%
+  filter(qval < 0.05) %>%
+  arrange(desc(coef))
+
+# Print the significant genera for confirmation
+print(significant_genera_cp_gf_np$feature)
+
+# Extract the genus names
+significant_genus_names_cp_gf_np <- significant_genera_cp_gf_np$feature
+
+# Subset your original phyloseq object (or microbiome dataset) to only include significant genera
+# Assuming you have a phyloseq object named `ps_np_cp_gf_abs_genus_filt`
+ps_significant_cp_gf_np <- prune_taxa(taxa_names(ps_np_cp_gf_abs_genus_filt) %in% significant_genus_names_cp_gf_np, ps_np_cp_gf_abs_genus_filt)
+
+# Create a data frame for visualization
+# Convert phyloseq object to long format (requires `phyloseq` and `tidyverse`)
+ps_df_cp_gf_np <- ps_significant_cp_gf_np %>%
+  phyloseq::psmelt() %>%
+  filter(Genus %in% significant_genus_names_cp_gf_np) %>%
+  group_by(Sample, Genus, population) %>%
+  summarize(Abundance = sum(Abundance), .groups = "drop")
+
+ps_df_cp_gf_np <- ps_df_cp_gf_np %>%
+  mutate(Abundance_log = log10(Abundance + 1)) # Log-transform abundance to reduce skew
+
+# Optional: Order the genera by effect size for better visualization
+ps_df_cp_gf_np$Genus <- factor(ps_df_cp_gf_np$Genus, levels = significant_genus_names_cp_gf_np)
+
+# Create a violin and boxplot (inside) of abundance for significant genera across populations
+ggplot(ps_df_cp_gf_np, aes(x = population, y = Abundance_log, fill = population)) +
+  geom_violin(alpha = 0.5, scale = "width", trim = TRUE, color = NA) + # Add violin plot
+  geom_boxplot(width = 0.2, outlier.shape = NA, alpha = 0.7, color = "black") + # Add boxplot inside violin
+  facet_wrap(~Genus, scales = "free_y") +
+  scale_fill_manual(values = c("CP" = "#e3be6a", "GF" = "#77b6a4")) + # Customize colors
+  labs(title = "Differentially Abundant Genera",
+       x = "Population",
+       y = "Absolute abundance (log transformed)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "top")
+
+# Save the plot
+ggsave("../Output/DA_analysis/MaAsLin/CP_GF_NP/Genus_level/Significant_genera_violinplots.svg",
+       width = 12, height = 8)
+```
+# Boxplots to check abundances - CP vs GF (OP)
+```{r}
+# Read in the MaAsLin2 results
+maaslin_results_cp_gf_op <- read.csv("../Output/DA_analysis/MaAsLin/CP_GF_OP/Genus_level/maaslin_cp_gf_genus_op_ord.csv")
+
+# Filter for significant results (e.g., FDR < 0.05)
+significant_genera_cp_gf_op <- maaslin_results_cp_gf_op %>%
+  filter(qval < 0.05) %>%
+  arrange(desc(coef))
+
+# Print the significant genera for confirmation
+print(significant_genera_cp_gf_op$feature)
+
+# Extract the genus names
+significant_genus_names_cp_gf_op <- significant_genera_cp_gf_op$feature
+
+# Subset your original phyloseq object (or microbiome dataset) to only include significant genera
+# Assuming you have a phyloseq object named `ps_np_cp_gf_abs_genus_filt`
+ps_significant_cp_gf_op <- prune_taxa(taxa_names(ps_op_cp_gf_abs_genus_filt) %in% significant_genus_names_cp_gf_op, ps_op_cp_gf_abs_genus_filt)
+
+# Create a data frame for visualization
+# Convert phyloseq object to long format (requires `phyloseq` and `tidyverse`)
+ps_df_cp_gf_op <- ps_significant_cp_gf_op %>%
+  phyloseq::psmelt() %>%
+  filter(Genus %in% significant_genus_names_cp_gf_op) %>%
+  group_by(Sample, Genus, population) %>%
+  summarize(Abundance = sum(Abundance), .groups = "drop")
+
+ps_df_cp_gf_op <- ps_df_cp_gf_op %>%
+  mutate(Abundance_log = log10(Abundance + 1)) # Log-transform abundance to reduce skew
+
+# Optional: Order the genera by effect size for better visualization
+ps_df_cp_gf_op$Genus <- factor(ps_df_cp_gf_op$Genus, levels = significant_genus_names_cp_gf_op)
+
+# Create a violin and boxplot (inside) of abundance for significant genera across populations
+ggplot(ps_df_cp_gf_op, aes(x = population, y = Abundance_log, fill = population)) +
+  geom_violin(alpha = 0.5, scale = "width", trim = TRUE, color = NA) + # Add violin plot
+  geom_boxplot(width = 0.2, outlier.shape = NA, alpha = 0.7, color = "black") + # Add boxplot inside violin
+  facet_wrap(~Genus, scales = "free_y") +
+  scale_fill_manual(values = c("CP" = "#e3be6a", "GF" = "#77b6a4")) + # Customize colors
+  labs(title = "Differentially Abundant Genera",
+       x = "Population",
+       y = "Absolute abundance (log transformed)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "top")
+
+# Save the plot
+ggsave("../Output/DA_analysis/MaAsLin/CP_GF_OP/Genus_level/Significant_genera_violinplots.svg",
+       width = 12, height = 8)
+
+
+```
+
 
 # Check some sequences of interest using BLAST
 ```{r}
@@ -2332,7 +2437,7 @@ print(seq[21, ])
 
 
 
-
+tax_table(ps_new_metadata_RFpreds)[7,]
 tax_table(ps_new_metadata_RFpreds)[35,]
 tax_table(ps_new_metadata_RFpreds)[24,]
 tax_table(ps_new_metadata_RFpreds)[52,]
