@@ -247,10 +247,82 @@ PCoA_pop_op
 ggsave("../Output/Beta_diversity/Multivariable_PERMANOVAs/PCoA_GFvsCP_OP.svg", PCoA_pop_op, width= 6, height=5)
 ```
 
+## GF OP niche - different farms coloured 
+```{r}
+ps_op_gf <- subset_samples(ps_op_cp_gf_matched, population == "GF") %>% pres_abund_filter() %>% to_RA()  
+# A total of 351 ASVs were found to be present at or above a level of confident detection (0.1% relative abundance) in at least 2 samples (n = 319 ASVs excluded).
+# 92 samples
+getwd()
+farm_data <- as.data.frame(read_excel("../Input/FarmerID_farmID.xlsx"))
+farm_data$VGO3_ID <- as.character(farm_data$VGO3_ID)
 
+# Add row names as a new column
+sample_data_df <- data.frame(sample_data(ps_op_gf))
+sample_data_df$Sample_ID <- rownames(sample_data_df)
+
+# Perform left_join, ensuring VGO3_ID matches
+sample_data_updated <- sample_data_df %>%
+  left_join(farm_data, by = "VGO3_ID")
+
+# Restore row names and remove the temporary Sample_ID column
+rownames(sample_data_updated) <- sample_data_updated$Sample_ID
+sample_data_updated$Sample_ID <- NULL
+
+
+sample_data(ps_op_gf) <- sample_data_updated
+farm_palette <- colorRampPalette(brewer.pal(12, "Paired"))(40)
+
+sample_data(ps_op_gf)$Farm_ID <- as.factor(sample_data(ps_op_gf)$Farm_ID)
+
+PCoA_gf_op_farm <- ps_op_gf %>% 
+  dist_calc("bray") %>%
+  ord_calc(method = "PCoA") %>%
+  ord_plot(color = "Farm_ID", size = 3.5, alpha = 0.7) + 
+  scale_color_hue(aesthetics = c("colour")) +  # Automatically assign colors for points
+  scale_fill_hue(aesthetics = c("fill")) +    # Automatically assign colors for fills
+  theme_bw() +
+  theme(
+    axis.title = element_text(size = 14),  # Increase axis title size
+    axis.text = element_text(size = 12)    # Increase axis text size
+  )
+
+# Show the plot
+PCoA_gf_op_farm
+
+
+ggsave("../Output/Beta_diversity/Multivariable_PERMANOVAs/PCoA_GF_OP_farm_id.svg", PCoA_gf_op_farm, width= 6, height=5)
+
+
+# hard to tell with colours, only incude those with non-unique farm IDs 
+# Get the 'Farm_ID' from the sample data
+# Drop unused factor levels for Farm_ID
+sample_data(ps_op_gf_filtered)$Farm_ID <- droplevels(sample_data(ps_op_gf_filtered)$Farm_ID)
+
+# Check the factor levels again
+levels(sample_data(ps_op_gf_filtered)$Farm_ID)
+
+
+# Now, ps_op_gf_filtered contains only samples with 'Farm_ID' values that appear more than once
+PCoA_gf_op_farm_filt <- ps_op_gf_filtered %>% 
+  dist_calc("bray") %>%
+  ord_calc(method = "PCoA") %>%
+  ord_plot(color = "Farm_ID", size = 3.5, alpha = 0.7) + 
+  scale_color_hue(aesthetics = c("colour")) +  # Automatically assign colors for points
+  scale_fill_hue(aesthetics = c("fill")) +    # Automatically assign colors for fills
+  theme_bw() +
+  theme(
+    axis.title = element_text(size = 14),  # Increase axis title size
+    axis.text = element_text(size = 12)    # Increase axis text size
+  )+
+  stat_ellipse(aes(fill = Farm_ID, color = Farm_ID), 
+               type = "t", level = 0.95, size = 1, geom = "polygon", alpha = 0.1) # Transparent fill inside ellipses
+# Show the plot
+PCoA_gf_op_farm_filt
+
+```
 
 # Multivariable PERMANOVAs livestock exposures 
-# Prepare data
+## Prepare data
 ```{r}
 # Filter the ps object by niche and population
 # Apply a prevalence/abundance filter to the phyloseq objects
