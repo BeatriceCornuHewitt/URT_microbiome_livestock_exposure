@@ -1,10 +1,10 @@
 ---
-title: "Networks"
+title: "Networks Spiec-easi"
 author: "Beatrice Cornu Hewitt" 
 date: "`r Sys.time()`"
 ---
 
-SPIEC-EASI made for microbiome co-occurrence networks
+Spiec-easi made for microbiome co-occurrence networks
 # Libraries 
 ```{r}
 # Install required packages
@@ -69,68 +69,10 @@ ig_slr <- adj2igraph(getRefit(se_slr),
 }
 
 
-plot_ig <- function(ig) {
-  ig %>%
-    delete_vertices(which(igraph::degree(.) == 0)) %>% 
-    ggraph(layout =  "kk") +
-    geom_edge_link(aes(colour = sign, width = edge_width), alpha = 0.5) +  # Color edges based on sign
-    scale_edge_color_manual(values = c("neg" = "darkblue", "pos" = "darkred")) +  # Set colors for neg and pos edges
-    geom_node_point(shape = 20, size = 12, aes(colour = Family), alpha = 0.4) +
-    geom_node_text(aes(label = ASV), repel = TRUE, size = 4) +
-    theme_minimal() + 
-    theme(
-      panel.background = element_rect(fill = "white", color = NA), # White panel background
-      plot.background = element_rect(fill = "white", color = NA),  # White plot background
-      axis.line = element_blank(),      # Removes x and y axis lines
-      axis.ticks = element_blank(),     # Removes axis ticks
-      axis.text = element_blank(),      # Removes axis text
-      axis.title = element_blank(),     # Removes axis titles
-      legend.text = element_text(size = 10),  # Make legend text smaller
-      legend.title = element_text(size = 10),  # Make legend title smaller
-      legend.spacing = unit(0.5, "lines"),  # Reduce spacing between legend items
-      legend.position = "right"  # Keep legend position on the right
-    ) +
-    guides(
-      colour = guide_legend(override.aes = list(size = 4)),  # Adjust legend size separately
-      edge_width = "none"  # Remove edge width from the legend
-    )
-}
-
-
-plot_ig_genus <- function(ig) {
-  ig %>%
-    delete_vertices(which(igraph::degree(.) == 0)) %>% 
-    ggraph(layout =  "kk") +
-    geom_edge_link(aes(colour = sign, width = edge_width), alpha = 0.5) +  # Color edges based on sign
-    scale_edge_color_manual(values = c("neg" = "darkblue", "pos" = "darkred")) +  # Set colors for neg and pos edges
-    geom_node_point(shape = 20, size = 12, aes(colour = Family), alpha = 0.4) +
-    geom_node_text(aes(label = Genus), repel = TRUE, size = 4) +
-    theme_minimal() + 
-    theme(
-      panel.background = element_rect(fill = "white", color = NA), # White panel background
-      plot.background = element_rect(fill = "white", color = NA),  # White plot background
-      axis.line = element_blank(),      # Removes x and y axis lines
-      axis.ticks = element_blank(),     # Removes axis ticks
-      axis.text = element_blank(),      # Removes axis text
-      axis.title = element_blank(),     # Removes axis titles
-      legend.text = element_text(size = 10),  # Make legend text smaller
-      legend.title = element_text(size = 10),  # Make legend title smaller
-      legend.spacing = unit(0.5, "lines"),  # Reduce spacing between legend items
-      legend.position = "right"  # Keep legend position on the right
-    ) +
-    guides(
-      colour = guide_legend(override.aes = list(size = 4)),  # Adjust legend size separately
-      edge_width = "none"  # Remove edge width from the legend
-    )
-}
-
-
-
-
 plot_ig_nodal_size <- function(ig) {
   # Extract unique families and define colors
-  unique_family <- unique(V(ig)$Family)  # Get unique families
-  num_colors <- length(unique_family)  # Count families
+  unique_order <- unique(V(ig)$Order)  # Get unique families
+  num_colors <- length(unique_order)  # Count families
   my_colors <- colorRampPalette(brewer.pal(9, "Set3"))(num_colors)  # Generate a color palette
 
   # Calculate degree and add it as a vertex attribute
@@ -138,13 +80,13 @@ plot_ig_nodal_size <- function(ig) {
 
   ig %>%
     delete_vertices(which(igraph::degree(.) == 0)) %>%  # Remove nodes with degree 0
-    ggraph(layout = "kk") +
+    ggraph(layout = "fr") +
     geom_edge_link(aes(colour = sign, width = edge_width), alpha = 0.5) +
     scale_edge_color_manual(values = c("neg" = "darkblue", "pos" = "darkred")) +  # Set edge colors
-    geom_node_point(shape = 20, aes(colour = Family, size = degree), alpha = 0.8) +  # Map size to degree
-    scale_colour_manual(values = setNames(my_colors, unique_family)) +  # Assign colors to families
+    geom_node_point(shape = 20, aes(colour = Order, size = degree), alpha = 0.8) +  # Map size to degree
+    scale_colour_manual(values = setNames(my_colors, unique_order)) +  # Assign colors to families
     scale_size_continuous(range = c(5, 20), guide = "none") +  # Adjust size range for nodes
-    geom_node_text(aes(label = ASV), repel = TRUE, size = 3) +  # Add node labels
+    geom_node_text(aes(label = ASV), repel = TRUE, size = 3, max.overlaps = 50) +  # Adjust `max.overlaps`
     theme_minimal() +
     theme(
       panel.background = element_rect(fill = "white", color = NA),
@@ -167,25 +109,32 @@ plot_ig_nodal_size <- function(ig) {
     )
 }
 
-
-plot_ig_betweeness_centrality <- function(ig) {
+# Networks with selected labelling of ASVs in the network
+# labelling only interestring nodes
+plot_ig_nodal_size_selected_labels <- function(ig, selected_asvs) {
   # Extract unique families and define colors
-  unique_family <- unique(V(ig)$Family)  # Get unique families
-  num_colors <- length(unique_family)  # Count families
-  my_colors <- colorRampPalette(brewer.pal(9, "Set3"))(num_colors)  # Generate a color palette
+  unique_order <- unique(V(ig)$Order)
+  num_colors <- length(unique_order)
+  my_colors <- colorRampPalette(brewer.pal(9, "Set3"))(num_colors)
+  
+  # Calculate degree
+  V(ig)$degree <- igraph::degree(ig)
 
-  # Calculate betweeness centrality and add it as a vertex attribute
-  V(ig)$betweenness <- igraph::betweenness(ig, normalized = TRUE)  # Calculate normalized betweenness
-
+  # Identify nodes to label
+  selected_indices <- which(V(ig)$ASV %in% selected_asvs)  # Indices of selected ASVs
+  neighbors <- unlist(ego(ig, order = 1, nodes = selected_indices))  # Neighbors of selected ASVs
+  to_label <- unique(c(selected_indices, neighbors))  # Combine selected ASVs and their neighbors
+  V(ig)$label <- ifelse(seq_along(V(ig)) %in% to_label, V(ig)$ASV, NA)  # Set labels for nodes to label
+  
   ig %>%
-    delete_vertices(which(igraph::degree(.) == 0)) %>%  # Remove nodes with degree 0
-    ggraph(layout = "kk") +
+    delete_vertices(which(igraph::degree(.) == 0)) %>%
+    ggraph(layout = "fr") +
     geom_edge_link(aes(colour = sign, width = edge_width), alpha = 0.5) +
-    scale_edge_color_manual(values = c("neg" = "darkblue", "pos" = "darkred")) +  # Set edge colors
-    geom_node_point(shape = 20, aes(colour = Family, size = betweenness), alpha = 0.8) +  # Map size to betweenness
-    scale_colour_manual(values = setNames(my_colors, unique_family)) +  # Assign colors to families
-    scale_size_continuous(range = c(5, 20), guide = "none") +  # Adjust size range for nodes
-    geom_node_text(aes(label = ASV), repel = TRUE, size = 3) +  # Add node labels
+    scale_edge_color_manual(values = c("neg" = "darkblue", "pos" = "darkred")) +
+    geom_node_point(shape = 20, aes(colour = Order, size = degree), alpha = 0.8) +
+    scale_colour_manual(values = setNames(my_colors, unique_order)) +
+    scale_size_continuous(range = c(5, 20), guide = "none") +
+    geom_node_text(aes(label = label), repel = TRUE, size = 3, max.overlaps = 50) +  # Use the new `label` column
     theme_minimal() +
     theme(
       panel.background = element_rect(fill = "white", color = NA),
@@ -194,67 +143,17 @@ plot_ig_betweeness_centrality <- function(ig) {
       axis.ticks = element_blank(),
       axis.text = element_blank(),
       axis.title = element_blank(),
-      legend.text = element_text(size = 8),  # Adjust legend text size
-      legend.title = element_text(size = 10),  # Adjust legend title size
-      legend.spacing = unit(0.5, "lines"),  # Adjust spacing in the legend
-      legend.key.size = unit(0.5, "lines"),  # Adjust key size in the legend
+      legend.text = element_text(size = 8),
+      legend.title = element_text(size = 10),
+      legend.spacing = unit(0.5, "lines"),
+      legend.key.size = unit(0.5, "lines"),
       legend.position = "right"
     ) +
     guides(
-      colour = guide_legend(
-        override.aes = list(size = 4)  # Adjust legend symbol size
-      ),
-      edge_width = "none"  # Hide edge width in the legend
+      colour = guide_legend(override.aes = list(size = 4)),
+      edge_width = "none"
     )
 }
-
-
-plot_ig_nodal_size_bold <- function(ig) {
-  # Extract unique families and define colors
-  unique_family <- unique(V(ig)$Family)  # Get unique families
-  num_colors <- length(unique_family)  # Count families
-  my_colors <- colorRampPalette(brewer.pal(9, "Set3"))(num_colors)  # Generate a color palette
-
-  # Define ASVs to be bolded
-  bold_asvs <- c("Staphylococcus_256", "Staphylococcaceae_295", "Spingomonas_175", "Corynebacterium_stationis_251")
-
-  # Calculate degree and add it as a vertex attribute
-  V(ig)$degree <- igraph::degree(ig)  # Calculate degree for each node
-
-  ig %>%
-    delete_vertices(which(igraph::degree(.) == 0)) %>%  # Remove nodes with degree 0
-    ggraph(layout = "kk") +
-    geom_edge_link(aes(colour = sign, width = edge_width), alpha = 0.5) +
-    scale_edge_color_manual(values = c("neg" = "darkblue", "pos" = "darkred")) +  # Set edge colors
-    geom_node_point(shape = 20, aes(colour = Family, size = degree), alpha = 0.8) +  # Map size to degree
-    scale_colour_manual(values = setNames(my_colors, unique_family)) +  # Assign colors to families
-    scale_size_continuous(range = c(5, 20), guide = "none") +  # Adjust size range for nodes
-    geom_node_text(aes(label = ASV, fontface = ifelse(ASV %in% bold_asvs, "bold", "plain")), 
-                   repel = TRUE, size = 3) +  # Add node labels with conditional bolding
-    theme_minimal() +
-    theme(
-      panel.background = element_rect(fill = "white", color = NA),
-      plot.background = element_rect(fill = "white", color = NA),
-      panel.grid = element_blank(),  # Remove all grid lines (guidelines)
-      axis.line = element_blank(),
-      axis.ticks = element_blank(),
-      axis.text = element_blank(),
-      axis.title = element_blank(),
-      legend.text = element_text(size = 8),  # Adjust legend text size
-      legend.title = element_text(size = 10),  # Adjust legend title size
-      legend.spacing = unit(0.5, "lines"),  # Adjust spacing in the legend
-      legend.key.size = unit(0.5, "lines"),  # Adjust key size in the legend
-      legend.position = "right"
-    ) +
-    guides(
-      colour = guide_legend(
-        override.aes = list(size = 4)  # Adjust legend symbol size
-      ),
-      edge_width = "none"  # Hide edge width in the legend
-    )
-}
-
-
 
 ```
 # NP vs OP networks
@@ -313,7 +212,7 @@ igraph_cp_only_np <- plot_ig(ig_slr_cp_only_np) +
   )
 
 igraph_cp_only_np
-ggsave("../Output/Networks/igraph_cp_all_np.svg", igraph_cp_only_np, width = 8, height = 5.5)
+ggsave("../Output/Networks/Filtering/igraph_cp_all_np.svg", igraph_cp_only_np, width = 8, height = 5.5)
 ```
 
 ## CP (all) OP
@@ -366,7 +265,7 @@ igraph_cp_only_op <- plot_ig(ig_slr_cp_only_op) +
   )
 
 igraph_cp_only_op
-ggsave("../Output/Networks/igraph_cp_all_op.svg", igraph_cp_only_op, width = 8, height = 5.5)
+ggsave("../Output/Networks/Filtering/igraph_cp_all_op.svg", igraph_cp_only_op, width = 8, height = 5.5)
 ```
 
 ### Comparison NP vs OP 
@@ -411,683 +310,6 @@ modularity_op <- modularity(community_op)
 # Compare the modularity
 print(modularity_np)
 print(modularity_op)
-
-```
-# Filtering of data based on prevalence/abundance 
-## Farmers vs residents
-### NP 
-```{r}
-# Data for all
-ps_cp_gf <- readRDS("../Output/Phyloseq/ps_complete_matchedCPGF.rds")
-
-# Filter for NP only 
-ps_cp_gf_np <- ps_cp_gf %>%
-  subset_samples(niche == "NP") # 237 samples
-
-# Prune zero sum taxa and apply filter
-ps_cp_gf_np_filt <- ps_cp_gf_np %>%  
-  prune_taxa(taxa_sums(.) > 0, .) %>%
-  pres_abund_filter(pres = 237 * 0.03, abund = 0.01) # 33 ASVs remaining
-
-### GF ###
-# Subset phyloseq for GF
-ps_gf_only_filt <- ps_cp_gf_np_filt %>%
-  subset_samples(population == "GF") # 77 samples
-
-str(ps_gf_only_filt@otu_table)
-
-# Extract the abundance table (ASV table)
-asv_matrix_gf_only_np <- as(otu_table(ps_gf_only_filt), "matrix")
-asv_matrix_gf_only_np <- t(asv_matrix_gf_only_np)
-
-# No need to convert phyloseq ASV abundances to relative abundances before running SPIEC-EASI as it is designed to handle compositionality by applying the CLR transformation and is designed to handle raw reads
-se_gf_only_np_slr <- spiec.easi(asv_matrix_gf_only_np, 
-                           method ='slr', 
-                           r = 5, 
-                           lambda.min.ratio = 1e-1,
-                           nlambda = 30, 
-                           pulsar.params=list(rep.num = 50))
-
-# Prepare for network plot
-ig_slr_gf_only_np_df <- create_ig_df(se_gf_only_np_slr, ps_gf_only_filt)
-ig_slr_gf_only_np_df %>% arrange(-weight)
-
-# Prepare for igraph
-ig_slr_gf_only_np <- prep_ig(se_gf_only_np_slr, ps_gf_only_filt, ig_slr_gf_only_np_df)
-
-igraph_gf_only_np <- plot_ig(ig_slr_gf_only_np) +
-  theme_minimal() + # Use a clean theme
-  theme(
-    panel.background = element_rect(fill = "white", color = NA), # White panel background
-    plot.background = element_rect(fill = "white", color = NA),  # White plot background
-    axis.line = element_blank(),      # Removes x and y axis lines
-    axis.ticks = element_blank(),     # Removes axis ticks
-    axis.text = element_blank(),      # Removes axis text
-    axis.title = element_blank(),     # Removes axis titles
-    legend.text = element_text(size = 10), # Adjusts size of legend text
-    legend.title = element_text(size = 10), # Adjusts size of legend title
-    legend.spacing = unit(0.5, "lines"),  # Reduces spacing between legend items
-    legend.key.size = unit(0.5, "lines"), # Makes legend keys smaller
-    legend.position = "right"  # Keeps legend position on the right
-  )
-
-igraph_gf_only_np
-ggsave("../Output/Networks/igraph_gf_only_np.svg", igraph_gf_only_np, width = 8, height = 5.5)
-
-### CP ###
-# Subset phyloseq for CP
-ps_cp_only_filt_np <- ps_cp_gf_np_filt %>%
-  subset_samples(population == "CP") # 160 samples
-
-# Extract the abundance table (ASV table)
-asv_matrix_cp_only_np <- as(otu_table(ps_cp_only_filt_np), "matrix")
-asv_matrix_cp_only_np <- t(asv_matrix_cp_only_np)
-
-# No need to convert phyloseq ASV abundances to relative abundances before running SPIEC-EASI as it is designed to handle compositionality by applying the CLR transformation and is designed to handle raw reads
-se_cp_only_np_slr <- spiec.easi(asv_matrix_cp_only_np, 
-                           method ='slr', 
-                           r = 5, 
-                           lambda.min.ratio = 1e-1,
-                           nlambda = 30, 
-                           pulsar.params=list(rep.num = 50))
-# Prepare for network plot
-ig_slr_cp_only_np_df <- create_ig_df(se_cp_only_np_slr, ps_cp_only_filt)
-ig_slr_cp_only_np_df %>% arrange(-weight)
-
- # Prepare for igraph
-ig_slr_cp_only_np <- prep_ig(se_cp_only_np_slr, ps_cp_only_filt, ig_slr_cp_only_np_df)
-
-igraph_cp_only_np <- plot_ig(ig_slr_cp_only_np) +
-  theme_minimal() + # Use a clean theme
-  theme(
-    panel.background = element_rect(fill = "white", color = NA), # White panel background
-    plot.background = element_rect(fill = "white", color = NA),  # White plot background
-    axis.line = element_blank(),      # Removes x and y axis lines
-    axis.ticks = element_blank(),     # Removes axis ticks
-    axis.text = element_blank(),      # Removes axis text
-    axis.title = element_blank(),     # Removes axis titles
-    legend.text = element_text(size = 10), # Adjusts size of legend text
-    legend.title = element_text(size = 10), # Adjusts size of legend title
-    legend.spacing = unit(0.5, "lines"),  # Reduces spacing between legend items
-    legend.key.size = unit(0.5, "lines"), # Makes legend keys smaller
-    legend.position = "right"  # Keeps legend position on the right
-  )
-
-igraph_cp_only_np
-ggsave("../Output/Networks/igraph_cp_only_np.svg", igraph_cp_only_np, width = 8, height = 5.5)
-```
-#### Comparison metrics
-```{r}
-# Calculate network density
-density_gf_np <- edge_density(ig_slr_gf_only_np)  # GF NP network
-density_cpmatched_np <- edge_density(ig_slr_cp_only_np)  # CP NP network
-
-# Calculate average degree
-avg_degree_gf_np <- mean(degree(ig_slr_gf_only_np))
-avg_degree_cpmatched_np <- mean(degree(ig_slr_cp_only_np))
-
-# Calculate average path length
-avg_path_length_gf_np <- mean_distance(ig_slr_gf_only_np, directed = FALSE)
-avg_path_length_cpmatched_np <- mean_distance(ig_slr_cp_only_np, directed = FALSE)
-
-# Calculate clustering coefficient
-clustering_gf_np <- transitivity(ig_slr_gf_only_np, type = "global")
-clustering_cpmatched_np <- transitivity(ig_slr_cp_only_np, type = "global")
-
-# Calculate modularity
-modularity_gf_np <- modularity(cluster_fast_greedy(ig_slr_gf_only_np))
-modularity_cpmatched_np <- modularity(cluster_fast_greedy(ig_slr_cp_only_np))
-
-# Combine metrics into a data frame
-network_metrics_np_cp_gf <- data.frame(
-  Metric = c(
-    "Network Density", 
-    "Average Degree", 
-    "Average Path Length", 
-    "Clustering Coefficient", 
-    "Modularity"
-  ),
-  `GF NP` = c(
-    density_gf_np, 
-    avg_degree_gf_np, 
-    avg_path_length_gf_np, 
-    clustering_gf_np, 
-    modularity_gf_np
-  ),
-  `CP NP` = c(
-    density_cpmatched_np, 
-    avg_degree_cpmatched_np, 
-    avg_path_length_cpmatched_np, 
-    clustering_cpmatched_np, 
-    modularity_cpmatched_np
-  )
-)
-
-# Print the table
-print(network_metrics_np_cp_gf)
-
-# Optionally save as a CSV for documentation
-write.csv(network_metrics_np_cp_gf, "../Output/Networks/network_metrics_np_cp_gf.csv", row.names = FALSE)
-
-
-
-# Looking at nodes
-# For GF network
-degree_centrality_gf <- degree(ig_slr_gf_only_np, mode = "all")
-# For CP network
-degree_centrality_cp <- degree(ig_slr_cp_only_np, mode = "all")
-
-# For GF network
-betweenness_centrality_gf <- betweenness(ig_slr_gf_only_np, directed = FALSE, normalized = TRUE)
-# For CP network
-betweenness_centrality_cp <- betweenness(ig_slr_cp_only_np, directed = FALSE, normalized = TRUE)
-
-
-# GF network centralities
-gf_metrics <- data.frame(
-  ASV = names(degree_centrality_gf),
-  Degree = degree_centrality_gf,
-  Betweenness = betweenness_centrality_gf
-)
-
-# CP network centralities
-cp_metrics <- data.frame(
-  ASV = names(degree_centrality_cp),
-  Degree = degree_centrality_cp,
-  Betweenness = betweenness_centrality_cp
-)
-
-
-# Extract genus names for GF network
-genus_names_gf <- V(ig_slr_gf_only_np)$Genus
-
-# Extract genus names for CP network (if you have a CP igraph object)
-genus_names_cp <- V(ig_slr_cp_only_np)$Genus
-
-# For GF network - centrality metrics
-gf_metrics <- data.frame(
-  ASV = names(degree_centrality_gf),
-  Degree = degree_centrality_gf,
-  Betweenness = betweenness_centrality_gf
-)
-
-# Add genus names to GF metrics dataframe
-gf_metrics$Genus <- genus_names_gf[match(gf_metrics$ASV, names(degree_centrality_gf))]
-
-# For CP network - centrality metrics
-cp_metrics <- data.frame(
-  ASV = names(degree_centrality_cp),
-  Degree = degree_centrality_cp,
-  Betweenness = betweenness_centrality_cp
-)
-
-# Add genus names to CP metrics dataframe (if applicable)
-cp_metrics$Genus <- genus_names_cp[match(cp_metrics$ASV, names(degree_centrality_cp))]
-
-# Now your gf_metrics and cp_metrics dataframes will have the 'Genus' column
-print(gf_metrics)
-print(cp_metrics)
-
-
-
-```
-
-
-### OP
-```{r}
-# Data for all
-ps_cp_gf <- readRDS("../Output/Phyloseq/ps_complete_matchedCPGF.rds")
-
-# Filter for op only 
-ps_cp_gf_op <- ps_cp_gf %>%
-  subset_samples(niche == "OP") # 287 samples
-
-# Prune zero sum taxa and apply filter
-ps_cp_gf_op_filt <- ps_cp_gf_op %>%  
-  prune_taxa(taxa_sums(.) > 0, .) %>%
-  pres_abund_filter(pres = 287 * 0.03, abund = 0.02) # 44 ASVs remaining
-
-
-### GF ###
-# Subset phyloseq for GF
-ps_gf_only_filt_op <- ps_cp_gf_op_filt %>%
-  subset_samples(population == "GF") # 92 samples
-
-# Extract the abundance table (ASV table)
-asv_matrix_gf_only_op <- as(otu_table(ps_gf_only_filt_op), "matrix")
-asv_matrix_gf_only_op <- t(asv_matrix_gf_only_op)
-
-# No need to convert phyloseq ASV abundances to relative abundances before running SPIEC-EASI as it is designed to handle compositionality by applying the CLR transformation and is designed to handle raw reads
-se_gf_only_op_slr <- spiec.easi(asv_matrix_gf_only_op, 
-                           method ='slr', 
-                           r = 5, 
-                           lambda.min.ratio = 1e-1,
-                           nlambda = 30, 
-                           pulsar.params=list(rep.num = 50))
-
-# Prepare for network plot
-ig_slr_gf_only_op_df <- create_ig_df(se_gf_only_op_slr, ps_gf_only_filt)
-ig_slr_gf_only_op_df %>% arrange(-weight)
-
-# Prepare for igraph
-ig_slr_gf_only_op <- prep_ig(se_gf_only_op_slr, ps_gf_only_filt, ig_slr_gf_only_op_df)
-
-igraph_gf_only_op <- plot_ig(ig_slr_gf_only_op) +
-  theme_minimal() + # Use a clean theme
-  theme(
-    panel.background = element_rect(fill = "white", color = NA), # White panel background
-    plot.background = element_rect(fill = "white", color = NA),  # White plot background
-    axis.line = element_blank(),      # Removes x and y axis lines
-    axis.ticks = element_blank(),     # Removes axis ticks
-    axis.text = element_blank(),      # Removes axis text
-    axis.title = element_blank(),     # Removes axis titles
-    legend.text = element_text(size = 10), # Adjusts size of legend text
-    legend.title = element_text(size = 10), # Adjusts size of legend title
-    legend.spacing = unit(0.5, "lines"),  # Reduces spacing between legend items
-    legend.key.size = unit(0.5, "lines"), # Makes legend keys smaller
-    legend.position = "right"  # Keeps legend position on the right
-  )
-
-igraph_gf_only_op
-ggsave("../Output/Networks/igraph_gf_only_op.svg", igraph_gf_only_op, width = 8, height = 5.5)
-
-### CP ###
-# Subset phyloseq for CP
-ps_cp_only_filt_op <- ps_cp_gf_op_filt %>%
-  subset_samples(population == "CP") # 195 samples
-
-# Extract the abundance table (ASV table)
-asv_matrix_cp_only_op <- as(otu_table(ps_cp_only_filt_op), "matrix")
-asv_matrix_cp_only_op <- t(asv_matrix_cp_only_op)
-
-# No need to convert phyloseq ASV abundances to relative abundances before running SPIEC-EASI as it is designed to handle compositionality by applying the CLR transformation and is designed to handle raw reads
-se_cp_only_op_slr <- spiec.easi(asv_matrix_cp_only_op, 
-                           method ='slr', 
-                           r = 5, 
-                           lambda.min.ratio = 1e-1,
-                           nlambda = 30, 
-                           pulsar.params=list(rep.num = 50))
-
-# Prepare for network plot
-ig_slr_cp_only_op_df <- create_ig_df(se_cp_only_op_slr, ps_cp_only_filt)
-ig_slr_cp_only_op_df %>% arrange(-weight)
-
-# Prepare for igraph
-ig_slr_cp_only_op <- prep_ig(se_cp_only_op_slr, ps_cp_only_filt, ig_slr_cp_only_op_df)
-
-igraph_cp_only_op <- plot_ig(ig_slr_cp_only_op) +
-  theme_minimal() + # Use a clean theme
-  theme(
-    panel.background = element_rect(fill = "white", color = NA), # White panel background
-    plot.background = element_rect(fill = "white", color = NA),  # White plot background
-    axis.line = element_blank(),      # Removes x and y axis lines
-    axis.ticks = element_blank(),     # Removes axis ticks
-    axis.text = element_blank(),      # Removes axis text
-    axis.title = element_blank(),     # Removes axis titles
-    legend.text = element_text(size = 10), # Adjusts size of legend text
-    legend.title = element_text(size = 10), # Adjusts size of legend title
-    legend.spacing = unit(0.5, "lines"),  # Reduces spacing between legend items
-    legend.key.size = unit(0.5, "lines"), # Makes legend keys smaller
-    legend.position = "right"  # Keeps legend position on the right
-  )
-
-igraph_cp_only_op
-ggsave("../Output/Networks/igraph_cp_only_op.svg", igraph_cp_only_op, width = 8, height = 5.5)
-```
-
-#### Comparison metrics
-```{r}
-# Calculate network density
-density_gf_op <- edge_density(ig_slr_gf_only_op)  # GF op network
-density_cpmatched_op <- edge_density(ig_slr_cp_only_op)  # CP op network
-
-# Calculate average degree
-avg_degree_gf_op <- mean(degree(ig_slr_gf_only_op))
-avg_degree_cpmatched_op <- mean(degree(ig_slr_cp_only_op))
-
-# Calculate average path length
-avg_path_length_gf_op <- mean_distance(ig_slr_gf_only_op, directed = FALSE)
-avg_path_length_cpmatched_op <- mean_distance(ig_slr_cp_only_op, directed = FALSE)
-
-# Calculate clustering coefficient
-clustering_gf_op <- transitivity(ig_slr_gf_only_op, type = "global")
-clustering_cpmatched_op <- transitivity(ig_slr_cp_only_op, type = "global")
-
-# Calculate modularity
-modularity_gf_op <- modularity(cluster_fast_greedy(ig_slr_gf_only_op))
-modularity_cpmatched_op <- modularity(cluster_fast_greedy(ig_slr_cp_only_op))
-
-# Combine metrics into a data frame
-network_metrics_op_cp_gf <- data.frame(
-  Metric = c(
-    "Network Density", 
-    "Average Degree", 
-    "Average Path Length", 
-    "Clustering Coefficient", 
-    "Modularity"
-  ),
-  `GF op` = c(
-    density_gf_op, 
-    avg_degree_gf_op, 
-    avg_path_length_gf_op, 
-    clustering_gf_op, 
-    modularity_gf_op
-  ),
-  `CP op` = c(
-    density_cpmatched_op, 
-    avg_degree_cpmatched_op, 
-    avg_path_length_cpmatched_op, 
-    clustering_cpmatched_op, 
-    modularity_cpmatched_op
-  )
-)
-
-# Print the table
-print(network_metrics_op_cp_gf)
-
-# optionally save as a CSV for documentation
-write.csv(network_metrics_op_cp_gf, "../Output/Networks/network_metrics_op_cp_gf.csv", row.names = FALSE)
-```
-
-# Networks on the genus level
-## Farmers  vs residents
-### NP
-```{r}
-# Data for all
-ps_cp_gf <- readRDS("../Output/Phyloseq/ps_complete_matchedCPGF.rds")
-
-# Filter for NP only 
-ps_cp_gf_np <- ps_cp_gf %>%
-  subset_samples(niche == "NP") # 237 samples
-
-# Prune zero sum taxa and apply filter
-ps_cp_gf_np_filt <- ps_cp_gf_np %>%  
-  prune_taxa(taxa_sums(.) > 0, .) %>%
-  pres_abund_filter(pres = 237 * 0.03, abund = 0.01) # 33 ASVs remaining
-
-### GF ###
-# Subset phyloseq for GF
-ps_gf_only_filt <- ps_cp_gf_np_filt %>%
-  subset_samples(population == "GF") # 77 samples
-
-# Aggregate to genus level
-ps_gf_only_filt_genus <- tax_glom(ps_gf_only_filt, taxrank = "Genus")
-
-# Extract the abundance table (ASV table)
-asv_matrix_gf_only_np_genus <- as(otu_table(ps_gf_only_filt_genus), "matrix")
-asv_matrix_gf_only_np_genus <- t(asv_matrix_gf_only_np_genus)
-
-# No need to convert phyloseq ASV abundances to relative abundances before running SPIEC-EASI as it is designed to handle compositionality by applying the CLR transformation and is designed to handle raw reads
-se_gf_only_np_slr_genus <- spiec.easi(asv_matrix_gf_only_np_genus, 
-                           method ='slr', 
-                           r = 5, 
-                           lambda.min.ratio = 1e-1,
-                           nlambda = 30, 
-                           pulsar.params=list(rep.num = 50))
-
-# Prepare for network plot
-ig_slr_gf_only_np_genus_df <- create_ig_df(se_gf_only_np_slr_genus, ps_gf_only_filt_genus)
-ig_slr_gf_only_np_genus_df %>% arrange(-weight)
-
-# Prepare for igraph
-ig_slr_gf_only_np_genus <- prep_ig(se_gf_only_np_slr_genus, ps_gf_only_filt_genus, ig_slr_gf_only_np_genus_df)
-
-igraph_gf_only_np_genus <- plot_ig_genus(ig_slr_gf_only_np_genus) +
-  theme_minimal() + # Use a clean theme
-  theme(
-    panel.background = element_rect(fill = "white", color = NA), # White panel background
-    plot.background = element_rect(fill = "white", color = NA),  # White plot background
-    axis.line = element_blank(),      # Removes x and y axis lines
-    axis.ticks = element_blank(),     # Removes axis ticks
-    axis.text = element_blank(),      # Removes axis text
-    axis.title = element_blank(),     # Removes axis titles
-    legend.text = element_text(size = 10), # Adjusts size of legend text
-    legend.title = element_text(size = 10), # Adjusts size of legend title
-    legend.spacing = unit(0.5, "lines"),  # Reduces spacing between legend items
-    legend.key.size = unit(0.5, "lines"), # Makes legend keys smaller
-    legend.position = "right"  # Keeps legend position on the right
-  )
-
-igraph_gf_only_np_genus
-ggsave("../Output/Networks/igraph_gf_only_np_genus_level.svg", igraph_gf_only_np_genus, width = 8, height = 5.5)
-
-### CP ###
-# Subset phyloseq for cp
-ps_cp_only_filt <- ps_cp_gf_np_filt %>%
-  subset_samples(population == "CP") # 160 samples
-
-# Aggregate to genus level
-ps_cp_only_filt_genus <- tax_glom(ps_cp_only_filt, taxrank = "Genus")
-
-# Extract the abundance table (ASV table)
-asv_matrix_cp_only_np_genus <- as(otu_table(ps_cp_only_filt_genus), "matrix")
-asv_matrix_cp_only_np_genus <- t(asv_matrix_cp_only_np_genus)
-
-# No need to convert phyloseq ASV abundances to relative abundances before running SPIEC-EASI as it is designed to handle compositionality by applying the CLR transformation and is designed to handle raw reads
-se_cp_only_np_slr_genus <- spiec.easi(asv_matrix_cp_only_np_genus, 
-                           method ='slr', 
-                           r = 5, 
-                           lambda.min.ratio = 1e-1,
-                           nlambda = 30, 
-                           pulsar.params=list(rep.num = 50))
-
-# Prepare for network plot
-ig_slr_cp_only_np_genus_df <- create_ig_df(se_cp_only_np_slr_genus, ps_cp_only_filt_genus)
-ig_slr_cp_only_np_genus_df %>% arrange(-weight)
-
-# Prepare for igraph
-ig_slr_cp_only_np_genus <- prep_ig(se_cp_only_np_slr_genus, ps_cp_only_filt_genus, ig_slr_cp_only_np_genus_df)
-
-igraph_cp_only_np_genus <- plot_ig_genus(ig_slr_cp_only_np_genus) +
-  theme_minimal() + # Use a clean theme
-  theme(
-    panel.background = element_rect(fill = "white", color = NA), # White panel background
-    plot.background = element_rect(fill = "white", color = NA),  # White plot background
-    axis.line = element_blank(),      # Removes x and y axis lines
-    axis.ticks = element_blank(),     # Removes axis ticks
-    axis.text = element_blank(),      # Removes axis text
-    axis.title = element_blank(),     # Removes axis titles
-    legend.text = element_text(size = 10), # Adjusts size of legend text
-    legend.title = element_text(size = 10), # Adjusts size of legend title
-    legend.spacing = unit(0.5, "lines"),  # Reduces spacing between legend items
-    legend.key.size = unit(0.5, "lines"), # Makes legend keys smaller
-    legend.position = "right"  # Keeps legend position on the right
-  )
-
-igraph_cp_only_np_genus
-ggsave("../Output/Networks/igraph_cp_only_np_genus_level.svg", igraph_cp_only_np_genus, width = 8, height = 5.5)
-
-```
-#### Comparison metrics
-```{r}
-# Calculate network density
-density_gf_np_genus <- edge_density(ig_slr_gf_only_np_genus)  # GF NP network
-density_cpmatched_np_genus <- edge_density(ig_slr_cp_only_np_genus)  # CP NP network
-
-# Calculate average degree
-avg_degree_gf_np_genus <- mean(degree(ig_slr_gf_only_np_genus))
-avg_degree_cpmatched_np_genus <- mean(degree(ig_slr_cp_only_np_genus))
-
-# Calculate average path length
-avg_path_length_gf_np_genus <- mean_distance(ig_slr_gf_only_np_genus, directed = FALSE)
-avg_path_length_cpmatched_np_genus <- mean_distance(ig_slr_cp_only_np_genus, directed = FALSE)
-
-# Calculate clustering coefficient
-clustering_gf_np_genus <- transitivity(ig_slr_gf_only_np_genus, type = "global")
-clustering_cpmatched_np_genus <- transitivity(ig_slr_cp_only_np_genus, type = "global")
-
-# Calculate modularity
-modularity_gf_np_genus <- modularity(cluster_fast_greedy(ig_slr_gf_only_np_genus))
-modularity_cpmatched_np_genus <- modularity(cluster_fast_greedy(ig_slr_cp_only_np_genus))
-
-# Combine metrics into a data frame
-network_metrics_np_cp_gf_genus <- data.frame(
-  Metric = c(
-    "Network Density", 
-    "Average Degree", 
-    "Average Path Length", 
-    "Clustering Coefficient", 
-    "Modularity"
-  ),
-  `GF NP` = c(
-    density_gf_np_genus, 
-    avg_degree_gf_np_genus, 
-    avg_path_length_gf_np_genus, 
-    clustering_gf_np_genus, 
-    modularity_gf_np_genus
-  ),
-  `CP NP` = c(
-    density_cpmatched_np_genus, 
-    avg_degree_cpmatched_np_genus, 
-    avg_path_length_cpmatched_np_genus, 
-    clustering_cpmatched_np_genus, 
-    modularity_cpmatched_np_genus
-  )
-)
-
-# Print the table
-print(network_metrics_np_cp_gf_genus)
-
-# Optionally save as a CSV for documentation
-write.csv(network_metrics_np_cp_gf_genus, "../Output/Networks/network_metrics_np_cp_gf_genus.csv", row.names = FALSE)
-
-
-```
-
-
-### OP
-```{r}
-# Data for all
-ps_cp_gf <- readRDS("../Output/Phyloseq/ps_complete_matchedCPGF.rds")
-
-# Filter for op only 
-ps_cp_gf_op <- ps_cp_gf %>%
-  subset_samples(niche == "OP") # 287 samples
-
-# Prune zero sum taxa and apply filter
-ps_cp_gf_op_filt <- ps_cp_gf_op %>%  
-  prune_taxa(taxa_sums(.) > 0, .) %>%
-  pres_abund_filter(pres = 287 * 0.03, abund = 0.02) # 44 ASVs remaining
-
-### GF ###
-# Subset phyloseq for GF
-ps_gf_only_filt <- ps_cp_gf_op_filt %>%
-  subset_samples(population == "GF") # 92 samples
-
-# Aggregate to genus level
-ps_gf_only_filt_genus <- tax_glom(ps_gf_only_filt, taxrank = "Genus")
-
-# Extract the abundance table (ASV table)
-asv_matrix_gf_only_op_genus <- as(otu_table(ps_gf_only_filt_genus), "matrix")
-asv_matrix_gf_only_op_genus <- t(asv_matrix_gf_only_op_genus)
-
-# No need to convert phyloseq ASV abundances to relative abundances before running SPIEC-EASI as it is designed to handle compositionality by applying the CLR transformation and is designed to handle raw reads
-se_gf_only_op_slr_genus <- spiec.easi(asv_matrix_gf_only_op_genus, 
-                           method ='slr', 
-                           r = 5, 
-                           lambda.min.ratio = 1e-1,
-                           nlambda = 30, 
-                           pulsar.params=list(rep.num = 50))
-
-# Prepare for network plot
-ig_slr_gf_only_op_genus_df <- create_ig_df(se_gf_only_op_slr_genus, ps_gf_only_filt_genus)
-ig_slr_gf_only_op_genus_df %>% arrange(-weight)
-
-# Prepare for igraph
-ig_slr_gf_only_op_genus <- prep_ig(se_gf_only_op_slr_genus, ps_gf_only_filt_genus, ig_slr_gf_only_op_genus_df)
-
-igraph_gf_only_op_genus <- plot_ig_genus(ig_slr_gf_only_op_genus) +
-  theme_minimal() + # Use a clean theme
-  theme(
-    panel.background = element_rect(fill = "white", color = NA), # White panel background
-    plot.background = element_rect(fill = "white", color = NA),  # White plot background
-    axis.line = element_blank(),      # Removes x and y axis lines
-    axis.ticks = element_blank(),     # Removes axis ticks
-    axis.text = element_blank(),      # Removes axis text
-    axis.title = element_blank(),     # Removes axis titles
-    legend.text = element_text(size = 10), # Adjusts size of legend text
-    legend.title = element_text(size = 10), # Adjusts size of legend title
-    legend.spacing = unit(0.5, "lines"),  # Reduces spacing between legend items
-    legend.key.size = unit(0.5, "lines"), # Makes legend keys smaller
-    legend.position = "right"  # Keeps legend position on the right
-  )
-
-igraph_gf_only_op_genus
-ggsave("../Output/Networks/igraph_gf_only_op_genus_level.svg", igraph_gf_only_op_genus, width = 8, height = 5.5)
-
-### CP ###
-# Subset phyloseq for cp
-ps_cp_only_filt <- ps_cp_gf_op_filt %>%
-  subset_samples(population == "CP") # 195 samples
-
-# Aggregate to genus level
-ps_cp_only_filt_genus <- tax_glom(ps_cp_only_filt, taxrank = "Genus")
-
-# Extract the abundance table (ASV table)
-asv_matrix_cp_only_op_genus <- as(otu_table(ps_cp_only_filt_genus), "matrix")
-asv_matrix_cp_only_op_genus <- t(asv_matrix_cp_only_op_genus)
-
-# No need to convert phyloseq ASV abundances to relative abundances before running SPIEC-EASI as it is designed to handle compositionality by applying the CLR transformation and is designed to handle raw reads
-se_cp_only_op_slr_genus <- spiec.easi(asv_matrix_cp_only_op_genus, 
-                           method ='slr', 
-                           r = 5, 
-                           lambda.min.ratio = 1e-1,
-                           nlambda = 30, 
-                           pulsar.params=list(rep.num = 50))
-
-# Prepare for network plot
-ig_slr_cp_only_op_genus_df <- create_ig_df(se_cp_only_op_slr_genus, ps_cp_only_filt_genus)
-ig_slr_cp_only_op_genus_df %>% arrange(-weight)
-
-# Prepare for igraph
-ig_slr_cp_only_op_genus <- prep_ig(se_cp_only_op_slr_genus, ps_cp_only_filt_genus, ig_slr_cp_only_op_genus_df)
-
-igraph_cp_only_op_genus <- plot_ig_genus(ig_slr_cp_only_op_genus) +
-  theme_minimal() + # Use a clean theme
-  theme(
-    panel.background = element_rect(fill = "white", color = NA), # White panel background
-    plot.background = element_rect(fill = "white", color = NA),  # White plot background
-    axis.line = element_blank(),      # Removes x and y axis lines
-    axis.ticks = element_blank(),     # Removes axis ticks
-    axis.text = element_blank(),      # Removes axis text
-    axis.title = element_blank(),     # Removes axis titles
-    legend.text = element_text(size = 10), # Adjusts size of legend text
-    legend.title = element_text(size = 10), # Adjusts size of legend title
-    legend.spacing = unit(0.5, "lines"),  # Reduces spacing between legend items
-    legend.key.size = unit(0.5, "lines"), # Makes legend keys smaller
-    legend.position = "right"  # Keeps legend position on the right
-  )
-
-igraph_cp_only_op_genus
-ggsave("../Output/Networks/igraph_cp_only_op_genus_level.svg", igraph_cp_only_op_genus, width = 8, height = 5.5)
-
-```
-
-# Patchwork figures
-```{r}
-# ASV level
-# NP 
-combined_plot_np <- igraph_gf_only_np + igraph_cp_only_np + plot_layout(ncol = 2)
-print(combined_plot_np)
-ggsave("../Output/Networks/combined_network_NP.svg", combined_plot_np, width = 16, height = 5.5)
-
-# OP 
-combined_plot_op <- igraph_gf_only_op + igraph_cp_only_op + plot_layout(ncol = 2)
-print(combined_plot_op)
-ggsave("../Output/Networks/combined_network_OP.svg", combined_plot_op, width = 16, height = 5.5)
-
-
-
-# Genus level 
-# NP 
-combined_plot_np_genus <- igraph_gf_only_np_genus + igraph_cp_only_np_genus + plot_layout(ncol = 2)
-print(combined_plot_np_genus)
-ggsave("../Output/Networks/combined_network_NP_genus.svg", combined_plot_np_genus, width = 16, height = 5.5)
-
-# OP 
-combined_plot_op_genus <- igraph_gf_only_op_genus + igraph_cp_only_op_genus + plot_layout(ncol = 2)
-print(combined_plot_op_genus)
-ggsave("../Output/Networks/combined_network_OP_genus.svg", combined_plot_op_genus, width = 16, height = 5.5)
 ```
 
 # Filtering of data based on power law
@@ -1198,16 +420,13 @@ ps_cp_gf_np_plsubset # Now only 154 taxa
 # Subset phyloseq for GF
 ps_gf_only_np_plsubset <- ps_cp_gf_np_plsubset %>%
   subset_samples(population == "GF") # 77 samples, 154 taxa
-
 # Prune zero sum taxa
 ps_gf_only_np_plsubset <- ps_gf_only_np_plsubset %>%  
   prune_taxa(taxa_sums(.) > 0, .) # 128 taxa remaining
-
 # Extract the abundance table (ASV table)
 asv_matrix_gf_only_np_plsubset <- as(otu_table(ps_gf_only_np_plsubset), "matrix")
 asv_matrix_gf_only_np_plsubset <- t(asv_matrix_gf_only_np_plsubset)
-
-# No need to convert phyloseq ASV abundances to relative abundances before running SPIEC-EASI as it is designed to handle compositionality by applying the CLR transformation and is designed to handle raw reads
+# Run spiec-easi
 se_gf_only_np_slr_plsubset <- spiec.easi(asv_matrix_gf_only_np_plsubset, 
                            method ='slr', 
                            r = 5, 
@@ -1218,13 +437,21 @@ se_gf_only_np_slr_plsubset <- spiec.easi(asv_matrix_gf_only_np_plsubset,
 # Prepare for network plot
 ig_slr_gf_only_np_df_plsubset <- create_ig_df(se_gf_only_np_slr_plsubset, ps_gf_only_np_plsubset)
 ig_slr_gf_only_np_df_plsubset %>% arrange(-weight)
-
 # Prepare for igraph
 ig_slr_gf_only_np_plsubset <- prep_ig(se_gf_only_np_slr_plsubset, ps_gf_only_np_plsubset, ig_slr_gf_only_np_df_plsubset)
 
 
-# Plot the network with degree-based node sizing
-igraph_gf_only_np_plsubset_size <- plot_ig_nodal_size(ig_slr_gf_only_np_plsubset) +
+# To make sure the node colours are the same in the gf and cp population networks
+# Get unique Orders from both datasets
+all_orders_np <- unique(c(V(ig_slr_gf_only_np_plsubset)$Order, V(ig_slr_cp_only_np_plsubset)$Order))
+# Generate a consistent color palette
+order_colors_np <- colorRampPalette(brewer.pal(9, "Set3"))(length(all_orders_np))
+names(order_colors_np) <- all_orders_np
+
+
+# Network with all ASVs labelled 
+gf_np_network_all_labels <- plot_ig_nodal_size(ig_slr_gf_only_np_plsubset) +
+  scale_colour_manual(values = order_colors_np) +  # Apply consistent colors
   theme_minimal() + # Use a clean theme
   theme(
     panel.background = element_rect(fill = "white", color = NA), # White panel background
@@ -1243,11 +470,18 @@ igraph_gf_only_np_plsubset_size <- plot_ig_nodal_size(ig_slr_gf_only_np_plsubset
   )
 
 # Save the plot
-ggsave("../Output/Networks/Power_law/igraph_gf_only_np_pl_nodaldegree.svg", igraph_gf_only_np_plsubset_size, width = 8, height = 5.5)
+ggsave("../Output/Networks/Power_law/GF_NP_network_all_labels.svg", gf_np_network_all_labels, width = 8, height = 5.5)
 
+# Network with specified ASV labels 
+# Specify ASVs of interest (significant in MaAsLin analysis)
+selected_asvs_np <- c(
+  "Staphylococcus_256", "Staphylococcaceae_295", "Sphingomonas_175", 
+  "Corynebacterium_stationis_251"
+)
 
-# Plot the network with betweeness centrality-based node sizing
-igraph_gf_only_np_plsubset_betweenesscentrality <- plot_ig_betweeness_centrality(ig_slr_gf_only_np_plsubset) +
+# Generate the plots
+igraph_gf_np_selected_labels <- plot_ig_nodal_size_selected_labels(ig_slr_gf_only_np_plsubset, selected_asvs_np) + 
+  scale_colour_manual(values = order_colors_np) +  # Apply consistent colors
   theme_minimal() + # Use a clean theme
   theme(
     panel.background = element_rect(fill = "white", color = NA), # White panel background
@@ -1266,23 +500,21 @@ igraph_gf_only_np_plsubset_betweenesscentrality <- plot_ig_betweeness_centrality
   )
 
 # Save the plot
-ggsave("../Output/Networks/Power_law/igraph_gf_only_np_plsubset_betweenesscentrality.svg", igraph_gf_only_np_plsubset_betweenesscentrality, width = 8, height = 5.5)
+ggsave("../Output/Networks/Power_law/GF_NP_network_selected_labels.svg", igraph_gf_np_selected_labels, width = 8, height = 5.5)
 
 
 #### CP ####
 # Subset phyloseq for CP
 ps_cp_only_np_plsubset <- ps_cp_gf_np_plsubset %>%
   subset_samples(population == "CP") # 160 samples, 154 taxa
-
 # Prune zero sum taxa
 ps_cp_only_np_plsubset <- ps_cp_only_np_plsubset %>%  
   prune_taxa(taxa_sums(.) > 0, .) # 139 taxa remaining
-
 # Extract the abundance table (ASV table)
 asv_matrix_cp_only_np_plsubset <- as(otu_table(ps_cp_only_np_plsubset), "matrix")
 asv_matrix_cp_only_np_plsubset <- t(asv_matrix_cp_only_np_plsubset)
 
-# No need to convert phyloseq ASV abundances to relative abundances before running SPIEC-EASI as it is designed to handle compositionality by applying the CLR transformation and is designed to handle raw reads
+# Run spiec-easi
 se_cp_only_np_slr_plsubset <- spiec.easi(asv_matrix_cp_only_np_plsubset, 
                            method ='slr', 
                            r = 5, 
@@ -1293,13 +525,12 @@ se_cp_only_np_slr_plsubset <- spiec.easi(asv_matrix_cp_only_np_plsubset,
 # Prepare for network plot
 ig_slr_cp_only_np_df_plsubset <- create_ig_df(se_cp_only_np_slr_plsubset, ps_cp_only_np_plsubset)
 ig_slr_cp_only_np_df_plsubset %>% arrange(-weight)
-
 # Prepare for igraph
 ig_slr_cp_only_np_plsubset <- prep_ig(se_cp_only_np_slr_plsubset, ps_cp_only_np_plsubset, ig_slr_cp_only_np_df_plsubset)
 
-
-# Plot the network with degree-based node sizing
-igraph_cp_only_np_plsubset_size <- plot_ig_nodal_size(ig_slr_cp_only_np_plsubset) +
+# Network with all ASVs labelled 
+cp_np_network_all_labels <- plot_ig_nodal_size(ig_slr_cp_only_np_plsubset) +
+  scale_colour_manual(values = order_colors_np) +  # Apply consistent colors
   theme_minimal() + # Use a clean theme
   theme(
     panel.background = element_rect(fill = "white", color = NA), # White panel background
@@ -1318,11 +549,18 @@ igraph_cp_only_np_plsubset_size <- plot_ig_nodal_size(ig_slr_cp_only_np_plsubset
   )
 
 # Save the plot
-ggsave("../Output/Networks/Power_law/igraph_cp_only_np_pl_nodaldegree.svg", igraph_cp_only_np_plsubset_size, width = 8, height = 5.5)
+ggsave("../Output/Networks/Power_law/CP_NP_network_all_labels.svg", cp_np_network_all_labels, width = 8, height = 5.5)
 
+# Network with specified ASV labels 
+# Specify ASVs of interest (significant in MaAsLin analysis)
+selected_asvs_np <- c(
+  "Staphylococcus_256", "Staphylococcaceae_295", "Sphingomonas_175", 
+  "Corynebacterium_stationis_251"
+)
 
-# Plot the network with betweeness centrality-based node sizing
-igraph_cp_only_np_plsubset_betweenesscentrality <- plot_ig_betweeness_centrality(ig_slr_cp_only_np_plsubset) +
+# Generate the plots
+igraph_cp_np_selected_labels <- plot_ig_nodal_size_selected_labels(ig_slr_cp_only_np_plsubset, selected_asvs_np) + 
+  scale_colour_manual(values = order_colors_np) +  # Apply consistent colors
   theme_minimal() + # Use a clean theme
   theme(
     panel.background = element_rect(fill = "white", color = NA), # White panel background
@@ -1341,10 +579,109 @@ igraph_cp_only_np_plsubset_betweenesscentrality <- plot_ig_betweeness_centrality
   )
 
 # Save the plot
-ggsave("../Output/Networks/Power_law/igraph_cp_only_np_plsubset_betweenesscentrality.svg", igraph_cp_only_np_plsubset_betweenesscentrality, width = 8, height = 5.5)
+ggsave("../Output/Networks/Power_law/CP_NP_network_selected_labels.svg", igraph_cp_np_selected_labels, width = 8, height = 5.5)
 ```
+#### Comparison metrics (to continue)
+```{r}
+# Compare nodes and overall network
+
+# Nodes alone 
+## Degree
+## Betweeness centrality
+
+# Network overall 
+## Network Density - Proportion of potential connections in the network that are actual connections
+## Modularity - Quantifies the strength of division of a network into modules
+## Clustering coefficient - Measures how much nodes tend to cluster together
+
+
+# Calculate degree for all nodes in the Goat Farmers network
+degree_gf_np <- degree(ig_slr_gf_only_np_plsubset)
+
+# Find the ASV with the highest degree (index of the maximum degree)
+max_degree_gf_index_np <- which.max(degree_gf_np)
+max_degree_gf_value_np <- degree_gf_np[max_degree_gf_index_np]
+asv_names_np <- V(ig_slr_gf_only_np_plsubset)$ASV  
+max_degree_asv_gf_np <- asv_names_np[max_degree_gf_index_np]
+cat("Goat Farmer network: ASV with the highest degree is", max_degree_asv_gf_np, "with degree", max_degree_gf_value_np, "\n") 
+# Goat Farmer network: ASV with the highest degree is Moraxella_5 with degree 6 
+
+# Residents network - NP 
+degree_cp_np <- degree(ig_slr_cp_only_np_plsubset)
+max_degree_cp_index_np <- which.max(degree_cp_np)
+max_degree_cp_value_np <- degree_cp_np[max_degree_cp_index_np]
+asv_names_cp_np <- V(ig_slr_cp_only_np_plsubset)$ASV
+max_degree_asv_cp_np <- asv_names_cp_np[max_degree_cp_index_np]
+
+cat("Control network: ASV with the highest degree is", max_degree_asv_cp_np, "with degree", max_degree_cp_value_np, "\n") 
+# Control network: ASV with the highest degree is Dolosigranulum_pigrum_1 with degree 4 
+
+# Calculate betweenness centrality for Goat Farmers network
+betweenness_gf_np <- betweenness(ig_slr_gf_only_np_plsubset, normalized = TRUE)
+max_betweenness_gf_index_np <- which.max(betweenness_gf_np)
+max_betweenness_gf_value_np <- betweenness_gf_np[max_betweenness_gf_index_np]
+asv_names_np <- V(ig_slr_gf_only_np_plsubset)$ASV
+max_betweenness_asv_gf_np <- asv_names_np[max_betweenness_gf_index_np]
+cat("Goat Farmer network: ASV with the highest betweenness centrality is", 
+    max_betweenness_asv_gf_np, "with betweenness", max_betweenness_gf_value_np, "\n")
+# Goat Farmer network: ASV with the highest betweenness centrality is Moraxella_5 with (normalised) betweenness 0.01162355  
+
+# Calculate betweenness centrality for Control Population network
+betweenness_cp_np <- betweenness(ig_slr_cp_only_np_plsubset, normalized = TRUE)
+max_betweenness_cp_index_np <- which.max(betweenness_cp_np)
+max_betweenness_cp_value_np <- betweenness_cp_np[max_betweenness_cp_index_np]
+asv_names_cp_np <- V(ig_slr_cp_only_np_plsubset)$ASV
+max_betweenness_asv_cp_np <- asv_names_cp_np[max_betweenness_cp_index_np]
+cat("Control network: ASV with the highest betweenness centrality is", 
+    max_betweenness_asv_cp_np, "with betweenness", max_betweenness_cp_value_np, "\n")
+# Control network: ASV with the highest betweenness centrality is Staphylococcus_2 with (normalised) betweenness 0.003067809  
+
+
+# Overall network metrics
+# Network Density
+density_gf_np <- edge_density(ig_slr_gf_only_np_plsubset) # 0.003198819
+# Clustering Coefficient
+clustering_coef_gf_np <- transitivity(ig_slr_gf_only_np_plsubset, type = "average") # 0.4277778
+# Modularity
+# Using the Louvain method to define communities 
+communities_gf_np <- cluster_louvain(ig_slr_gf_only_np_plsubset)
+modularity_gf_np <- modularity(ig_slr_gf_only_np_plsubset, membership(communities_gf_np))
+
+# Repeat for Control Population (CP) network
+density_cp_np <- edge_density(ig_slr_cp_only_np_plsubset)
+clustering_coef_cp_np <- transitivity(ig_slr_cp_only_np_plsubset, type = "average")
+communities_cp_np <- cluster_louvain(ig_slr_cp_only_np_plsubset)
+modularity_cp_np <- modularity(ig_slr_cp_only_np_plsubset, membership(communities_cp_np))
+
+# Print results
+cat("Goat Farmers Network:\n")
+cat("Density:", density_gf, "\n")
+cat("Average Clustering Coefficient:", clustering_coef_gf, "\n")
+cat("Modularity:", modularity_gf, "\n\n")
+
+cat("Control Population Network:\n")
+cat("Density:", density_cp, "\n")
+cat("Average Clustering Coefficient:", clustering_coef_cp, "\n")
+cat("Modularity:", modularity_cp, "\n")
+
+# Create a data frame with network metrics
+network_metrics_np <- data.frame(
+  Network = c("Goat Farmers", "Control Population"),
+  Density = c(density_gf_np, density_cp_np),
+  `Clustering Coefficient` = c(clustering_coef_gf_np, clustering_coef_cp_np),
+  Modularity = c(modularity_gf_np, modularity_cp_np)
+)
+
+print(network_metrics_np)
+# Save as Excel file
+write_xlsx(network_metrics_np, "../Output/Networks/Power_law/network_comparison_metrics_np.xlsx")
+
+
+
+```
+
+
 ### OP 
-## Farmers vs residents
 ```{r}
 # Now I try filtering taxa based on their degree in the network
 # Such filtering focuses on the importance of nodes in the network rather than their abundance or prevalence in the original dataset.
@@ -1485,8 +822,36 @@ ig_slr_gf_only_op_df_plsubset %>% arrange(-weight)
 # Prepare for igraph
 ig_slr_gf_only_op_plsubset <- prep_ig(se_gf_only_op_slr_plsubset, ps_gf_only_op_plsubset, ig_slr_gf_only_op_df_plsubset)
 
-# Plot the network with degree-based node sizing
-igraph_gf_only_op_plsubset_nodaldegree <- plot_ig_nodal_size(ig_slr_gf_only_op_plsubset) +
+# To make sure the node colours are the same in the gf and cp population networks
+# Get unique Orders from both datasets
+all_orders <- unique(c(V(ig_slr_gf_only_op_plsubset)$Order, V(ig_slr_cp_only_op_plsubset)$Order))
+# Generate a consistent color palette
+order_colors <- colorRampPalette(brewer.pal(9, "Set3"))(length(all_orders))
+names(order_colors) <- all_orders
+
+# Network with all ASVs labelled 
+gf_op_network_all_labels <- plot_ig_nodal_size(ig_slr_gf_only_op_plsubset) +
+  scale_colour_manual(values = order_colors) +  # Apply consistent colors
+  theme_minimal() + 
+  theme(
+    panel.background = element_rect(fill = "white", color = NA),
+    plot.background = element_rect(fill = "white", color = NA),
+    axis.line = element_blank(),
+    axis.ticks = element_blank(),
+    axis.text = element_blank(),
+    axis.title = element_blank(),
+    legend.text = element_text(size = 10),
+    legend.title = element_text(size = 10),
+    legend.spacing = unit(0.5, "lines"),
+    legend.key.size = unit(0.5, "lines"),
+    legend.position = "right",
+    panel.grid = element_blank()
+  )
+
+# Save the GF plot
+ggsave("../Output/Networks/Power_law/GF_OP_network_all_labels.svg", gf_op_network_all_labels, width = 9, height = 7)
+
+gf_op_network_all_labels <- plot_ig_nodal_size(ig_slr_gf_only_op_plsubset) +
   theme_minimal() + # Use a clean theme
   theme(
     panel.background = element_rect(fill = "white", color = NA), # White panel background
@@ -1505,11 +870,19 @@ igraph_gf_only_op_plsubset_nodaldegree <- plot_ig_nodal_size(ig_slr_gf_only_op_p
   )
 
 # Save the plot
-ggsave("../Output/Networks/Power_law/igraph_gf_only_op_pl_nodaldegree.svg", igraph_gf_only_op_plsubset_nodaldegree, width = 8, height = 5.5)
+ggsave("../Output/Networks/Power_law/GF_OP_network_all_labels.svg", gf_op_network_all_labels, width = 9, height = 7)
 
+# Plot the network with degree-based node sizing and selected labels
+selected_asvs_op <- c(
+  "Veillonella_62", "Veillonella_6", "Streptococcus_8", 
+  "Streptococcus_4", "Streptococcus_10", "Prevotella_salivae_29", 
+  "Prevotella_histicola_12", "Prevotella_16", "Prevotella_109", 
+  "Actinomyces_graevenitzii_22"
+)
 
-# Plot the network with betweeness centrality-based node sizing
-igraph_gf_only_op_plsubset_betweenesscentrality <- plot_ig_betweeness_centrality(ig_slr_gf_only_op_plsubset) +
+# Generate the plots
+igraph_gf_op_selected_labels <- plot_ig_nodal_size_selected_labels(ig_slr_gf_only_op_plsubset, selected_asvs_op) +
+  scale_colour_manual(values = order_colors) +  # Apply consistent colors 
   theme_minimal() + # Use a clean theme
   theme(
     panel.background = element_rect(fill = "white", color = NA), # White panel background
@@ -1528,8 +901,7 @@ igraph_gf_only_op_plsubset_betweenesscentrality <- plot_ig_betweeness_centrality
   )
 
 # Save the plot
-ggsave("../Output/Networks/Power_law/igraph_gf_only_op_plsubset_betweenesscentrality.svg", igraph_gf_only_op_plsubset_betweenesscentrality, width = 8, height = 5.5)
-
+ggsave("../Output/Networks/Power_law/GF_OP_network_selected_labels.svg", igraph_gf_op_selected_labels, width = 8, height = 5.5)
 
 #### CP ####
 # Subset phyloseq for CP
@@ -1554,17 +926,47 @@ se_cp_only_op_slr_plsubset <- spiec.easi(asv_matrix_cp_only_op_plsubset,
                            nlambda = 30, 
                            pulsar.params=list(rep.num = 50))
 
-readRDS("../Output/Networks/Power_law/se_cp_only_op_slr_plsubset.rds")
 
 # Prepare for network plot
 ig_slr_cp_only_op_df_plsubset <- create_ig_df(se_cp_only_op_slr_plsubset, ps_cp_only_op_plsubset)
 ig_slr_cp_only_op_df_plsubset %>% arrange(-weight)
-
 # Prepare for igraph
 ig_slr_cp_only_op_plsubset <- prep_ig(se_cp_only_op_slr_plsubset, ps_cp_only_op_plsubset, ig_slr_cp_only_op_df_plsubset)
 
-# Plot the network with degree-based node sizing
-igraph_cp_only_op_plsubset_size <- plot_ig_nodal_size(ig_slr_cp_only_op_plsubset) +
+# Network with all ASVs labelled 
+cp_op_network_all_labels <- plot_ig_nodal_size(ig_slr_cp_only_op_plsubset) +
+  scale_colour_manual(values = order_colors) +  # Apply consistent colors
+  theme_minimal() + 
+  theme(
+    panel.background = element_rect(fill = "white", color = NA),
+    plot.background = element_rect(fill = "white", color = NA),
+    axis.line = element_blank(),
+    axis.ticks = element_blank(),
+    axis.text = element_blank(),
+    axis.title = element_blank(),
+    legend.text = element_text(size = 10),
+    legend.title = element_text(size = 10),
+    legend.spacing = unit(0.5, "lines"),
+    legend.key.size = unit(0.5, "lines"),
+    legend.position = "right",
+    panel.grid = element_blank()
+  )
+
+# Save the CP plot
+ggsave("../Output/Networks/Power_law/CP_OP_network_all_labels.svg", cp_op_network_all_labels, width = 9, height = 7)
+
+
+# Plot the network with degree-based node sizing and selected labels
+selected_asvs_op <- c(
+  "Veillonella_62", "Veillonella_6", "Streptococcus_8", 
+  "Streptococcus_4", "Streptococcus_10", "Prevotella_salivae_29", 
+  "Prevotella_histicola_12", "Prevotella_16", "Prevotella_109", 
+  "Actinomyces_graevenitzii_22"
+)
+
+# Generate the plots
+igraph_cp_op_selected_labels <- plot_ig_nodal_size_selected_labels(ig_slr_cp_only_op_plsubset, selected_asvs_op) +
+  scale_colour_manual(values = order_colors) +  # Apply consistent colors 
   theme_minimal() + # Use a clean theme
   theme(
     panel.background = element_rect(fill = "white", color = NA), # White panel background
@@ -1583,128 +985,144 @@ igraph_cp_only_op_plsubset_size <- plot_ig_nodal_size(ig_slr_cp_only_op_plsubset
   )
 
 # Save the plot
-ggsave("../Output/Networks/Power_law/igraph_cp_only_op_pl_nodaldegree.svg", igraph_cp_only_op_plsubset_size, width = 8, height = 5.5)
+ggsave("../Output/Networks/Power_law/CP_OP_network_selected_labels.svg", igraph_cp_op_selected_labels, width = 8, height = 5.5)
 
 
-# Plot the network with betweeness centrality-based node sizing
-igraph_cp_only_op_plsubset_betweenesscentrality <- plot_ig_betweeness_centrality(ig_slr_cp_only_op_plsubset) +
-  theme_minimal() + # Use a clean theme
-  theme(
-    panel.background = element_rect(fill = "white", color = NA), # White panel background
-    plot.background = element_rect(fill = "white", color = NA),  # White plot background
-    axis.line = element_blank(),      # Removes x and y axis lines
-    axis.ticks = element_blank(),     # Removes axis ticks
-    axis.text = element_blank(),      # Removes axis text
-    axis.title = element_blank(),     # Removes axis titles
-    legend.text = element_text(size = 10), # Adjusts size of legend text
-    legend.title = element_text(size = 10), # Adjusts size of legend title
-    legend.spacing = unit(0.5, "lines"),  # Reduces spacing between legend items
-    legend.key.size = unit(0.5, "lines"), # Makes legend keys smaller
-    legend.position = "right",  # Keeps legend position on the right
-    panel.grid = element_blank(),  # Remove all grid lines (guidelines)
-
-  )
-
-# Save the plot
-ggsave("../Output/Networks/Power_law/igraph_cp_only_op_plsubset_betweenesscentrality.svg", igraph_cp_only_op_plsubset_betweenesscentrality, width = 8, height = 5.5)
 ```
-# Patchwork figures of power law networks
+#### Compariton metrics
 ```{r}
+# Compare nodes and overall network
+
+# Nodes alone 
+## Degree
+## Betweeness centrality
+
+# Network overall 
+## Network Density - Proportion of potential connections in the network that are actual connections
+## Modularity - Quantifies the strength of division of a network into modules
+## Clustering coefficient - Measures how much nodes tend to cluster together
+
+
+# Calculate degree for all nodes in the Goat Farmers network
+degree_gf_op <- degree(ig_slr_gf_only_op_plsubset)
+
+# Find the ASV with the highest degree (index of the maximum degree)
+max_degree_gf_index_op <- which.max(degree_gf_op)
+max_degree_gf_value_op <- degree_gf_op[max_degree_gf_index_op]
+asv_names_op <- V(ig_slr_gf_only_op_plsubset)$ASV  
+max_degree_asv_gf_op <- asv_names_op[max_degree_gf_index_op]
+cat("Goat Farmer network: ASV with the highest degree is", max_degree_asv_gf_op, "with degree", max_degree_gf_value_op, "\n") 
+# Goat Farmer network: ASV with the highest degree is Moraxella_5 with degree 6 
+
+# Residents network - op 
+degree_cp_op <- degree(ig_slr_cp_only_op_plsubset)
+max_degree_cp_index_op <- which.max(degree_cp_op)
+max_degree_cp_value_op <- degree_cp_op[max_degree_cp_index_op]
+asv_names_cp_op <- V(ig_slr_cp_only_op_plsubset)$ASV
+max_degree_asv_cp_op <- asv_names_cp_op[max_degree_cp_index_op]
+
+cat("Control network: ASV with the highest degree is", max_degree_asv_cp_op, "with degree", max_degree_cp_value_op, "\n") 
+# Control network: ASV with the highest degree is Dolosigranulum_pigrum_1 with degree 4 
+
+# Calculate betweenness centrality for Goat Farmers network
+betweenness_gf_op <- betweenness(ig_slr_gf_only_op_plsubset, normalized = TRUE)
+max_betweenness_gf_index_op <- which.max(betweenness_gf_op)
+max_betweenness_gf_value_op <- betweenness_gf_op[max_betweenness_gf_index_op]
+asv_names_op <- V(ig_slr_gf_only_op_plsubset)$ASV
+max_betweenness_asv_gf_op <- asv_names_op[max_betweenness_gf_index_op]
+cat("Goat Farmer network: ASV with the highest betweenness centrality is", 
+    max_betweenness_asv_gf_op, "with betweenness", max_betweenness_gf_value_op, "\n")
+# Goat Farmer network: ASV with the highest betweenness centrality is Moraxella_5 with (normalised) betweenness 0.01162355  
+
+# Calculate betweenness centrality for Control Population network
+betweenness_cp_op <- betweenness(ig_slr_cp_only_op_plsubset, normalized = TRUE)
+max_betweenness_cp_index_op <- which.max(betweenness_cp_op)
+max_betweenness_cp_value_op <- betweenness_cp_op[max_betweenness_cp_index_op]
+asv_names_cp_op <- V(ig_slr_cp_only_op_plsubset)$ASV
+max_betweenness_asv_cp_op <- asv_names_cp_op[max_betweenness_cp_index_op]
+cat("Control network: ASV with the highest betweenness centrality is", 
+    max_betweenness_asv_cp_op, "with betweenness", max_betweenness_cp_value_op, "\n")
+# Control network: ASV with the highest betweenness centrality is Staphylococcus_2 with (normalised) betweenness 0.003067809  
+
+
+# Overall network metrics
+# Network Density
+density_gf_op <- edge_density(ig_slr_gf_only_op_plsubset) # 0.003198819
+# Clustering Coefficient
+clustering_coef_gf_op <- transitivity(ig_slr_gf_only_op_plsubset, type = "average") # 0.4277778
+# Modularity
+# Using the Louvain method to define communities 
+communities_gf_op <- cluster_louvain(ig_slr_gf_only_op_plsubset)
+modularity_gf_op <- modularity(ig_slr_gf_only_op_plsubset, membership(communities_gf_op))
+
+# Repeat for Control Population (CP) network
+density_cp_op <- edge_density(ig_slr_cp_only_op_plsubset)
+clustering_coef_cp_op <- transitivity(ig_slr_cp_only_op_plsubset, type = "average")
+communities_cp_op <- cluster_louvain(ig_slr_cp_only_op_plsubset)
+modularity_cp_op <- modularity(ig_slr_cp_only_op_plsubset, membership(communities_cp_op))
+
+# Create a data frame with network metrics
+network_metrics_op <- data.frame(
+  Network = c("Goat Farmers", "Control Population"),
+  Density = c(density_gf_op, density_cp_op),
+  `Clustering Coefficient` = c(clustering_coef_gf_op, clustering_coef_cp_op),
+  Modularity = c(modularity_gf_op, modularity_cp_op)
+)
+
+print(network_metrics_op)
+# Save as Excel file
+write_xlsx(network_metrics_op, "../Output/Networks/Power_law/network_comparison_metrics_op.xlsx")
+
+```
+
+## Patchwork figures
+```{r}
+# ASV level
 # NP 
-combined_plot_np_nodal_degree <- igraph_gf_only_np_plsubset_size + igraph_cp_only_np_plsubset_size + plot_layout(ncol = 2)
-print(combined_plot_np_nodal_degree)
-ggsave("../Output/Networks/Power_law/combined_network_NP_nodal_degree.svg", combined_plot_np_nodal_degree, width = 16, height = 5.5)
+combined_plot_np <- igraph_gf_only_np + igraph_cp_only_np + plot_layout(ncol = 2)
+print(combined_plot_np)
+ggsave("../Output/Networks/Filtering/combined_network_NP.svg", combined_plot_np, width = 16, height = 5.5)
 
 # OP 
 combined_plot_op <- igraph_gf_only_op + igraph_cp_only_op + plot_layout(ncol = 2)
 print(combined_plot_op)
-ggsave("../Output/Networks/combined_network_OP.svg", combined_plot_op, width = 16, height = 5.5)
+ggsave("../Output/Networks/Filtering/combined_network_OP.svg", combined_plot_op, width = 16, height = 5.5)
+
+
+# Patchwork figures of power law networks
+# NP 
+# All labels 
+network_combined_np_all_labels <- (gf_np_network_all_labels + 
+  ggtitle('Goat farmers (NP niche)')) + (cp_np_network_all_labels+ 
+  ggtitle('Residents (NP niche)')) + plot_layout(ncol = 2) + plot_annotation(tag_levels = 'A')
+print(network_combined_np_all_labels)
+ggsave("../Output/Networks/Power_law/NP_networks_all_labels.svg", network_combined_np_all_labels, width = 16, height = 5.5)
+
+# Selected labels
+network_combined_np <- (igraph_gf_np_selected_labels + 
+  ggtitle('Goat farmers (NP niche)')) + (igraph_cp_np_selected_labels + 
+  ggtitle('Residents (NP niche)')) + plot_layout(ncol = 2) + plot_annotation(tag_levels = 'A')
+print(network_combined_np)
+ggsave("../Output/Networks/Power_law/NP_networks_selected_labels.svg", network_combined_np, width = 16, height = 5.5)
+
+
+# OP 
+network_combined_op_all_labels <- (gf_op_network_all_labels + 
+  ggtitle('Goat farmers (OP niche)')) + (cp_op_network_all_labels + 
+  ggtitle('Residents (OP niche)')) + plot_layout(ncol = 2)+ plot_annotation(tag_levels = 'A')
+print(network_combined_op_all_labels)
+ggsave("../Output/Networks/Power_law/OP_networks_all_labels.svg", network_combined_op_all_labels, width = 16, height = 5.5)
+
+# Selected labels
+combined_plot_op <- (igraph_gf_op_selected_labels + 
+  ggtitle('Goat farmers (OP niche)')) + (igraph_cp_op_selected_labels + 
+  ggtitle('Residents (OP niche)')) + plot_layout(ncol = 2)+ plot_annotation(tag_levels = 'A')
+print(combined_plot_op)
+ggsave("../Output/Networks/Power_law/OP_networks_selected_labels.svg", combined_plot_op, width = 16, height = 5.5)
+
+
+V(ig_slr_cp_only_np_plsubset)$ASV
+all_orders_np <- unique(c(V(ig_slr_gf_only_np_plsubset)$Order, V(ig_slr_cp_only_np_plsubset)$Order))
 
 ```
-
-
-<!-- ### Genus level -->
-<!-- ```{r} -->
-<!-- # Subset phyloseq for GF -->
-<!-- ps_gf_only_np_plsubset <- ps_cp_gf_np_plsubset %>% -->
-<!--   subset_samples(population == "GF") # 77 samples, 154 taxa -->
-
-<!-- # Prune zero sum taxa -->
-<!-- ps_gf_only_np_plsubset <- ps_gf_only_np_plsubset %>%   -->
-<!--   prune_taxa(taxa_sums(.) > 0, .) # 128 taxa remaining -->
-
-<!-- # Aggregate to genus level -->
-<!-- ps_gf_only_np_plsubset_genus <- tax_glom(ps_gf_only_np_plsubset, taxrank = "Genus") -->
-
-<!-- # Extract the abundance table (ASV table) -->
-<!-- asv_matrix_gf_only_np_plsubset_genus <- as(otu_table(ps_gf_only_np_plsubset_genus), "matrix") -->
-<!-- asv_matrix_gf_only_np_plsubset_genus <- t(asv_matrix_gf_only_np_plsubset_genus) -->
-
-
-<!-- # No need to convert phyloseq ASV abundances to relative abundances before running SPIEC-EASI as it is designed to handle compositionality by applying the CLR transformation and is designed to handle raw reads -->
-<!-- se_gf_only_np_slr_plsubset_genus <- spiec.easi(asv_matrix_gf_only_np_plsubset_genus,  -->
-<!--                            method ='slr',  -->
-<!--                            r = 5,  -->
-<!--                            lambda.min.ratio = 1e-1, -->
-<!--                            nlambda = 30,  -->
-<!--                            pulsar.params=list(rep.num = 50)) -->
-
-<!-- # Prepare for network plot -->
-<!-- ig_slr_gf_only_np_df_plsubset_genus <- create_ig_df(se_gf_only_np_slr_plsubset_genus, ps_gf_only_np_plsubset_genus) -->
-<!-- ig_slr_gf_only_np_df_plsubset_genus %>% arrange(-weight) -->
-
-<!-- # Prepare for igraph -->
-<!-- ig_slr_gf_only_np_plsubset_genus <- prep_ig(se_gf_only_np_slr_plsubset_genus, ps_gf_only_np_plsubset_genus, ig_slr_gf_only_np_df_plsubset_genus) -->
-
-
-<!-- # Plot the network with degree-based node sizing -->
-<!-- igraph_gf_only_np_plsubset_size_genus <- plot_ig_nodal_size(ig_slr_gf_only_np_plsubset_genus) + -->
-<!--   theme_minimal() + # Use a clean theme -->
-<!--   theme( -->
-<!--     panel.background = element_rect(fill = "white", color = NA), # White panel background -->
-<!--     plot.background = element_rect(fill = "white", color = NA),  # White plot background -->
-<!--     axis.line = element_blank(),      # Removes x and y axis lines -->
-<!--     axis.ticks = element_blank(),     # Removes axis ticks -->
-<!--     axis.text = element_blank(),      # Removes axis text -->
-<!--     axis.title = element_blank(),     # Removes axis titles -->
-<!--     legend.text = element_text(size = 10), # Adjusts size of legend text -->
-<!--     legend.title = element_text(size = 10), # Adjusts size of legend title -->
-<!--     legend.spacing = unit(0.5, "lines"),  # Reduces spacing between legend items -->
-<!--     legend.key.size = unit(0.5, "lines"), # Makes legend keys smaller -->
-<!--     legend.position = "right",  # Keeps legend position on the right -->
-<!--     panel.grid = element_blank(),  # Remove all grid lines (guidelines) -->
-
-<!--   ) -->
-
-<!-- # Save the plot -->
-<!-- ggsave("../Output/Networks/Power_law/igraph_gf_only_np_pl_nodaldegree_genus.svg", igraph_gf_only_np_plsubset_size_genus, width = 8, height = 5.5) -->
-
-
-<!-- # Plot the network with betweeness centrality-based node sizing -->
-<!-- igraph_gf_only_np_plsubset_betweenesscentrality <- plot_ig_betweeness_centrality(ig_slr_gf_only_np_plsubset) + -->
-<!--   theme_minimal() + # Use a clean theme -->
-<!--   theme( -->
-<!--     panel.background = element_rect(fill = "white", color = NA), # White panel background -->
-<!--     plot.background = element_rect(fill = "white", color = NA),  # White plot background -->
-<!--     axis.line = element_blank(),      # Removes x and y axis lines -->
-<!--     axis.ticks = element_blank(),     # Removes axis ticks -->
-<!--     axis.text = element_blank(),      # Removes axis text -->
-<!--     axis.title = element_blank(),     # Removes axis titles -->
-<!--     legend.text = element_text(size = 10), # Adjusts size of legend text -->
-<!--     legend.title = element_text(size = 10), # Adjusts size of legend title -->
-<!--     legend.spacing = unit(0.5, "lines"),  # Reduces spacing between legend items -->
-<!--     legend.key.size = unit(0.5, "lines"), # Makes legend keys smaller -->
-<!--     legend.position = "right",  # Keeps legend position on the right -->
-<!--     panel.grid = element_blank(),  # Remove all grid lines (guidelines) -->
-
-<!--   ) -->
-
-<!-- # Save the plot -->
-<!-- ggsave("../Output/Networks/Power_law/igraph_gf_only_np_plsubset_betweenesscentrality.svg", igraph_gf_only_np_plsubset_betweenesscentrality, width = 8, height = 5.5) -->
-
-<!-- ``` -->
-
-
-
-
 
