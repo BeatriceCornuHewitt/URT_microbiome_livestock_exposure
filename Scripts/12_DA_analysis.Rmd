@@ -5,7 +5,7 @@ date: "`r Sys.time()`"
 ---
 # Packages
 ```{r}
-library(phyloseq); library(dplyr); library(ANCOMBC); library(mia); library(DT); library(Maaslin2); library(microbiomer); library(patchwork);library(rcartocolor); library(ggplot2); library(scales); library(cartography); library(mia); library(rngtools); library(tidyverse); library(mia); library(car)
+library(phyloseq); library(dplyr); library(ANCOMBC); library(mia); library(DT); library(Maaslin2); library(microbiomer); library(patchwork);library(rcartocolor); library(ggplot2); library(scales); library(cartography); library(mia); library(rngtools); library(tidyverse); library(mia); library(car); library(DT); library(ANCOMBC); 
 
 # Set the theme for ggplot
 theme_set(theme_bw())
@@ -1669,66 +1669,6 @@ write.csv(maaslin_cp_gf_genus_op_ord, "../Output/DA_analysis/MaAsLin/CP_GF_OP/Ge
 # Heatmaps
 ## CP only
 ### ASV level 
-<!-- #### NP (univariable species) -->
-<!-- ```{r} -->
-<!-- # Define the directory -->
-<!-- np_folder <- "../Output/DA_analysis/MaAsLin/CP_NP/" -->
-
-<!-- # Read NP results -->
-<!-- np_files_cp_asvlevel_univar <- list.files(np_folder, pattern = "univar", full.names = TRUE) -->
-<!-- np_results_cp_asvlevel_univar <- lapply(np_files_cp_asvlevel_univar, read.csv) -->
-<!-- np_results_cp_asvlevel_univar <- bind_rows(np_results_cp_asvlevel_univar)  -->
-
-<!-- # Extract relevant columns for the heatmap -->
-<!-- np_heatmap_data_univar <- np_results_cp_asvlevel_univar %>% -->
-<!--   select(feature, metadata, coef, label) %>% -->
-<!--   group_by(feature, metadata)  -->
-
-<!-- # Define the custom order of metadata -->
-<!-- custom_metadata_order <- c("ecoli_RF_preds", "staph_RF_preds", "tetw_RF_preds",  -->
-<!--                            "meca_RF_preds", "KRD_nPigsWghtDist.3000m.sum",  -->
-<!--                            "KRD_nGoatsWghtDist.3000m.sum", "KRD_nPoultryWghtDist.3000m.sum",  -->
-<!--                            "KRD_nCowsWghtDist.3000m.sum") -->
-
-<!-- # Reorder metadata variables  -->
-<!-- np_heatmap_data_univar$metadata <- factor(np_heatmap_data_univar$metadata, levels = custom_metadata_order) -->
-
-<!-- # Rename metadata variables -->
-<!-- np_heatmap_data_univar <- np_heatmap_data_univar %>% -->
-<!--   mutate(metadata = dplyr::recode(metadata, -->
-<!--     "ecoli_RF_preds" = "RF-modelled E. coli exposure", -->
-<!--     "staph_RF_preds" = "RF-modelled Staphylococcus spp. exposure", -->
-<!--     "tetw_RF_preds" = "RF-modelled tetW ARG exposure", -->
-<!--     "meca_RF_preds" = "RF-modelled mecA ARG exposure", -->
-<!--     "KRD_nPigsWghtDist.3000m.sum" = "Distance weighted number of pigs in 3000m", -->
-<!--     "KRD_nGoatsWghtDist.3000m.sum" = "Distance weighted number of goats in 3000m", -->
-<!--     "KRD_nPoultryWghtDist.3000m.sum" = "Distance weighted number of chickens in 3000m", -->
-<!--     "KRD_nCowsWghtDist.3000m.sum" = "Distance weighted number of cattle in 3000m" -->
-<!--   )) -->
-
-
-<!-- # Create the heatmap -->
-<!-- np_heatmap_univar <- ggplot(np_heatmap_data_univar, aes(x = metadata, y = feature, fill = coef)) + -->
-<!--   geom_tile(color = "white") +  # Create the heatmap tiles -->
-<!--   scale_fill_gradient2( -->
-<!--     low = carto_pal(7, "Geyser")[1],  -->
-<!--     mid = carto_pal(7, "Geyser")[4],  -->
-<!--     high = carto_pal(7, "Geyser")[7],  -->
-<!--     midpoint = 0, -->
-<!--     name = "Coefficient" -->
-<!--   ) + -->
-<!--   geom_text(aes(label = label), color = "white", size = 3) +  # Add labels inside the cells -->
-<!--   theme_minimal() + -->
-<!--   theme( -->
-<!--     axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels -->
-<!--     axis.title.x = element_blank(),  # Remove x-axis title -->
-<!--     axis.title.y = element_blank(),   # Remove y-axis title -->
-<!--     plot.title = element_text(hjust = 0.5)  # Center the title -->
-<!--   ) + -->
-<!--   labs(title = "Heatmap of Coefficients by residential\n livestock exposure (NP niche) \nUnivariable animal species") -->
-
-<!-- ggsave("../Output/DA_analysis/MaAsLin/CP_NP/ASV_level/Heatmap_Maaslin_resutls_cp_np_asvlevel_univar.svg", np_heatmap_univar, width = 6, height = 8) -->
-<!-- ``` -->
 #### NP (multivariable species)
 ```{r}
 # Define the directory
@@ -1778,7 +1718,7 @@ heatmap_cp_np_asvlevel <- ggplot(np_heatmap_data, aes(x = metadata, y = feature,
     midpoint = 0,
     name = "Coefficient"
   ) +
-  geom_text(aes(label = label), color = "white", size = 3) +  # Add labels inside the cells
+  geom_text(aes(label = label), color = "white", size = 5) +  # Add labels inside the cells
   theme_minimal() +
   theme(
     axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels
@@ -1791,65 +1731,6 @@ heatmap_cp_np_asvlevel <- ggplot(np_heatmap_data, aes(x = metadata, y = feature,
 ggsave("../Output/DA_analysis/MaAsLin/CP_NP/ASV_level/Heatmap_Maaslin_results_cp_np_asvlevel.svg", heatmap_cp_np_asvlevel, width = 6, height = 6)
 ```
 
-<!-- #### OP (univariable species) -->
-<!-- ```{r} -->
-<!-- # Define the directory -->
-<!-- op_folder <- "../Output/DA_analysis/MaAsLin/CP_OP/" -->
-
-<!-- # Read OP results -->
-<!-- op_files_cp_asvlevel <- list.files(op_folder, pattern = "maaslin_cp_OP_asvlevel", full.names = TRUE) -->
-<!-- op_results_cp_asvlevel <- lapply(op_files_cp_asvlevel, read.csv) -->
-<!-- op_results_cp_asvlevel <- bind_rows(op_results_cp_asvlevel)  -->
-
-<!-- # Extract relevant columns for the heatmap -->
-<!-- op_heatmap_data <- op_results_cp_asvlevel %>% -->
-<!--   select(feature, metadata, coef, label) %>% -->
-<!--   group_by(feature, metadata)  -->
-
-<!-- # Define the custom order of metadata -->
-<!-- custom_metadata_order <- c("ecoli_RF_preds", "staph_RF_preds", "tetw_RF_preds",  -->
-<!--                            "meca_RF_preds", "KRD_nPigsWghtDist.3000m.sum",  -->
-<!--                            "KRD_nGoatsWghtDist.3000m.sum", "KRD_nPoultryWghtDist.3000m.sum",  -->
-<!--                            "KRD_nCowsWghtDist.3000m.sum") -->
-
-<!-- # Reorder metadata variables  -->
-<!-- op_heatmap_data$metadata <- factor(op_heatmap_data$metadata, levels = custom_metadata_order) -->
-
-<!-- # Rename metadata variables -->
-<!-- op_heatmap_data <- op_heatmap_data %>% -->
-<!--   mutate(metadata = dplyr::recode(metadata, -->
-<!--     "ecoli_RF_preds" = "RF-modelled E. coli exposure", -->
-<!--     "staph_RF_preds" = "RF-modelled Staphylococcus spp. exposure", -->
-<!--     "tetw_RF_preds" = "RF-modelled tetW ARG exposure", -->
-<!--     "meca_RF_preds" = "RF-modelled mecA ARG exposure", -->
-<!--     "KRD_nPigsWghtDist.3000m.sum" = "Distance weighted number of pigs in 3000m", -->
-<!--     "KRD_nGoatsWghtDist.3000m.sum" = "Distance weighted number of goats in 3000m", -->
-<!--     "KRD_nPoultryWghtDist.3000m.sum" = "Distance weighted number of chickens in 3000m", -->
-<!--     "KRD_nCowsWghtDist.3000m.sum" = "Distance weighted number of cattle in 3000m" -->
-<!--   )) -->
-
-<!-- # Create the heatmap -->
-<!-- heatmap_cp_op_asvlevel_univar <- ggplot(op_heatmap_data, aes(x = metadata, y = feature, fill = coef)) + -->
-<!--   geom_tile(color = "white") +  # Create the heatmap tiles -->
-<!--   scale_fill_gradient2( -->
-<!--     low = carto_pal(7, "Geyser")[1],  -->
-<!--     mid = carto_pal(7, "Geyser")[4],  -->
-<!--     high = carto_pal(7, "Geyser")[7],  -->
-<!--     midpoint = 0, -->
-<!--     name = "Coefficient" -->
-<!--   ) + -->
-<!--   geom_text(aes(label = label), color = "white", size = 3) +  # Add labels inside the cells -->
-<!--   theme_minimal() + -->
-<!--   theme( -->
-<!--     axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels -->
-<!--     axis.title.x = element_blank(),  # Remove x-axis title -->
-<!--     axis.title.y = element_blank(),   # Remove y-axis title -->
-<!--     plot.title = element_text(hjust = 0.5)  # Center the title -->
-<!--     ) + -->
-<!--   labs(title = "Heatmap of Coefficients by residential\n livestock exposure (OP niche)\nUnivariable livestock species") -->
-
-<!-- ggsave("../Output/DA_analysis/MaAsLin/CP_OP/ASV_level/Heatmap_Maaslin_resutls_cp_op_asvlevel_univar.svg", heatmap_cp_op_asvlevel_univar, width = 6, height = 8) -->
-<!-- ``` -->
 
 
 #### OP (multivariable species)
@@ -1891,7 +1772,7 @@ op_heatmap_data <- op_heatmap_data %>%
 
 # Create the heatmap
 heatmap_cp_op_asvlevel <- ggplot(op_heatmap_data, aes(x = metadata, y = feature, fill = coef)) +
-  geom_tile(color = "white") +  # Create the heatmap tiles
+  geom_tile(color = "black") +  # Create the heatmap tiles
   scale_fill_gradient2(
     low = carto_pal(7, "Geyser")[1], 
     mid = carto_pal(7, "Geyser")[4], 
@@ -1899,7 +1780,7 @@ heatmap_cp_op_asvlevel <- ggplot(op_heatmap_data, aes(x = metadata, y = feature,
     midpoint = 0,
     name = "Coefficient"
   ) +
-  geom_text(aes(label = label), color = "white", size = 3) +  # Add labels inside the cells
+  geom_text(aes(label = label), color = "black", size = 5) +  # Add labels inside the cells
   theme_minimal() +
   theme(
     axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels
@@ -1912,67 +1793,7 @@ heatmap_cp_op_asvlevel <- ggplot(op_heatmap_data, aes(x = metadata, y = feature,
 ggsave("../Output/DA_analysis/MaAsLin/CP_OP/ASV_level/Heatmap_Maaslin_results_cp_op_asvlevel_multivar.svg", heatmap_cp_op_asvlevel, width = 6, height = 7)
 ```
 
-### Genus level 
-<!-- #### NP (univariable livestock species) -->
-<!-- ```{r} -->
-<!-- # Define the directory -->
-<!-- np_folder_genus_univar <- "../Output/DA_analysis/MaAsLin/CP_NP/" -->
 
-<!-- # Read NP results -->
-<!-- np_files_cp_genuslevel <- list.files(np_folder_genus_univar, pattern = "maaslin_cp_np_genuslevel_", full.names = TRUE) -->
-<!-- np_results_cp_genuslevel <- lapply(np_files_cp_genuslevel, read.csv) -->
-<!-- np_results_cp_genuslevel <- bind_rows(np_results_cp_genuslevel)  -->
-
-<!-- # Extract relevant columns for the heatmap -->
-<!-- np_heatmap_data_univar <- np_results_cp_genuslevel %>% -->
-<!--   select(feature, metadata, coef, label) %>% -->
-<!--   group_by(feature, metadata)  -->
-
-<!-- # Define the custom order of metadata -->
-<!-- custom_metadata_order <- c("ecoli_RF_preds", "staph_RF_preds", "tetw_RF_preds",  -->
-<!--                            "meca_RF_preds", "KRD_nPigsWghtDist.3000m.sum",  -->
-<!--                            "KRD_nGoatsWghtDist.3000m.sum", "KRD_nPoultryWghtDist.3000m.sum",  -->
-<!--                            "KRD_nCowsWghtDist.3000m.sum") -->
-
-<!-- # Reorder metadata variables  -->
-<!-- np_heatmap_data_univar$metadata <- factor(np_heatmap_data_univar$metadata, levels = custom_metadata_order) -->
-
-<!-- # Rename metadata variables -->
-<!-- np_heatmap_data_univar <- np_heatmap_data_univar %>% -->
-<!--   mutate(metadata = dplyr::recode(metadata, -->
-<!--                            "ecoli_RF_preds" = "RF-modelled E. coli exposure", -->
-<!--                            "staph_RF_preds" = "RF-modelled Staphylococcus spp. exposure", -->
-<!--                            "tetw_RF_preds" = "RF-modelled tetW ARG exposure", -->
-<!--                            "meca_RF_preds" = "RF-modelled mecA ARG exposure", -->
-<!--                            "KRD_nPigsWghtDist.3000m.sum" = "Distance weighted number of pigs in 3000m", -->
-<!--                            "KRD_nGoatsWghtDist.3000m.sum" = "Distance weighted number of goats in 3000m", -->
-<!--                            "KRD_nPoultryWghtDist.3000m.sum" = "Distance weighted number of chickens in 3000m", -->
-<!--                            "KRD_nCowsWghtDist.3000m.sum" = "Distance weighted number of cattle in 3000m" -->
-<!--   )) -->
-
-
-<!-- # Create the heatmap -->
-<!-- heatmap_cp_np_genuslevel_univar <- ggplot(np_heatmap_data_univar, aes(x = metadata, y = feature, fill = coef)) + -->
-<!--   geom_tile(color = "white") +  # Create the heatmap tiles -->
-<!--   scale_fill_gradient2( -->
-<!--     low = carto_pal(7, "Geyser")[1],  -->
-<!--     mid = carto_pal(7, "Geyser")[4],  -->
-<!--     high = carto_pal(7, "Geyser")[7],  -->
-<!--     midpoint = 0, -->
-<!--     name = "Coefficient" -->
-<!--   ) + -->
-<!--   geom_text(aes(label = label), color = "white", size = 3) +  # Add labels inside the cells -->
-<!--   theme_minimal() + -->
-<!--   theme( -->
-<!--     axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels -->
-<!--     axis.title.x = element_blank(),  # Remove x-axis title -->
-<!--     axis.title.y = element_blank(),   # Remove y-axis title -->
-<!--     plot.title = element_text(hjust = 0.5)  # Center the title -->
-<!--   ) + -->
-<!--   labs(title = "Heatmap of Coefficients by residential\n livestock exposure (NP niche)\nUnivariable livestock species") -->
-
-<!-- ggsave("../Output/DA_analysis/MaAsLin/CP_NP/Genus_level/Heatmap_Maaslin_results_cp_np_genuslevel_univar.svg", heatmap_cp_np_genuslevel_univar, width = 5, height = 6) -->
-<!-- ``` -->
 #### NP (multivariable livestock species)
 ```{r}
 # Define the directory
@@ -2021,7 +1842,7 @@ heatmap_cp_np_genuslevel <- ggplot(np_heatmap_data, aes(x = metadata, y = featur
     midpoint = 0,
     name = "Coefficient"
   ) +
-  geom_text(aes(label = label), color = "white", size = 3) +  # Add labels inside the cells
+  geom_text(aes(label = label), color = "black", size = 5) +  # Add labels inside the cells
   theme_minimal() +
   theme(
     axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels
@@ -2033,66 +1854,6 @@ heatmap_cp_np_genuslevel <- ggplot(np_heatmap_data, aes(x = metadata, y = featur
 
 ggsave("../Output/DA_analysis/MaAsLin/CP_NP/Genus_level/Heatmap_Maaslin_results_cp_np_genuslevel.svg", heatmap_cp_np_genuslevel, width=6, height=6)
 ```
-<!-- #### OP (univariable livestock species) -->
-<!-- ```{r} -->
-<!-- # Define the directory -->
-<!-- op_folder_genus_univar <- "../Output/DA_analysis/MaAsLin/CP_OP/" -->
-
-<!-- # Read OP results -->
-<!-- op_files_cp_genuslevel_univar <- list.files(op_folder_genus_univar, pattern = "op_", full.names = TRUE) -->
-<!-- op_results_cp_genuslevel_univar <- lapply(op_files_cp_genuslevel_univar, read.csv) -->
-<!-- op_results_cp_genuslevel_univar <- bind_rows(op_results_cp_genuslevel_univar)  -->
-
-<!-- # Extract relevant columns for the heatmap -->
-<!-- op_heatmap_data_univar <- op_results_cp_genuslevel_univar %>% -->
-<!--   select(feature, metadata, coef, label) %>% -->
-<!--   group_by(feature, metadata)  -->
-
-<!-- # Define the custom order of metadata -->
-<!-- custom_metadata_order <- c("ecoli_RF_preds", "staph_RF_preds", "tetw_RF_preds",  -->
-<!--                            "meca_RF_preds", "KRD_nPigsWghtDist.3000m.sum",  -->
-<!--                            "KRD_nGoatsWghtDist.3000m.sum", "KRD_nPoultryWghtDist.3000m.sum",  -->
-<!--                            "KRD_nCowsWghtDist.3000m.sum") -->
-
-<!-- # Reorder metadata variables  -->
-<!-- op_heatmap_data_univar$metadata <- factor(op_heatmap_data_univar$metadata, levels = custom_metadata_order) -->
-
-<!-- # Rename metadata variables -->
-<!-- op_heatmap_data_univar <- op_heatmap_data_univar %>% -->
-<!--   mutate(metadata = dplyr::recode(metadata, -->
-<!--                            "ecoli_RF_preds" = "RF-modelled E. coli exposure", -->
-<!--                            "staph_RF_preds" = "RF-modelled Staphylococcus spp. exposure", -->
-<!--                            "tetw_RF_preds" = "RF-modelled tetW ARG exposure", -->
-<!--                            "meca_RF_preds" = "RF-modelled mecA ARG exposure", -->
-<!--                            "KRD_nPigsWghtDist.3000m.sum" = "Distance weighted number of pigs in 3000m", -->
-<!--                            "KRD_nGoatsWghtDist.3000m.sum" = "Distance weighted number of goats in 3000m", -->
-<!--                            "KRD_nPoultryWghtDist.3000m.sum" = "Distance weighted number of chickens in 3000m", -->
-<!--                            "KRD_nCowsWghtDist.3000m.sum" = "Distance weighted number of cattle in 3000m" -->
-<!--   )) -->
-
-<!-- # Create the heatmap -->
-<!-- heatmap_cp_op_genuslevel_univar <- ggplot(op_heatmap_data_univar, aes(x = metadata, y = feature, fill = coef)) + -->
-<!--   geom_tile(color = "white") +  # Create the heatmap tiles -->
-<!--   scale_fill_gradient2( -->
-<!--     low = carto_pal(7, "Geyser")[1],  -->
-<!--     mid = carto_pal(7, "Geyser")[4],  -->
-<!--     high = carto_pal(7, "Geyser")[7],  -->
-<!--     midpoint = 0, -->
-<!--     name = "Coefficient" -->
-<!--   ) + -->
-<!--   geom_text(aes(label = label), color = "white", size = 3) +  # Add labels inside the cells -->
-<!--   theme_minimal() + -->
-<!--   theme( -->
-<!--     axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels -->
-<!--     axis.title.x = element_blank(),  # Remove x-axis title -->
-<!--     axis.title.y = element_blank(),   # Remove y-axis title -->
-<!--     plot.title = element_text(hjust = 0.5)  # Center the title -->
-<!--   ) + -->
-<!--   labs(title = "Heatmap of Coefficients by residential\n livestock exposure (OP niche)\nUnivariable livestock species") -->
-
-<!-- ggsave("../Output/DA_analysis/MaAsLin/CP_OP/Genus_level/Heatmap_Maaslin_results_cp_op_genuslevel_univar.svg", heatmap_cp_op_genuslevel_univar, width = 6, height =7) -->
-
-<!-- ``` -->
 
 #### OP (multivariable livestock species)
 ```{r}
@@ -2141,7 +1902,7 @@ heatmap_cp_op_genuslevel <- ggplot(op_heatmap_data, aes(x = metadata, y = featur
     midpoint = 0,
     name = "Coefficient"
   ) +
-  geom_text(aes(label = label), color = "white", size = 3) +  # Add labels inside the cells
+  geom_text(aes(label = label), color = "black", size = 5) +  # Add labels inside the cells
   theme_minimal() +
   theme(
     axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels
@@ -2177,7 +1938,7 @@ heatmap_cp_gf_np_asvlevel <- ggplot(np_cp_gf_heatmap_data, aes(x = metadata, y =
     midpoint = 0,
     name = "Coefficient"
   ) +
-  geom_text(aes(label = label), color = "white", size = 3) +  # Add labels inside the cells
+  geom_text(aes(label = label), color = "black", size = 5) +  # Add labels inside the cells
   theme_minimal() +
   theme(
     axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels
@@ -2211,7 +1972,7 @@ heatmap_cp_gf_op_asvlevel <- ggplot(op_cp_gf_heatmap_data, aes(x = metadata, y =
     midpoint = 0,
     name = "Coefficient"
   ) +
-  geom_text(aes(label = label), color = "white", size = 3) +  # Add labels inside the cells
+  geom_text(aes(label = label), color = "black", size = 5) +  # Add labels inside the cells
   theme_minimal() +
   theme(
     axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels
@@ -2245,7 +2006,7 @@ heatmap_cp_gf_np_genuslevel <- ggplot(np_cp_gf_genus_heatmap_data, aes(x = metad
     midpoint = 0,
     name = "Coefficient"
   ) +
-  geom_text(aes(label = label), color = "white", size = 3) +  # Add labels inside the cells
+  geom_text(aes(label = label), color = "black", size = 5) +  # Add labels inside the cells
   theme_minimal() +
   theme(
     axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels
@@ -2279,7 +2040,7 @@ heatmap_cp_gf_op_genuslevel <- ggplot(op_cp_gf_genus_heatmap_data, aes(x = metad
     midpoint = 0,
     name = "Coefficient"
   ) +
-  geom_text(aes(label = label), color = "white", size = 3) +  # Add labels inside the cells
+  geom_text(aes(label = label), color = "black", size = 5) +  # Add labels inside the cells
   theme_minimal() +
   theme(
     axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels
@@ -2291,7 +2052,144 @@ heatmap_cp_gf_op_genuslevel <- ggplot(op_cp_gf_genus_heatmap_data, aes(x = metad
 
 ggsave("../Output/DA_analysis/MaAsLin/CP_GF_op/Genus_level/Heatmap_Maaslin_results_cp_gf_op_genuslevel.svg", heatmap_cp_gf_op_genuslevel, width = 6, height=6)
 ```
-# Boxplots to check abundances - CP vs GF (NP)
+
+# Boxplots to check abundances
+## All ASVs
+### NP 
+```{r}
+# Convert phyloseq object to long format (for all ASVs)
+ps_all_ASVs_cp_gf_np <- ps_np_cp_gf_abs_filt %>%
+  phyloseq::psmelt() %>%
+  group_by(Sample, ASV, population) %>%
+  summarize(Abundance = sum(Abundance), .groups = "drop")
+
+# Log-transform the abundance values to reduce skew
+ps_all_ASVs_cp_gf_np <- ps_all_ASVs_cp_gf_np %>%
+  mutate(Abundance_log = log10(Abundance + 1)) # Add 1 to avoid log(0)
+
+# nptional: Order ASVs alphabetically for consistent visualization
+ps_all_ASVs_cp_gf_np$ASV <- factor(ps_all_ASVs_cp_gf_np$ASV, levels = sort(unique(ps_all_ASVs_cp_gf_np$ASV)))
+
+# Create violin and boxplots for all ASVs across pnpulations
+plot_all_ASVs_np <- ggplot(ps_all_ASVs_cp_gf_np, aes(x = population, y = Abundance_log, fill = population)) +
+  geom_violin(alpha = 0.5, scale = "width", trim = TRUE, color = NA) +  # Violin plot
+  geom_boxplot(width = 0.2, outlier.shape = NA, alpha = 0.7, color = "black") + # Boxplot inside violin
+  facet_wrap(~ASV, scales = "free_y", ncol = 4) +  # Facet by ASV with free y-scale
+  scale_fill_manual(values = c("CP" = "#e3be6a", "GF" = "#77b6a4")) +  # Custom fill colors
+  labs(
+    title = "Abundance of All ASVs Across Populations",
+    x = "Population",
+    y = "Absolute Abundance (log-transformed)"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "top",
+    strip.text = element_text(size = 8)  # Reduce facet title size for better readability
+  )
+
+# Display the plot
+print(plot_all_ASVs_np)
+
+# Save the plot
+ggsave("../Output/DA_analysis/All_ASVs_violinplots_np.svg",
+       plot_all_ASVs_np, width = 16, height = 12)
+
+```
+### OP 
+```{r}
+# Convert phyloseq object to long format (for all ASVs)
+ps_all_ASVs_cp_gf_op <- ps_op_cp_gf_abs_filt %>%
+  phyloseq::psmelt() %>%
+  group_by(Sample, ASV, population) %>%
+  summarize(Abundance = sum(Abundance), .groups = "drop")
+
+# Log-transform the abundance values to reduce skew
+ps_all_ASVs_cp_gf_op <- ps_all_ASVs_cp_gf_op %>%
+  mutate(Abundance_log = log10(Abundance + 1)) # Add 1 to avoid log(0)
+
+# Optional: Order ASVs alphabetically for consistent visualization
+ps_all_ASVs_cp_gf_op$ASV <- factor(ps_all_ASVs_cp_gf_op$ASV, levels = sort(unique(ps_all_ASVs_cp_gf_op$ASV)))
+
+# Create violin and boxplots for all ASVs across populations
+plot_all_ASVs <- ggplot(ps_all_ASVs_cp_gf_op, aes(x = population, y = Abundance_log, fill = population)) +
+  geom_violin(alpha = 0.5, scale = "width", trim = TRUE, color = NA) +  # Violin plot
+  geom_boxplot(width = 0.2, outlier.shape = NA, alpha = 0.7, color = "black") + # Boxplot inside violin
+  facet_wrap(~ASV, scales = "free_y", ncol = 4) +  # Facet by ASV with free y-scale
+  scale_fill_manual(values = c("CP" = "#e3be6a", "GF" = "#77b6a4")) +  # Custom fill colors
+  labs(
+    title = "Abundance of All ASVs Across Populations",
+    x = "Population",
+    y = "Absolute Abundance (log-transformed)"
+  ) +
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),
+    legend.position = "top",
+    strip.text = element_text(size = 8)  # Reduce facet title size for better readability
+  )
+
+# Display the plot
+print(plot_all_ASVs)
+
+# Save the plot
+ggsave("../Output/DA_analysis/All_ASVs_violinplots_op.svg",
+       plot_all_ASVs, width = 16, height = 12)
+
+```
+
+## Maaslin
+### CP vs GF (NP) ASV level 
+```{r}
+# ASV level results 
+maaslin_cp_gf_np_ord
+
+# Filter for significant results (e.g., FDR < 0.05)
+significant_ASVs_maaslin_cp_gf_np <- maaslin_cp_gf_np_ord %>%
+  filter(qval < 0.05) %>%
+  arrange(desc(coef))
+
+# Print the significant genera for confirmation
+print(significant_ASVs_maaslin_cp_gf_np$feature)
+
+# Extract the ASV names
+significant_ASV_names_cp_gf_np <- significant_ASVs_maaslin_cp_gf_np$feature
+
+# Subset the original phyloseq object to only include significant ASVs
+ps_ASV_significant_cp_gf_np <- prune_taxa(taxa_names(ps_np_cp_gf_abs_filt) %in% significant_ASV_names_cp_gf_np, ps_np_cp_gf_abs_filt)
+
+# Create a data frame for visualization
+# Convert phyloseq object to long format (requires `phyloseq` and `tidyverse`)
+ps_df_maaslin_cp_gf_np <- ps_ASV_significant_cp_gf_np %>%
+  phyloseq::psmelt() %>%
+  filter(ASV %in% significant_ASV_names_cp_gf_np) %>%
+  group_by(Sample, ASV, population) %>%
+  summarize(Abundance = sum(Abundance), .groups = "drop")
+
+ps_df_maaslin_cp_gf_np <- ps_df_maaslin_cp_gf_np %>%
+  mutate(Abundance_log = log10(Abundance + 1)) # Log-transform abundance to reduce skew
+
+# Optional: Order the genera by effect size for better visualization
+ps_df_maaslin_cp_gf_np$ASV <- factor(ps_df_maaslin_cp_gf_np$ASV, levels = significant_ASV_names_cp_gf_np)
+
+# Create a violin and boxplot (inside) of abundance for significant genera across populations
+ggplot(ps_df_maaslin_cp_gf_np, aes(x = population, y = Abundance_log, fill = population)) +
+  geom_violin(alpha = 0.5, scale = "width", trim = TRUE, color = NA) + # Add violin plot
+  geom_boxplot(width = 0.2, outlier.shape = NA, alpha = 0.7, color = "black") + # Add boxplot inside violin
+  facet_wrap(~ASV, scales = "free_y") +
+  scale_fill_manual(values = c("CP" = "#e3be6a", "GF" = "#77b6a4")) + # Customize colors
+  labs(title = "Differentially Abundant Genera",
+       x = "Population",
+       y = "Absolute abundance (log transformed)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "top")
+
+# Save the plot
+ggsave("../Output/DA_analysis/MaAsLin/CP_GF_NP/ASV_level/Significant_ASVs_violinplots.svg",
+       width = 12, height = 8)
+```
+### CP vs GF (NP) genus
 ```{r}
 # Read in the MaAsLin2 results
 maaslin_results_cp_gf_np <- read.csv("../Output/DA_analysis/MaAsLin/CP_GF_NP/Genus_level/maaslin_cp_gf_genus_np_ord.csv")
@@ -2342,13 +2240,63 @@ ggplot(ps_df_cp_gf_np, aes(x = population, y = Abundance_log, fill = population)
 ggsave("../Output/DA_analysis/MaAsLin/CP_GF_NP/Genus_level/Significant_genera_violinplots.svg",
        width = 12, height = 8)
 ```
-# Boxplots to check abundances - CP vs GF (OP)
+### CP vs GF (OP) ASV level
 ```{r}
-# Read in the MaAsLin2 results
-maaslin_results_cp_gf_op <- read.csv("../Output/DA_analysis/MaAsLin/CP_GF_OP/Genus_level/maaslin_cp_gf_genus_op_ord.csv")
-
 # Filter for significant results (e.g., FDR < 0.05)
-significant_genera_cp_gf_op <- maaslin_results_cp_gf_op %>%
+significant_ASVs_cp_gf_op <- maaslin_cp_gf_op_ord %>%
+  filter(qval < 0.05) %>%
+  arrange(desc(coef))
+
+# Print the significant genera for confirmation
+print(significant_ASVs_cp_gf_op$feature)
+
+# Extract the ASV names
+significant_ASV_names_cp_gf_op <- significant_ASVs_cp_gf_op$feature
+
+# Subset your original phyloseq object (or microbiome dataset) to only include significant genera
+# Assuming you have a phyloseq object named `ps_np_cp_gf_abs_ASV_filt`
+ps_significant_ASVs_cp_gf_op <- prune_taxa(taxa_names(ps_op_cp_gf_abs_filt) %in% significant_ASV_names_cp_gf_op, ps_op_cp_gf_abs_filt)
+
+# Create a data frame for visualization
+# Convert phyloseq object to long format (requires `phyloseq` and `tidyverse`)
+ps_significant_ASVs_cp_gf_op <- ps_significant_ASVs_cp_gf_op %>%
+  phyloseq::psmelt() %>%
+  filter(ASV %in% significant_ASV_names_cp_gf_op) %>%
+  group_by(Sample, ASV, population) %>%
+  summarize(Abundance = sum(Abundance), .groups = "drop")
+
+ps_significant_ASVs_cp_gf_op <- ps_significant_ASVs_cp_gf_op %>%
+  mutate(Abundance_log = log10(Abundance + 1)) # Log-transform abundance to reduce skew
+
+# Optional: Order the genera by effect size for better visualization
+ps_significant_ASVs_cp_gf_op$ASV <- factor(ps_significant_ASVs_cp_gf_op$ASV, levels = significant_ASV_names_cp_gf_op)
+
+# Create a violin and boxplot (inside) of abundance for significant genera across populations
+ggplot(ps_significant_ASVs_cp_gf_op, aes(x = population, y = Abundance_log, fill = population)) +
+  geom_violin(alpha = 0.5, scale = "width", trim = TRUE, color = NA) + # Add violin plot
+  geom_boxplot(width = 0.2, outlier.shape = NA, alpha = 0.7, color = "black") + # Add boxplot inside violin
+  facet_wrap(~ASV, scales = "free_y") +
+  scale_fill_manual(values = c("CP" = "#e3be6a", "GF" = "#77b6a4")) + # Customize colors
+  labs(title = "Differentially Abundant Genera",
+       x = "Population",
+       y = "Absolute abundance (log transformed)") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1),
+        legend.position = "top")
+
+# Save the plot
+ggsave("../Output/DA_analysis/MaAsLin/CP_GF_OP/ASV_level/Significant_ASVs_violinplots.svg",
+       width = 12, height = 8)
+
+
+
+```
+
+
+### CP vs GF (OP) genus level
+```{r}
+# Filter for significant results (e.g., FDR < 0.05)
+significant_genera_cp_gf_op <- maaslin_cp_gf_genus_op_ord %>%
   filter(qval < 0.05) %>%
   arrange(desc(coef))
 
@@ -2392,8 +2340,246 @@ ggplot(ps_df_cp_gf_op, aes(x = population, y = Abundance_log, fill = population)
 # Save the plot
 ggsave("../Output/DA_analysis/MaAsLin/CP_GF_OP/Genus_level/Significant_genera_violinplots.svg",
        width = 12, height = 8)
+```
+
+# ANCOM-BC2 analysis 
+## GF and CP
+### NP 
+```{r}
+# ANCOM-BC2 incorporates a sensitivity analysis to assess the impact of different pseudocoutns on zero counts for each taxon - it involves adding a series of pseudo-counts (ranging from 0.01 to 0.5 in increments of 0.01) to the zero counts of each taxon. Linear regression models are then performed on the bias-corrected log abundance table using the different pseudo-counts. The sensitivity score for each taxon is calculated as the proportion of times that the p-value exceeds the specified significance level (alpha). If all p-values consistently show significance or nonsignificance across different pseudo-counts and are consistent with the results obtained without adding pseudo-counts to zero counts (using the complete data), then the taxon is considered not sensitive to the pseudo-count addition.
+
+# Make tree summarised experiment data
+np_cp_gf_miseq_tse <- mia::makeTreeSummarizedExperimentFromPhyloseq(ps_np_cp_gf_abs_filt)
+# Specify population levels
+np_cp_gf_miseq_tse@colData$population <- factor(np_cp_gf_miseq_tse@colData$population, levels = c("CP", "GF"))
+
+# Run ANCOM-BC2 analysis
+ancom_np_all <- ancombc2(data = np_cp_gf_miseq_tse, 
+                         fix_formula = "population  + age + gender + sampling_season + smoked_ever",
+                         rand_formula = NULL,
+                         p_adj_method = "BH",
+                         prv_cut = 0,
+                         lib_cut = 0,
+                         group = "population",
+                         struc_zero = FALSE,
+                         alpha = 0.05,
+                         global = TRUE,
+                         pairwise = TRUE)
 
 
+ # Primary analysis results - also gives results from other factors included in the formula e.g. age, gender etc. 
+ancom_np_primary <- ancom_np_all$res %>%
+    mutate_if(is.numeric, function(x) round(x, 2))
+
+# Interpreting the table - for each variable there are the following columns for each ASV e.g. for the population variable
+## lfc_populationGF - log fold change - the log fold change of the taxon abundance between the GF and CP groups.
+## se_populationGF - Standard error of the lfc estimate 
+## W_populationGF - Wald statistic which is used to test the null hypothesis that the log fold change for a variable is equal to zero (i.e., no association).
+## p_populationGF - he p-value for the log fold change between GF and CP groups.
+## q_populationGF - the adjusted p-value after multiple testing correction (e.g., Benjamini-Hochberg method), controlling for the false discovery rate (FDR).
+## diff_populationGF - Indicates whether the taxon is differentially abundant for a specific variable
+## passed_ss_populationGF - Indicates whether the taxon passed the structural zero (ss) test for a given variable.
+
+write.csv(ancom_np_primary, "../Output/DA_analysis/ANCOM-BC/ancom_np_primary.csv")
+
+
+# Filter ASVs with q-value < 0.25 for the "population" variable
+# We are willing to accept a higher false-positive rate to avoid missing biologically meaningful taxa
+# Filter ASVs with q-value < 0.25 for the "population" variable
+significant_ASVs_np <- ancom_np_primary %>%
+  filter(q_populationGF < 0.25) # 10 ASVs that are significantly higher or lower
+
+significant_ASVs_np_passedss <- ancom_np_primary %>%
+  filter(q_populationGF < 0.25 & passed_ss_populationGF == TRUE) # 7 ASVs that was significantly different and passed the ss test
+
+```
+#### Heatmap
+```{r}
+
+# Add stars inside the cells based on significance levels (qval thresholds) and passed_ss_populationGF
+np_cp_gf_heatmap_data_ancom <- ancom_np_primary %>%
+  mutate(
+    label = case_when(
+      q_populationGF < 0.05 ~ "***",  # Stars for qval < 0.05
+      q_populationGF < 0.1 ~ "**",    # Stars for qval < 0.1
+      q_populationGF < 0.25 ~ "*",    # Stars for qval < 0.25
+      TRUE ~ NA_character_           # No stars if qval >= 0.25
+    ),
+    star_color = ifelse(passed_ss_populationGF, "black", "white")  # Set star color based on passed_ss_populationGF
+  )
+
+
+# Create the heatmap with stars inside the cells
+heatmap_cp_gf_np_asvlevel_ancom_stars <- ggplot(np_cp_gf_heatmap_data_ancom, aes(x = "Population (GF vs CP)", y = taxon, fill = lfc_populationGF)) +
+  geom_tile(color = "white") +  # Create the heatmap tiles
+  scale_fill_gradient2(
+    low = carto_pal(7, "Geyser")[1], 
+    mid = carto_pal(7, "Geyser")[4], 
+    high = carto_pal(7, "Geyser")[7], 
+    midpoint = 0,
+    name = "Log Fold Change"
+  ) +
+  # Add stars as labels inside the cells, with different colors
+  geom_text(aes(label = label, color = star_color), size = 5) +  # Adjust size as needed
+  scale_color_identity() +  # Use star_color directly without mapping
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels
+    axis.title.x = element_blank(),  # Remove x-axis title
+    axis.title.y = element_blank(),   # Remove y-axis title
+    plot.title = element_text(hjust = 0.5)  # Center the title
+  ) +
+  theme(plot.margin = unit(c(1, 1, 1, 2), 'cm'))
+
+# Display the heatmap
+print(heatmap_cp_gf_np_asvlevel_ancom_stars)
+
+# Save the heatmap to a file
+ggsave("../Output/DA_analysis/ANCOM-BC/Heatmap_ANCOMBC2_NP.svg", 
+       heatmap_cp_gf_np_asvlevel_ancom_stars, width = 6, height = 8)
+
+
+
+
+
+
+```
+### OP
+```{r}
+op_cp_gf_miseq_tse <- mia::makeTreeSummarizedExperimentFromPhyloseq(ps_op_cp_gf_abs_filt)
+saveRDS(op_cp_gf_miseq_tse, "../Output/DA_analysis/op_cp_gf_miseq_tse.rds")
+op_cp_gf_miseq_tse@colData$population <- factor(op_cp_gf_miseq_tse@colData$population, levels = c("CP", "GF"))
+
+# Run ANCOM-BC2 analysis
+ancom_op_all <- ancombc2(data = op_cp_gf_miseq_tse, 
+                         fix_formula = "population  + age + gender + sampling_season + smoked_ever",
+                         rand_formula = NULL,
+                         p_adj_method = "BH",
+                         prv_cut = 0,
+                         lib_cut = 0,
+                         group = "population",
+                         struc_zero = FALSE,
+                         alpha = 0.05,
+                         global = TRUE,
+                         pairwise = TRUE)
+
+# Primary analysis results - also gives results from other factors included in the formula e.g. age, gender etc. 
+ancom_op_primary <- ancom_op_all$res %>%
+    mutate_if(is.numeric, function(x) round(x, 2))
+
+# Interpreting the table - for each variable there are the following columns for each ASV e.g. for the population variable
+## lfc_populationGF - log fold change - the log fold change of the taxon abundance between the GF and CP groups.
+## se_populationGF - Standard error of the lfc estimate 
+## W_populationGF - Wald statistic which is used to test the null hypothesis that the log fold change for a variable is equal to zero (i.e., no association).
+## p_populationGF - he p-value for the log fold change between GF and CP groups.
+## q_populationGF - the adjusted p-value after multiple testing correction (e.g., Benjamini-Hochberg method), controlling for the false discovery rate (FDR).
+## diff_populationGF - Indicates whether the taxon is differentially abundant for a specific variable
+## passed_ss_populationGF - Indicates whether the taxon passed the structural zero (ss) test for a given variable.
+
+write.csv(ancom_op_primary, "../Output/DA_analysis/ANCOM-BC/ancom_op_primary.csv")
+
+# Filter ASVs with q-value < 0.25 for the "population" variable
+significant_ASVs_op <- ancom_op_primary %>%
+  filter(q_populationGF < 0.25) # 10 that are significantly higher or lower
+
+significant_ASVs_op_passedss <- ancom_op_primary %>%
+  filter(q_populationGF < 0.25 & passed_ss_populationGF == TRUE) # Only 2 ASVs that were significnat and passed the ss test
+
+
+```
+
+
+#### Heatmap
+```{r}
+
+# Add stars inside the cells based on significance levels (qval thresholds) and passed_ss_populationGF
+op_cp_gf_heatmap_data_ancom <- ancom_op_primary %>%
+  mutate(
+    label = case_when(
+      q_populationGF < 0.05 ~ "***",  # Stars for qval < 0.05
+      q_populationGF < 0.1 ~ "**",    # Stars for qval < 0.1
+      q_populationGF < 0.25 ~ "*",    # Stars for qval < 0.25
+      TRUE ~ NA_character_           # No stars if qval >= 0.25
+    ),
+    star_color = ifelse(passed_ss_populationGF, "black", "white")  # Set star color based on passed_ss_populationGF
+  )
+
+
+# Create the heatmap with stars inside the cells
+heatmap_cp_gf_op_asvlevel_ancom_stars <- ggplot(op_cp_gf_heatmap_data_ancom, aes(x = "Population (GF vs CP)", y = taxon, fill = lfc_populationGF)) +
+  geom_tile(color = "white") +  # Create the heatmap tiles
+  scale_fill_gradient2(
+    low = carto_pal(7, "Geyser")[1], 
+    mid = carto_pal(7, "Geyser")[4], 
+    high = carto_pal(7, "Geyser")[7], 
+    midpoint = 0,
+    name = "Log Fold Change"
+  ) +
+  # Add stars as labels inside the cells, with different colors
+  geom_text(aes(label = label, color = star_color), size = 5) +  # Adjust size as needed
+  scale_color_identity() +  # Use star_color directly without mapping
+  theme_minimal() +
+  theme(
+    axis.text.x = element_text(angle = 45, hjust = 1),  # Rotate x-axis labels
+    axis.title.x = element_blank(),  # Remove x-axis title
+    axis.title.y = element_blank(),   # Remove y-axis title
+    plot.title = element_text(hjust = 0.5)  # Center the title
+  ) +
+  theme(plot.margin = unit(c(1, 1, 1, 2), 'cm'))
+
+# Display the heatmap
+print(heatmap_cp_gf_op_asvlevel_ancom_stars)
+
+# Save the heatmap to a file
+ggsave("../Output/DA_analysis/ANCOM-BC/Heatmap_ANCOMBC2_OP.svg", 
+       heatmap_cp_gf_op_asvlevel_ancom_stars, width = 6, height = 8)
+
+```
+
+# MaAsLin2 combined heatmaps
+```{r}
+# Combine the two heatmaps side by side
+combined_heatmap_maaslin <- heatmap_cp_gf_np_asvlevel + heatmap_cp_gf_op_asvlevel +
+                    plot_layout(ncol = 2)  # Arrange them in 2 columns
+
+# Add a title for the combined plot
+combined_heatmap_maaslin <- combined_heatmap_maaslin + 
+  plot_annotation(title = "Heatmaps of MaAsLin Results for OP and NP Datasets") & 
+  theme(plot.title = element_text(hjust = 0.5, size = 16, face = "bold"))
+
+# Display the combined heatmap
+print(combined_heatmap_maaslin)
+
+# Save the combined heatmap
+ggsave("../Output/DA_analysis/MaAsLin/Combined_Heatmap_MaAsLin.svg", 
+       combined_heatmap_maaslin, width = 10, height = 8)
+
+```
+# ANCOM-BC2 combined heatmaps
+```{r}
+# Combine the two heatmaps side by side
+combined_heatmap <- heatmap_cp_gf_np_asvlevel_ancom_stars + heatmap_cp_gf_op_asvlevel_ancom_stars +
+                    plot_layout(ncol = 2)  # Arrange them in 2 columns
+
+# Add a title for the combined plot
+combined_heatmap <- combined_heatmap + 
+  plot_annotation(title = "Heatmaps of ANCOM-BC Results for OP and NP Datasets") & 
+  theme(plot.title = element_text(hjust = 0.5, size = 16, face = "bold"))
+
+# Display the combined heatmap
+print(combined_heatmap)
+
+# Save the combined heatmap
+ggsave("../Output/DA_analysis/ANCOM-BC/Combined_Heatmap_ANCOM_BC_OP_NP.svg", 
+       combined_heatmap, width = 12, height = 8)
+
+```
+
+# Reporting for article 
+```{r}
+# MaAsLin2 tends to be more sensitive (detecting more associations), but this can come at the cost of a higher false-positive rate.
+# Since this study is more explorative, MaAsLin resutls will be reported in the main text 
+# ANCOM-BC2 results to go in the supplement and referred to 
 ```
 
 
@@ -2417,23 +2603,30 @@ which(rownames(seq) == "Staphylococcus_256") # 199
 which(rownames(seq) == "Streptococcus_8") # 8
 which(rownames(seq) == "Streptococcus_4") # 4
 which(rownames(seq) == "Streptococcus_23") # 21
+which(rownames(seq) == "Staphylococcus_217") # 165
 
 
-Staphylococcaceae
+
+tax_table_ps <- tax_table(ps_new_metadata_RFpreds)
+print(tax_table_ps["Moraxella_5", ])
+print(tax_table_ps["Staphylococcaceae_295", ])
+print(tax_table_ps["Staphylococcus_217", ])
+
 
 # Check the sequences for all of these ASVs
-print(seq[5, ])
+print(seq[5, ]) # Either Moraxella catarrhalis or Moraxella nonliquefaciens
 print(seq[2, ])
 print(seq[7, ])
 print(seq[194, ])
 print(seq[35, ])
 print(seq[24, ])
 print(seq[52, ])
-print(seq[228, ])
+print(seq[228, ]) 
 print(seq[199, ])
 print(seq[8, ])
 print(seq[4, ])
 print(seq[21, ])
+print(seq[165, ])
 
 
 
