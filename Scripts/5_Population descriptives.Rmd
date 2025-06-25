@@ -1,0 +1,844 @@
+---
+title: "Descriptive statistics"
+author: "Beatrice Cornu Hewitt"
+date: "`r Sys.time()`"
+---
+
+# Packages
+```{r}
+# Functions
+source("functions.R")
+
+# List of required packages
+required_packages <- c(
+  "dplyr", "table1", "knitr", "kableExtra", "ggpubr", "gtsummary", "microbiomer")
+# Install missing packages
+install_if_missing(required_packages)
+# Load all required packages
+lapply(required_packages, library, character.only = TRUE)
+```
+# Participants with at least 1 sample (OP or NP)
+## Summary statistics
+```{r}
+ps <- readRDS("../Output/Phyloseq/2_ps_complete.Rds")
+metadata <- meta_to_df(ps)
+
+# Number participants
+sum(!duplicated(metadata$VGO3_ID[metadata$population == "CP"]))# 962
+sum(!duplicated(metadata$VGO3_ID[metadata$population == "GF"]))# 96
+
+# Number samples per niche
+sum(!duplicated(metadata$VGO3_ID[metadata$population == "CP" & metadata$niche == "OP"]))# 951
+sum(!duplicated(metadata$VGO3_ID[metadata$population == "CP" & metadata$niche == "NP"]))# 824
+sum(!duplicated(metadata$VGO3_ID[metadata$population == "GF" & metadata$niche == "OP"]))# 95
+sum(!duplicated(metadata$VGO3_ID[metadata$population == "GF" & metadata$niche == "NP"]))# 80
+
+# Matched participants 
+ps_matched <- readRDS("../Output/Phyloseq/3_ps_complete_matchedCPGF.rds")
+metadata_matched <- meta_to_df(ps_matched)
+
+# Number participants
+sum(!duplicated(metadata_matched$VGO3_ID[metadata_matched$population == "CP"]))# 186
+sum(!duplicated(metadata_matched$VGO3_ID[metadata_matched$population == "GF"]))# 93
+
+# Number samples per niche
+sum(metadata_matched$population == "CP" & metadata_matched$niche == "OP")# 195
+sum(metadata_matched$population == "CP" & metadata_matched$niche == "NP")# 159
+sum(metadata_matched$population == "GF" & metadata_matched$niche == "OP")# 92
+sum(metadata_matched$population == "GF" & metadata_matched$niche == "NP")# 77
+
+```
+
+## Create a visual overview of the samples across the three populations
+```{r}
+metadata_noblanks <- metadata[!is.na(metadata$population), ]
+
+# Keep only one unique VGO3_ID per niche
+metadata_unique <- metadata_noblanks %>%
+  group_by(niche) %>%
+  distinct(VGO3_ID, .keep_all = TRUE) %>%
+  ungroup()
+
+t <- count(metadata_unique, population, niche) %>% as.data.frame()
+t <- subset(t, !is.na(population))
+
+sample_plot <- ggplot(t, aes(x = population, y = n, fill = niche)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c("burlywood3", "cadetblue3")) +
+  labs(x = "Population", y = "Number of samples", fill = "Sample type") +
+  geom_text(position = position_stack(vjust = 0.5), 
+            aes(label = n, colour = niche), size = 5) +
+  scale_colour_manual(values = c("burlywood4", "cadetblue4")) +
+  guides(colour = "none") +
+  theme(
+    axis.title = element_text(size = 16), # Axis titles
+    axis.text = element_text(size = 16), # Axis text
+    legend.title = element_text(size = 16), # Legend title
+    legend.text = element_text(size = 16)# Legend text
+  )
+
+ggsave("../Output/Microbiome_descriptives/sample_plot.svg", sample_plot)
+
+
+# Plot only for CP and GF 
+# Subset data to include only 'CP' and 'GF' populations
+t_filtered <- subset(t, population %in% c("CP", "GF"))
+
+# Create the plot with the filtered data
+sample_plot_filtered <- ggplot(t_filtered, aes(x = population, y = n, fill = niche)) +
+  geom_bar(stat = "identity") +
+  scale_fill_manual(values = c("burlywood3", "cadetblue3")) +
+  labs(x = "Population", y = "Number of samples", fill = "Sample type") +
+  geom_text(position = position_stack(vjust = 0.5), 
+            aes(label = n, colour = niche), size = 5) +
+  scale_colour_manual(values = c("burlywood4", "cadetblue4")) +
+  guides(colour = "none") +
+  theme(
+    axis.title = element_text(size = 16), # Axis titles
+    axis.text = element_text(size = 16), # Axis text
+    legend.title = element_text(size = 16), # Legend title
+    legend.text = element_text(size = 16)  # Legend text
+  )
+
+# Display the filtered plot
+print(sample_plot_filtered)
+ggsave("../Output/Microbiome_descriptives/sample_plot_CPandGFonly.svg", sample_plot_filtered)
+
+```
+## Table 1 
+### Data adjustments
+```{r}
+# Many of the variables are imported as integer variables when they should actually be character variables
+variables_to_factor_part1 <- c("gender", "abroad_lastmth", "animal_contact_lastmth", "cat_contact_lastmth", "dog_contact_lastmth", "rodent_contact_lastmth", "bird_contact_lastmth", "chicken_contact_lastmth", "sheep_contact_lastmth", "cow_contact_lastmth", "pig_contact_lastmth", "horse_contact_lastmth", "pneumonia_lastyr", "acute_resp_infec_lastyr", "covid19", "covid19_vaccine", "antibiotics_lastyr", "antacids_lastyr", "lung_med", "lung_med1_type", "lung_med1_more4hrs", "lung_med1_more8hrs", "lung_med2_type", "lung_med2_more4hrs", "lung_med2_more8hrs", "lung_med3_type", "lung_med3_more4hrs", "lung_med3_more8hrs", "lung_med4_type", "lung_med4_more4hrs", "lung_med4_more8hrs", "lung_med5_type", "lung_med5_more4hrs", "lung_med5_more8hrs", "beta_blockers", "heart_failure_attack_3m", "chest_abdom_surg_3m", "aortic_aneurysm", "cough_blood", "eye_ear_brain_surg_lastmth", "imm_def_med_current", "imm_def_illness_current", "preg_last_trimester", "lungfunc_discom", "breathalyser_diff", "consent", "onlquest_done", "fieldquest_done", "spirometry_done", "serum_done", "OP_blank_done", "NP_blank_done", "NP_blank_ID", "NP_swab_done", "work_less_19hrs", "work_more_19hrs", "manage_house", "unemployed", "student", "disabled", "retired", "voluntarywork", "health_status", "heart_vascu_disorder", "imm_def_illness", "imm_def_med", "diabetes", "wheezing_lastyr", "wheezing_SOB", "wheezing_not_cold", "tight_chest_lastyr", "SOB_lastyr", "cough_lastyr", "SOB_rest_lastyr", "nasal_allergy", "nasal_allergy_Jan", "nasal_allergy_Feb", "nasal_allergy_Mar", "nasal_allergy_Apr", "nasal_allergy_May", "nasal_allergy_Jun", "nasal_allergy_Jul", "nasal_allergy_Aug", "nasal_allergy_Sep", "nasal_allergy_Oct", "nasal_allergy_Nov", "nasal_allergy_Dec", "asthma_ever", "asthma_diag", "asthma_Jan_Feb", "asthma_Mar_Apr", "asthma_May_Jun", "asthma_Jul_Aug", "asthma_Sep_Oct", "asthma_Nov_Dec", "asthma_att_lastyr", "asthma_med", "cough_daily_3mperyr", "phlegm_daily_3mperyr", "COPD_emphysema_diag", "EAA_diag", "cort_inhaler_lastyr", "pneumonia_last3yr", "pneumonia_GP_diag", "pneumonia_antibiotics")
+variables_to_factor_part2 <- c("pneumonia_specialist", "pneumonia_specialist_conf", "pneumonia_chest_photo", "pneumonia_conf_photo", "pneumonia_specialist_antibiotics", "pneumonia_hosp", "pneumonia_fever", "pneumonia_dyspnea", "pneumonia_cough", "pneumonia_muscle_pain", "pneumonia_chest_pain", "pneumonia_wheezing", "pneumonia_stomach_pain", "pneumonia_fatigue", "pneumonia_depressed", "flu_vacc", "flu_vacc_duration", "pneumococcal_vacc", "antibiotics_lastyr_oqdata", "antibiotic_month_oqdata", "antibiotic_year_oqdata", "last_antibiotic_used", "covid19_close_contact", "covid19_household", "home_type", "move_plans", "move_no_reason", "move_health", "move_job", "move_house", "move_env", "pets_last5yrs", "cat_last5yrs", "dog_last5yrs", "bird_last5yrs", "small_animals_last5yrs", "rodent_last5yrs", "fish_last5yrs", "turtle_last5yrs", "farmanim_hobby_last5yrs", "pig_last5yrs", "cow_last5yrs", "sheep_last5yrs", "goat_last5yrs", "poultry_last5yrs", "horse_last5yrs", "no_farm_visit_lastyr", "family_farm_visit_lastyr", "job_farm_visit_lastyr", "buy_farm_visit_lastyr", "petting_zoo_visit_lastyr", "other_reason_farm_visit_lastyr", "smoked_ever", "smoke_exp_indoor_freq", "symptom_other", "CRP_test_done", "Saturation_test_done", "lung_disease", "COPD_status", "imm_def", "lung_inhal_med", "antibiotics_lastmth", "dyspnea", "cough", "hypotension", "fever", "pain_breathing", "tachycardia", "tachypnea", "confusion", "lung_med1type", "goat_contact_lastmth", "health_remarks", "lambs_thisyr", "lung_med1", "lung_med1m4h", "lung_med1m8h", "lung_med2m4h", "lung_med2m8h", "lung_med2type", "lung_med3m4h", "lung_med3m8h", "lung_med3type", "lung_med4m4h", "lung_med4m8h", "lung_med4type", "lung_med5m4h", "lung_med5m8h", "lung_med5type", "special_work", "education_level", "farm_child", "farm_child_goat", "farm_child_dairy", "farm_child_veal", "farm_child_sheep", "farm_child_pig", "farm_child_poultry", "farm_child_horse", "farm_child_agri", "farm_child_other", "health_complaint_farm_rel", "covid19_infection", "home_goatfarm", "farm_work_feeding", "farm_work_milking", "farm_work_cleanstables", "farm_work_litter", "farm_work_manure", "farm_work_yean", "farm_work_newborn", "farm_work_cleaning", "farm_work_soil", "farm_work_other", "other_work")
+
+variables_to_factor <- c(variables_to_factor_part1, variables_to_factor_part2)
+
+# Check which variables are in 'meta'
+valid_variables <- variables_to_factor %in% colnames(metadata)
+if (!all(valid_variables)) {
+  warning("The following variables are not in 'meta': ", 
+          paste(variables_to_factor[!valid_variables], collapse = ", "))
+}
+
+# Convert to factor variables
+metadata[variables_to_factor] <- lapply(metadata[variables_to_factor], factor)
+
+sum(metadata$population=="CP") # n = 1814 total samples for CP
+sum(metadata$population=="GF") # n = 175 total samples for CP
+
+write.csv(metadata,"../Output/Participant_descriptives/VGO3_population_data.csv")
+
+# Each participant has 1 or more samples (NP and OP samples mostly for all)
+# VGO study number for the controls and goat farmers is in the column 'VGO3_ID' - Only keep unique IDs
+metadata_uniq <- metadata %>%
+  distinct(VGO3_ID, .keep_all = TRUE) 
+
+# Remove rows which are blanks 
+metadata_uniq <- metadata_uniq[!is.na(metadata_uniq$population), ] # 1172 left
+
+metadata_uniq$X <- NULL
+
+sum(metadata_uniq$population=="CP") # n = 963
+sum(metadata_uniq$population=="GF") # n = 96
+
+write.csv(metadata_uniq,"../Output/Participant_descriptives/VGO3_population_data_included_16S.csv" ) # 1172 samples
+```
+
+### Goat farmers and residents
+```{r}
+metadata_uniq$gender <- 
+  factor(metadata_uniq$gender, levels=c(0,1),
+         labels=c("Male", 
+                  "Female"))
+metadata_uniq$smoked_ever <- 
+  factor(metadata_uniq$smoked_ever, levels=c(0,1,2),
+         labels=c("No", 
+                  "Ex-smoker",
+                  "Smoker"))
+metadata_uniq$asthma_ever <- 
+  factor(metadata_uniq$asthma_ever, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+metadata_uniq$COPD_emphysema_diag <- # N.B for CP and GF this diagnosis is COPD & emphysema but for GPs it is just COPD
+  factor(metadata_uniq$COPD_emphysema_diag, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+metadata_uniq$lung_med <- 
+  factor(metadata_uniq$lung_med, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+metadata_uniq$imm_def <- 
+  factor(metadata_uniq$imm_def, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+metadata_uniq$flu_vacc <- 
+  factor(metadata_uniq$flu_vacc, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+metadata_uniq$pneumococcal_vacc <- 
+  factor(metadata_uniq$pneumococcal_vacc, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+metadata_uniq$antibiotics_lastyr <- # for CP and GF
+  factor(metadata_uniq$antibiotics_lastyr, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+metadata_uniq$antibiotics_lastmth <- # for GP
+  factor(metadata_uniq$antibiotics_lastmth, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+metadata_uniq$abroad_lastmth<- 
+  factor(metadata_uniq$abroad_lastmth, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+metadata_uniq$animal_contact_lastmth<- 
+  factor(metadata_uniq$animal_contact_lastmth, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+
+label(metadata_uniq$sampling_season) <- "Sampling season"
+label(metadata_uniq$age) <- "Age"
+label(metadata_uniq$gender) <- "Gender"
+label(metadata_uniq$smoked_ever) <- "Smoking status"
+label(metadata_uniq$asthma_ever) <- "Asthma (ever)"
+label(metadata_uniq$COPD_emphysema_diag) <- "COPD/emphysema"
+label(metadata_uniq$lung_med) <- "Lung medication used"
+label(metadata_uniq$imm_def) <- "Immunocompromised"
+label(metadata_uniq$flu_vacc) <- "Influenza vaccination"
+label(metadata_uniq$pneumococcal_vacc) <- "Pneumococcal vaccination"
+label(metadata_uniq$animal_contact_lastmth) <- "Animal contact in the last month"
+label(metadata_uniq$abroad_lastmth) <- "Abroad in the last month"
+label(metadata_uniq$KRD_nCowsWghtDist.3000m.sum) <- "Number of distance weighted cows in 3km"
+label(metadata_uniq$KRD_nGoatsWghtDist.3000m.sum) <- "Number of distance weighted goats in 3km"
+label(metadata_uniq$KRD_nPigsWghtDist.3000m.sum) <- "Number of distance weighted pigs in 3km"
+label(metadata_uniq$KRD_nPoultryWghtDist.3000m.sum) <- "Number of distance weighted chickens in 3km"
+label(metadata_uniq$EU_ANNUALAVG_PM10_2020) <- "Dispersion-modelled endotoxin (2020)"
+label(metadata_uniq$ecoli_RF_preds) <- "RF-modelled E. coli"
+label(metadata_uniq$staph_RF_preds) <- "RF-modelled Staph spp."
+label(metadata_uniq$tetw_RF_preds) <- "RF-modelled tetW"
+label(metadata_uniq$meca_RF_preds) <- "RF-modelled mecA"
+
+
+pvalue <- function(x, ...) {
+  # Construct vectors of data y, and groups (strata) g
+  y <- unlist(x)
+  g <- factor(rep(1:length(x), times = sapply(x, length)))
+  
+  if (is.numeric(y)) {
+    # For numeric variables, perform ANOVA
+    p <- anova(lm(y ~ g))$"Pr(>F)"[1]
+  } else {
+    # For categorical variables
+    tbl <- table(y, g)
+    
+    # Check if any cell in the contingency table is 0
+    if (any(tbl == 0)) {
+      # If any cell in the contingency table is 0, perform Fisher's exact test
+      p <- tryCatch({
+        fisher.test(tbl, workspace = 2e9)$p.value  # Increase workspace size
+      }, error = function(e) {
+        NA  # Handle errors due to large contingency tables
+      })
+    } else {
+      # Otherwise, perform chi-squared test
+      p <- chisq.test(tbl)$p.value
+    }
+  }
+  
+  # Format the p-value, using an HTML entity for the less-than sign.
+  # The initial empty string places the output on the line below the variable label.
+  c("", sub("<", "&lt;", format.pval(p, digits = 3, eps = 0.001)))
+}
+
+All_populations_stats <- table1(
+  ~ sampling_season + age + gender + smoked_ever + asthma_ever + COPD_emphysema_diag + lung_med + imm_def + flu_vacc + pneumococcal_vacc + animal_contact_lastmth + abroad_lastmth | population,
+  data = metadata_uniq,
+  overall=F, 
+  extra.col=list(`P-value`=pvalue))
+
+
+write.csv(All_populations_stats, file = "../Output/Participant_descriptives/All_populations_manuscript_table1.csv")
+
+
+# Livestock exposures for the CP only
+# Animal numbers
+metadata_cp <- metadata_uniq[metadata_uniq$population == "CP", ]# Subset to include only rural residents
+
+# Number of animals for manuscript
+CP_livestock_summary_simple <- table1(
+  ~  KRD_nCows.3000m + KRD_nGoats.3000m +
+    KRD_nPigs.3000m + KRD_nPoultry.3000m ,
+  data = metadata_cp,
+  overall = TRUE
+)
+
+write.csv(CP_livestock_summary_simple, file = "../Output/Participant_descriptives/CP_livestock_summary_simple_table1.csv")
+
+# Boxplot for animal numbers
+livestock_means <- metadata_cp %>%
+  summarise(
+    Cows = mean(KRD_nCows.3000m, na.rm = TRUE),
+    Goats = mean(KRD_nGoats.3000m, na.rm = TRUE),
+    Pigs = mean(KRD_nPigs.3000m, na.rm = TRUE),
+    Poultry = mean(KRD_nPoultry.3000m, na.rm = TRUE)
+  ) %>%
+  tidyr::pivot_longer(cols = everything(), names_to = "Animal", values_to = "Mean_Count")
+
+# Transform data to long format for ggplot
+livestock_long <- metadata_cp %>%
+  select(KRD_nCows.3000m, KRD_nGoats.3000m, KRD_nPigs.3000m, KRD_nPoultry.3000m) %>%
+  pivot_longer(cols = everything(), names_to = "Animal", values_to = "Count") %>%
+  mutate(Animal = factor(Animal, 
+                         levels = c("KRD_nCows.3000m", "KRD_nGoats.3000m", "KRD_nPigs.3000m", "KRD_nPoultry.3000m"),
+                         labels = c("Cows", "Goats", "Pigs", "Poultry")))
+
+# Function to create a boxplot for a given animal
+plot_animal_boxplot <- function(animal_name, color) {
+  ggplot(livestock_long %>% filter(Animal == animal_name), aes(x = Animal, y = Count, fill = Animal)) +
+    geom_boxplot(outlier.shape = NA, alpha = 0.8) +  # Boxplot without outlier points
+    theme_minimal() +
+    scale_fill_manual(values = color) +
+    labs(x = "",
+         y = "Livestock Count") +
+    theme(legend.position = "none", text = element_text(size = 14))
+}
+
+# Create separate boxplots for each animal type
+plot_cows <- plot_animal_boxplot("Cows", "#a18668")
+plot_goats <- plot_animal_boxplot("Goats", "#dd8a59")
+plot_pigs <- plot_animal_boxplot("Pigs", "#7da6a7")
+plot_poultry <- plot_animal_boxplot("Poultry", "#e3d076")
+
+# Save plots
+ggsave("../Output/Participant_descriptives/cows3km.svg", plot_cows, height = 2, width = 2)
+ggsave("../Output/Participant_descriptives/goats3km.svg", plot_goats, height = 2, width = 2)
+ggsave("../Output/Participant_descriptives/pigs3km.svg", plot_pigs, height = 2, width = 2)
+ggsave("../Output/Participant_descriptives/poultry3km.svg", plot_poultry, height = 2, width = 2)
+
+
+
+
+# Summary statistics of variables for models 
+# Replace NA with 0 for the distance weighted variables
+variables_to_update <- c("KRD_nCowsWghtDist.3000m.sum", 
+                         "KRD_nGoatsWghtDist.3000m.sum", 
+                         "KRD_nPigsWghtDist.3000m.sum", 
+                         "KRD_nPoultryWghtDist.3000m.sum")
+
+for (var in variables_to_update) {
+  metadata_cp[[var]][metadata_cp$population == "CP" & is.na(metadata_cp[[var]])] <- 0
+}
+
+# Summary table of variables used in models
+CP_livestock_summary <- table1(
+  ~ EU_ANNUALAVG_PM10_2020 + ecoli_RF_preds + staph_RF_preds +
+    tetw_RF_preds + meca_RF_preds + KRD_nCowsWghtDist.3000m.sum + KRD_nGoatsWghtDist.3000m.sum +
+    KRD_nPigsWghtDist.3000m.sum + KRD_nPoultryWghtDist.3000m.sum,
+  data = metadata_cp,
+  overall = TRUE
+)
+
+# Print the table
+write.csv(CP_livestock_summary, file = "../Output/Participant_descriptives/CP_livestock_summary_table1.csv")
+
+
+# Create a long-format dataset for easier visualization
+livestock_long <- metadata_cp %>%
+  select(EU_ANNUALAVG_PM10_2020, ecoli_RF_preds, staph_RF_preds, tetw_RF_preds, meca_RF_preds, 
+         KRD_nCowsWghtDist.3000m.sum, KRD_nGoatsWghtDist.3000m.sum,
+         KRD_nPigsWghtDist.3000m.sum, KRD_nPoultryWghtDist.3000m.sum) %>%
+  pivot_longer(cols = everything(), names_to = "Variable", values_to = "Value") %>%
+  # Reorder the 'Variable' factor to ensure the correct plot order
+  mutate(Variable = factor(Variable, levels = c("EU_ANNUALAVG_PM10_2020", 
+                                                "ecoli_RF_preds", 
+                                                "staph_RF_preds", 
+                                                "tetw_RF_preds", 
+                                                "meca_RF_preds", 
+                                                "KRD_nCowsWghtDist.3000m.sum", 
+                                                "KRD_nGoatsWghtDist.3000m.sum", 
+                                                "KRD_nPigsWghtDist.3000m.sum", 
+                                                "KRD_nPoultryWghtDist.3000m.sum")))
+
+# Histogram for all variables
+distribution_livestock <- ggplot(livestock_long, aes(x = Value)) +
+  geom_histogram(binwidth = 0.1, fill = "#dd8a59", color = "#dd8a59", alpha = 0.7) +
+  facet_wrap(~ Variable, scales = "free") +  # Make sure facets follow the specified order
+  labs(title = "Distribution of Livestock Variables", x = "Value", y = "Frequency") +
+  theme_minimal()+
+  theme(title = text(size=6))
+
+
+distribution_livestock <- ggplot(livestock_long, aes(x = Value)) +
+  geom_histogram(binwidth = 0.1, fill = "#dd8a59", color = "#dd8a59", alpha = 0.7) +
+  facet_wrap(~ Variable, scales = "free") +  # Make sure facets follow the specified order
+  labs(title = "Distribution of Livestock Variables", x = "Value", y = "Frequency") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 12),  # Adjust the size of the main plot title
+    strip.text = element_text(size = 6)    # Adjust the size of facet titles
+  )
+
+# Save the plot
+ggsave("../Output/Participant_descriptives/Livestock_var_distribution.svg", distribution_livestock)
+
+
+
+# Extra check of antibiotic use 
+# Create a table that includes yes, no, and missing responses
+metadata_summary_CP <- metadata_cp %>%
+  mutate(response = case_when(
+    antibiotics_lastyr_oqdata == 1 ~ "Yes",
+    antibiotics_lastyr_oqdata == 0 ~ "No",
+    is.na(antibiotics_lastyr_oqdata) ~ "Missing"
+  )) %>%
+  group_by(population, response) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(population) %>%
+  mutate(
+    total = sum(n),
+    percent = round(100 * n / total, 1)
+  ) %>%
+  select(population, response, n, percent)
+
+metadata_summary_CP
+
+```
+
+### Matched residents
+```{r}
+metadata_cpmatched <- meta_to_df(ps_matched)
+
+# Only keep one  unique VGO3 ID
+metadata_cpmatched_uniq <- metadata_cpmatched %>%
+  distinct(VGO3_ID, .keep_all = TRUE) 
+
+# Ensure you're selecting only the rows where population == "CP"
+sum(metadata_cpmatched_uniq$population == "CP")  # This checks how many rows have population == "CP"
+
+# Subset data where population == "CP"
+metadata_cpmatched_uniq_CP <- subset(metadata_cpmatched_uniq, population == "CP")
+
+metadata_cpmatched_uniq_CP$COPD_emphysema_diag
+
+metadata_cpmatched_uniq_CP$gender <- 
+  factor(metadata_cpmatched_uniq_CP$gender, levels=c(0,1),
+         labels=c("Male", 
+                  "Female"))
+metadata_cpmatched_uniq_CP$smoked_ever <- 
+  factor(metadata_cpmatched_uniq_CP$smoked_ever, levels=c(0,1,2),
+         labels=c("No", 
+                  "Ex-smoker",
+                  "Smoker"))
+metadata_cpmatched_uniq_CP$asthma_ever <- 
+  factor(metadata_cpmatched_uniq_CP$asthma_ever, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+metadata_cpmatched_uniq_CP$COPD_emphysema_diag <- 
+  factor(metadata_cpmatched_uniq_CP$COPD_emphysema_diag, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+metadata_cpmatched_uniq_CP$lung_med <- 
+  factor(metadata_cpmatched_uniq_CP$lung_med, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+metadata_cpmatched_uniq_CP$imm_def <- 
+  factor(metadata_cpmatched_uniq_CP$imm_def, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+metadata_cpmatched_uniq_CP$flu_vacc <- 
+  factor(metadata_cpmatched_uniq_CP$flu_vacc, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+metadata_cpmatched_uniq_CP$pneumococcal_vacc <- 
+  factor(metadata_cpmatched_uniq_CP$pneumococcal_vacc, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+metadata_cpmatched_uniq_CP$antibiotics_lastyr <- # for CP and GF
+  factor(metadata_cpmatched_uniq_CP$antibiotics_lastyr, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+metadata_cpmatched_uniq_CP$antibiotics_lastmth <- # for GP
+  factor(metadata_cpmatched_uniq_CP$antibiotics_lastmth, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+
+metadata_cpmatched_uniq_CP$abroad_lastmth<- 
+  factor(metadata_cpmatched_uniq_CP$abroad_lastmth, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+metadata_cpmatched_uniq_CP$animal_contact_lastmth<- 
+  factor(metadata_cpmatched_uniq_CP$animal_contact_lastmth, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+
+label(metadata_cpmatched_uniq_CP$sampling_season) <- "Sampling season"
+label(metadata_cpmatched_uniq_CP$age) <- "Age"
+label(metadata_cpmatched_uniq_CP$gender) <- "Gender"
+label(metadata_cpmatched_uniq_CP$smoked_ever) <- "Smoking status"
+label(metadata_cpmatched_uniq_CP$asthma_ever) <- "Asthma (ever)"
+label(metadata_cpmatched_uniq_CP$COPD_emphysema_diag) <- "COPD/emphysema"
+label(metadata_cpmatched_uniq_CP$lung_med) <- "Lung medication used"
+label(metadata_cpmatched_uniq_CP$imm_def) <- "Immunocompromised"
+label(metadata_cpmatched_uniq_CP$flu_vacc) <- "Influenza vaccination"
+label(metadata_cpmatched_uniq_CP$pneumococcal_vacc) <- "Pneumococcal vaccination"
+label(metadata_cpmatched_uniq_CP$animal_contact_lastmth) <- "Animal contact in the last month"
+label(metadata_cpmatched_uniq_CP$abroad_lastmth) <- "Abroad in the last month"
+label(metadata_cpmatched_uniq_CP$KRD_nCowsWghtDist.3000m.sum) <- "Number of distance weighted cows in 3km"
+label(metadata_cpmatched_uniq_CP$KRD_nGoatsWghtDist.3000m.sum) <- "Number of distance weighted goats in 3km"
+label(metadata_cpmatched_uniq_CP$KRD_nPigsWghtDist.3000m.sum) <- "Number of distance weighted pigs in 3km"
+label(metadata_cpmatched_uniq_CP$KRD_nPoultryWghtDist.3000m.sum) <- "Number of distance weighted chickens in 3km"
+
+
+
+CP_matched_characteristics <- table1(
+  ~ sampling_season + age + gender + smoked_ever + asthma_ever + COPD_emphysema_diag + lung_med + imm_def + flu_vacc + pneumococcal_vacc + animal_contact_lastmth + abroad_lastmth | population,
+  data = metadata_cpmatched_uniq_CP,
+  overall=F)
+
+
+write.csv(CP_matched_characteristics, file = "../Output/Participant_descriptives/CP_matched_table1.csv")
+
+
+table(metadata_cpmatched_uniq_CP$antibiotics_lastyr)
+
+```
+
+# All participants in cohort (not necessarily provided a sample)
+```{r}
+cohort_metadata <- read.csv("../Output/Metadata/VGO3_participant_metadata.csv")
+cohort_metadata <- cohort_metadata %>% filter(cohort_metadata$population != "GP")
+
+# Number participants
+sum(!duplicated(cohort_metadata$VGO3_ID[cohort_metadata$population == "CP"]))# 969 controls
+sum(!duplicated(cohort_metadata$VGO3_ID[cohort_metadata$population == "GF"]))# 100 goat farmers
+
+# Matched participants 
+ps_matched <- readRDS("../Output/Phyloseq/3_ps_complete_matchedCPGF.rds")
+metadata_matched <- meta_to_df(ps_matched)
+
+# Number participants
+sum(!duplicated(metadata_matched$VGO3_ID[metadata_matched$population == "CP"]))# 186
+sum(!duplicated(metadata_matched$VGO3_ID[metadata_matched$population == "GF"]))# 93
+
+# Number samples per niche
+sum(metadata_matched$population == "CP" & metadata_matched$niche == "OP")# 195
+sum(metadata_matched$population == "CP" & metadata_matched$niche == "NP")# 159
+sum(metadata_matched$population == "GF" & metadata_matched$niche == "OP")# 92
+sum(metadata_matched$population == "GF" & metadata_matched$niche == "NP")# 77
+```
+# Table 1
+## All residents and goat farmers
+```{r}
+cohort_metadata$gender <- 
+  factor(cohort_metadata$gender, levels=c(0,1),
+         labels=c("Male", 
+                  "Female"))
+cohort_metadata$smoked_ever <- 
+  factor(cohort_metadata$smoked_ever, levels=c(0,1,2),
+         labels=c("No", 
+                  "Ex-smoker",
+                  "Smoker"))
+cohort_metadata$asthma_ever <- 
+  factor(cohort_metadata$asthma_ever, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+cohort_metadata$COPD_emphysema_diag <- # N.B for CP and GF this diagnosis is COPD & emphysema but for GPs it is just COPD
+  factor(cohort_metadata$COPD_emphysema_diag, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+cohort_metadata$lung_med <- 
+  factor(cohort_metadata$lung_med, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+cohort_metadata$imm_def <- 
+  factor(cohort_metadata$imm_def, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+cohort_metadata$flu_vacc <- 
+  factor(cohort_metadata$flu_vacc, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+cohort_metadata$pneumococcal_vacc <- 
+  factor(cohort_metadata$pneumococcal_vacc, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+cohort_metadata$antibiotics_lastyr <- # for CP and GF
+  factor(cohort_metadata$antibiotics_lastyr, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+cohort_metadata$antibiotics_lastmth <- # for GP
+  factor(cohort_metadata$antibiotics_lastmth, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+cohort_metadata$abroad_lastmth<- 
+  factor(cohort_metadata$abroad_lastmth, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+cohort_metadata$animal_contact_lastmth<- 
+  factor(cohort_metadata$animal_contact_lastmth, levels=c(0,1),
+         labels=c("No", 
+                  "Yes"))
+
+label(cohort_metadata$sampling_season) <- "Sampling season"
+label(cohort_metadata$age) <- "Age"
+label(cohort_metadata$gender) <- "Gender"
+label(cohort_metadata$smoked_ever) <- "Smoking status"
+label(cohort_metadata$asthma_ever) <- "Asthma (ever)"
+label(cohort_metadata$COPD_emphysema_diag) <- "COPD/emphysema"
+label(cohort_metadata$lung_med) <- "Lung medication used"
+label(cohort_metadata$imm_def) <- "Immunocompromised"
+label(cohort_metadata$flu_vacc) <- "Influenza vaccination"
+label(cohort_metadata$pneumococcal_vacc) <- "Pneumococcal vaccination"
+label(cohort_metadata$animal_contact_lastmth) <- "Animal contact in the last month"
+label(cohort_metadata$abroad_lastmth) <- "Abroad in the last month"
+label(cohort_metadata$KRD_nCowsWghtDist.3000m.sum) <- "Number of distance weighted cows in 3km"
+label(cohort_metadata$KRD_nGoatsWghtDist.3000m.sum) <- "Number of distance weighted goats in 3km"
+label(cohort_metadata$KRD_nPigsWghtDist.3000m.sum) <- "Number of distance weighted pigs in 3km"
+label(cohort_metadata$KRD_nPoultryWghtDist.3000m.sum) <- "Number of distance weighted chickens in 3km"
+label(cohort_metadata$EU_ANNUALAVG_PM10_2020) <- "Dispersion-modelled endotoxin (2020)"
+label(cohort_metadata$ecoli_RF_preds) <- "RF-modelled E. coli"
+label(cohort_metadata$staph_RF_preds) <- "RF-modelled Staph spp."
+label(cohort_metadata$tetw_RF_preds) <- "RF-modelled tetW"
+label(cohort_metadata$meca_RF_preds) <- "RF-modelled mecA"
+
+
+pvalue <- function(x, ...) {
+  # Construct vectors of data y, and groups (strata) g
+  y <- unlist(x)
+  g <- factor(rep(1:length(x), times = sapply(x, length)))
+  
+  if (is.numeric(y)) {
+    # For numeric variables, perform ANOVA
+    p <- anova(lm(y ~ g))$"Pr(>F)"[1]
+  } else {
+    # For categorical variables
+    tbl <- table(y, g)
+    
+    # Check if any cell in the contingency table is 0
+    if (any(tbl == 0)) {
+      # If any cell in the contingency table is 0, perform Fisher's exact test
+      p <- tryCatch({
+        fisher.test(tbl, workspace = 2e9)$p.value  # Increase workspace size
+      }, error = function(e) {
+        NA  # Handle errors due to large contingency tables
+      })
+    } else {
+      # Otherwise, perform chi-squared test
+      p <- chisq.test(tbl)$p.value
+    }
+  }
+  
+  # Format the p-value, using an HTML entity for the less-than sign.
+  # The initial empty string places the output on the line below the variable label.
+  c("", sub("<", "&lt;", format.pval(p, digits = 3, eps = 0.001)))
+}
+
+All_populations_stats <- table1(
+  ~ sampling_season + age + gender + smoked_ever + asthma_ever + COPD_emphysema_diag + lung_med + imm_def + flu_vacc + pneumococcal_vacc + animal_contact_lastmth + abroad_lastmth | population,
+  data = cohort_metadata,
+  overall=F, 
+  extra.col=list(`P-value`=pvalue))
+
+
+write.csv(All_populations_stats, file = "../Output/Participant_descriptives/Entire_cohort_CP_GF_table1.csv")
+
+
+# Livestock exposures for the CP only
+# Animal numbers
+metadata_cp <- cohort_metadata[cohort_metadata$population == "CP", ]# Subset to include only rural residents
+
+# Number of animals for manuscript
+CP_livestock_summary_simple <- table1(
+  ~  KRD_nCows.3000m + KRD_nGoats.3000m +
+    KRD_nPigs.3000m + KRD_nPoultry.3000m ,
+  data = metadata_cp,
+  overall = TRUE
+)
+
+write.csv(CP_livestock_summary_simple, file = "../Output/Participant_descriptives/Entire_cohort_CP_livestock_vars_simple.csv")
+
+# Boxplot for animal numbers
+livestock_means <- metadata_cp %>%
+  summarise(
+    Cows = mean(KRD_nCows.3000m, na.rm = TRUE),
+    Goats = mean(KRD_nGoats.3000m, na.rm = TRUE),
+    Pigs = mean(KRD_nPigs.3000m, na.rm = TRUE),
+    Poultry = mean(KRD_nPoultry.3000m, na.rm = TRUE)
+  ) %>%
+  tidyr::pivot_longer(cols = everything(), names_to = "Animal", values_to = "Mean_Count")
+
+# Transform data to long format for ggplot
+livestock_long <- metadata_cp %>%
+  select(KRD_nCows.3000m, KRD_nGoats.3000m, KRD_nPigs.3000m, KRD_nPoultry.3000m) %>%
+  pivot_longer(cols = everything(), names_to = "Animal", values_to = "Count") %>%
+  mutate(Animal = factor(Animal, 
+                         levels = c("KRD_nCows.3000m", "KRD_nGoats.3000m", "KRD_nPigs.3000m", "KRD_nPoultry.3000m"),
+                         labels = c("Cows", "Goats", "Pigs", "Poultry")))
+
+# Function to create a boxplot for a given animal
+plot_animal_boxplot <- function(animal_name, color) {
+  ggplot(livestock_long %>% filter(Animal == animal_name), aes(x = Animal, y = Count, fill = Animal)) +
+    geom_boxplot(outlier.shape = NA, alpha = 0.8) +  # Boxplot without outlier points
+    theme_minimal() +
+    scale_fill_manual(values = color) +
+    labs(x = "",
+         y = "Livestock Count") +
+    theme(legend.position = "none", text = element_text(size = 14))
+}
+
+# Create separate boxplots for each animal type
+plot_cows <- plot_animal_boxplot("Cows", "#a18668")
+plot_goats <- plot_animal_boxplot("Goats", "#dd8a59")
+plot_pigs <- plot_animal_boxplot("Pigs", "#7da6a7")
+plot_poultry <- plot_animal_boxplot("Poultry", "#e3d076")
+
+# Save plots
+ggsave("../Output/Participant_descriptives/cows3km.svg", plot_cows, height = 2, width = 2)
+ggsave("../Output/Participant_descriptives/goats3km.svg", plot_goats, height = 2, width = 2)
+ggsave("../Output/Participant_descriptives/pigs3km.svg", plot_pigs, height = 2, width = 2)
+ggsave("../Output/Participant_descriptives/poultry3km.svg", plot_poultry, height = 2, width = 2)
+
+
+
+
+# Summary statistics of variables for models 
+# Replace NA with 0 for the distance weighted variables
+variables_to_update <- c("KRD_nCowsWghtDist.3000m.sum", 
+                         "KRD_nGoatsWghtDist.3000m.sum", 
+                         "KRD_nPigsWghtDist.3000m.sum", 
+                         "KRD_nPoultryWghtDist.3000m.sum")
+
+for (var in variables_to_update) {
+  metadata_cp[[var]][metadata_cp$population == "CP" & is.na(metadata_cp[[var]])] <- 0
+}
+
+# Summary table of variables
+CP_livestock_summary <- table1(
+  ~ EU_ANNUALAVG_PM10_2020 + ecoli_RF_preds + staph_RF_preds +
+    tetw_RF_preds + meca_RF_preds + KRD_nCowsWghtDist.3000m.sum + KRD_nGoatsWghtDist.3000m.sum +
+    KRD_nPigsWghtDist.3000m.sum + KRD_nPoultryWghtDist.3000m.sum,
+  data = metadata_cp,
+  overall = TRUE
+)
+
+# Print the table
+write.csv(CP_livestock_summary, file = "../Output/Participant_descriptives/CP_livestock_summary_table1.csv")
+
+
+# Summary table of standardised variables
+CP_livestock_summary_std <- table1(
+  ~ EU_ANNUALAVG_PM10_2020_std + ecoli_RF_preds_std + staph_RF_preds_std +
+    tetw_RF_preds_std + meca_RF_preds_std + KRD_nCowsWghtDist.3000m.sum_std + KRD_nGoatsWghtDist.3000m.sum_std +
+    KRD_nPigsWghtDist.3000m.sum_std + KRD_nPoultryWghtDist.3000m.sum_std,
+  data = metadata_cp,
+  overall = TRUE
+)
+
+# Print the table
+write.csv(CP_livestock_summary_std, file = "../Output/Participant_descriptives/CP_detailed_livestock_summary_standardised.csv")
+
+
+# Visualise the distribution of the livestock variables
+# Non-standardised
+livestock_long <- metadata_cp %>%
+  select(EU_ANNUALAVG_PM10_2020, ecoli_RF_preds, staph_RF_preds, tetw_RF_preds, meca_RF_preds, 
+         KRD_nCowsWghtDist.3000m.sum, KRD_nGoatsWghtDist.3000m.sum,
+         KRD_nPigsWghtDist.3000m.sum, KRD_nPoultryWghtDist.3000m.sum) %>%
+  pivot_longer(cols = everything(), names_to = "Variable", values_to = "Value") %>%
+  # Reorder the 'Variable' factor to ensure the correct plot order
+  mutate(Variable = factor(Variable, levels = c("EU_ANNUALAVG_PM10_2020", 
+                                                "ecoli_RF_preds", 
+                                                "staph_RF_preds", 
+                                                "tetw_RF_preds", 
+                                                "meca_RF_preds", 
+                                                "KRD_nCowsWghtDist.3000m.sum", 
+                                                "KRD_nGoatsWghtDist.3000m.sum", 
+                                                "KRD_nPigsWghtDist.3000m.sum", 
+                                                "KRD_nPoultryWghtDist.3000m.sum")))
+
+# Histogram for all variables
+distribution_livestock <- ggplot(livestock_long, aes(x = Value)) +
+  geom_histogram(binwidth = 0.1, fill = "#dd8a59", color = "#dd8a59", alpha = 0.7) +
+  facet_wrap(~ Variable, scales = "free") +  # Make sure facets follow the specified order
+  labs(title = "Distribution of Livestock Variables", x = "Value", y = "Frequency") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 12),  # Adjust the size of the main plot title
+    strip.text = element_text(size = 6)    # Adjust the size of facet titles
+  )
+
+ggsave("../Output/Participant_descriptives/Livestock_var_distribution.svg", distribution_livestock)
+
+
+
+# Non-standardised
+# Define new labels for the variables
+variable_labels_std <- c(
+  "EU_ANNUALAVG_PM10_2020_std" = "Dispersion-modelled endotoxin",
+  "ecoli_RF_preds_std" = "RF-modelled E. coli",
+  "staph_RF_preds_std" = "RF-modelled Staph spp.",
+  "tetw_RF_preds_std" = "RF-modelled tetW",
+  "meca_RF_preds_std" = "RF-modelled mecA",
+  "KRD_nCowsWghtDist.3000m.sum_std" = "N distance weighted cows in 3km",
+  "KRD_nGoatsWghtDist.3000m.sum_std" = "N distance weighted goats in 3km",
+  "KRD_nPigsWghtDist.3000m.sum_std" = "N distance weighted pigs in 3km",
+  "KRD_nPoultryWghtDist.3000m.sum_std" = "N distance weighted chickens in 3km"
+)
+
+
+# Modify the dataset to include the new labels
+livestock_long_std <- metadata_cp %>%
+  select(EU_ANNUALAVG_PM10_2020_std, ecoli_RF_preds_std, staph_RF_preds_std, tetw_RF_preds_std, meca_RF_preds_std, 
+         KRD_nCowsWghtDist.3000m.sum_std, KRD_nGoatsWghtDist.3000m.sum_std,
+         KRD_nPigsWghtDist.3000m.sum_std, KRD_nPoultryWghtDist.3000m.sum_std) %>%
+  pivot_longer(cols = everything(), names_to = "Variable", values_to = "Value") %>%
+  mutate(
+    Variable = factor(Variable, levels = names(variable_labels_std)),  # Keep original order
+    Variable = recode(Variable, !!!variable_labels_std)  # Apply new labels
+  )
+
+# Histogram with updated labels
+distribution_livestock_std <- ggplot(livestock_long_std, aes(x = Value)) +
+  geom_histogram(binwidth = 0.1, fill = "#dd8a59", color = "#dd8a59", alpha = 0.7) +
+  facet_wrap(~ Variable, scales = "free") +  # Facet labels will now be updated
+  labs(title = "Distribution of Livestock-Related Variables", x = "Standardized Value", y = "Frequency") +
+  theme_minimal() +
+  theme(
+    plot.title = element_text(size = 12),
+    strip.text = element_text(size = 8)  # Slightly larger for readability
+  )
+
+ggsave("../Output/Participant_descriptives/Livestock_var_distribution_std.svg", distribution_livestock_std, width = 7, height = 5)
+
+
+
+# Extra check of antibiotic use 
+# Create a table that includes yes, no, and missing responses
+
+table(cohort_metadata$antibiotics_lastyr)
+library(dplyr)
+
+# Summarize Yes, No, and Missing for each population
+summary_table <- cohort_metadata %>%
+  mutate(response = case_when(
+    antibiotics_lastyr == "Yes" ~ "Yes",
+    antibiotics_lastyr == "No" ~ "No",
+    is.na(antibiotics_lastyr) ~ "Missing"
+  )) %>%
+  group_by(population, response) %>%
+  summarise(n = n(), .groups = "drop") %>%
+  group_by(population) %>%
+  mutate(
+    total = sum(n),
+    percent = round(100 * n / total, 1)
+  ) %>%
+  select(population, response, n, percent)
+
+summary_table
+
+
+
+```
+
+
