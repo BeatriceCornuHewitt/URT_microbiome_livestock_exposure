@@ -1,0 +1,48 @@
+---
+title: "DA analysis"
+author: "Beatrice Cornu Hewitt" 
+date: "`r Sys.time()`"
+---
+# Packages
+```{r}
+library(patchwork); library(ggplot2)
+```
+# 
+```{r}
+# PLot with cluster results (NP and OP), DA analysis resutls (Np and OP), and network results (NP (CP and GF) and OP (CP and GF))
+combined_forest_plot_np 
+combined_forest_plot_op
+heatmap_cp_gf_np_asvlevel 
+heatmap_cp_gf_op_asvlevel 
+igraph_cp_np_selected_labels
+igraph_gf_np_selected_labels
+igraph_cp_op_selected_labels # missing
+igraph_gf_op_selected_labels # missing
+
+saveRDS(combined_forest_plot_np, "../Output/Figures/combined_forest_plot_np.rds")
+saveRDS(combined_forest_plot_op, "../Output/Figures/combined_forest_plot_op.rds")
+saveRDS(heatmap_cp_gf_np_asvlevel, "../Output/Figures/heatmap_cp_gf_np_asvlevel.rds")
+saveRDS(heatmap_cp_gf_op_asvlevel, "../Output/Figures/heatmap_cp_gf_op_asvlevel.rds")
+saveRDS(igraph_cp_np_selected_labels, "../Output/Figures/igraph_cp_np_selected_labels.rds")
+saveRDS(igraph_gf_np_selected_labels, "../Output/Figures/igraph_gf_np_selected_labels.rds")
+
+
+combined_forest_plot_np <- readRDS("../Output/Figures/combined_forest_plot_np.rds")
+combined_forest_plot_op <- readRDS("../Output/Figures/combined_forest_plot_op.rds")
+heatmap_cp_gf_np_asvlevel <- readRDS("../Output/Figures/heatmap_cp_gf_np_asvlevel.rds")
+heatmap_cp_gf_op_asvlevel <- readRDS("../Output/Figures/heatmap_cp_gf_op_asvlevel.rds")
+igraph_cp_np_selected_labels <- readRDS("../Output/Figures/igraph_cp_np_selected_labels.rds")
+igraph_gf_np_selected_labels <- readRDS("../Output/Figures/igraph_gf_np_selected_labels.rds")
+
+
+# Create the final plot layout using patchwork
+final_plot <- (combined_forest_plot_np + combined_forest_plot_op) / 
+              (heatmap_cp_gf_np_asvlevel + heatmap_cp_gf_op_asvlevel) / 
+              (igraph_cp_np_selected_labels + igraph_gf_np_selected_labels) 
+
+# Display the final plot
+final_plot
+
+# Optionally, save the final plot
+ggsave("combined_plots_layout.png", final_plot, width = 14, height = 18)
+```

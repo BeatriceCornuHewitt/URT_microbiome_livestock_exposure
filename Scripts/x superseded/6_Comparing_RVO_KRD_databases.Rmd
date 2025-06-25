@@ -1,0 +1,264 @@
+---
+title: "RVO 2021 vs KRD 2022 data"
+---
+We need to decide which database to use for the livestock exposure proxies for the control population. 
+We believe KRD is more accurate on location and RVO more accurate on animal numbers 
+# Packages
+```{r}
+# Load necessary packages
+library(dplyr)
+library(knitr)
+# install.packages("flextable")
+library(flextable)
+```
+# Data
+```{r}
+ps_complete <- readRDS("../Output/Phyloseq/ps_complete_new_metadata.rds")
+samdata_df <- data.frame(ps_complete@sam_data)
+
+meta_CP_unique_df <- samdata_df %>% 
+  filter(population == "CP") %>% 
+  distinct(VGO3_ID, .keep_all = TRUE)
+
+# KRD data has NAs in it which shoudl be 0s (for the "number of" variables)
+meta_CP_unique_df[grepl("^KRD_n", names(meta_CP_unique_df))] <- 
+  lapply(meta_CP_unique_df[grepl("^KRD_n", names(meta_CP_unique_df))], 
+         function(x) { replace(x, is.na(x), 0) })
+```
+
+# RVO vs KRD comparison
+```{r}
+# Define the variables for comparison
+min_distance_vars <- list(
+  "Pig" = c("KRD_MindistPigFarm15.NEG", "RVO2021_MindistPigFarm15plus_NEG"),
+  "Poultry" = c("KRD_MindistPoultryFarm250.NEG", "RVO2021_MindistChickenFarm250plus_NEG"),
+  "Cattle" = c("KRD_MindistCattleFarm5.NEG", "RVO2021_MindistCattleFarm5plus_NEG"),
+  "Goat" = c("KRD_MindistGoatFarm50.NEG", "RVO2021_MindistGoatFarm50plus_NEG")
+)
+
+n_farm_vars <- list(
+  "Pig" = c("KRD_nPigFarm.3000m", "RVO2021_nPigFarm_3000m"),
+  "Poultry" = c("KRD_nPoultryFarm.3000m", "RVO2021_nChickenFarm_3000m"),
+  "Cattle" = c("KRD_nCattleFarm.3000m", "RVO2021_nCattleFarm_3000m"),
+  "Goat" = c("KRD_nGoatFarm.3000m", "RVO2021_nGoatFarm_3000m")
+)
+
+
+# Function to calculate summary statistics and percentage of zeros 
+calculate_summary_stats_and_zeros <- function(var_list, data) {
+  summary_stats <- data.frame()
+  
+  for (name in names(var_list)) {
+    krd_var <- var_list[[name]][1]
+    rvo_var <- var_list[[name]][2]
+    diff <- abs(data[[rvo_var]] - data[[krd_var]])  # Calculate absolute difference
+    
+    # Calculate summary statistics and round to nearest whole number
+    stats <- data.frame(
+      Variable = name,
+      Max_Difference = round(max(diff, na.rm = TRUE)),  # Maximum absolute difference
+      Median_Difference = round(median(diff, na.rm = TRUE)),  # Median absolute difference
+      Zero_Percent = round(sum(diff == 0, na.rm = TRUE) / length(diff) * 100)  # Percentage of exact matches
+    )
+    
+    summary_stats <- rbind(summary_stats, stats)
+  }
+  
+  return(summary_stats)
+}
+
+# Calculate summary statistics for both sets of variables
+summary_min_distance <- calculate_summary_stats_and_zeros(min_distance_vars, meta_CP_unique_df)
+summary_n_farm <- calculate_summary_stats_and_zeros(n_farm_vars, meta_CP_unique_df)
+
+# Combine the two summary data frames and add the 'Category' column
+combined_summary <- rbind(
+  mutate(summary_min_distance, Category = "Minimum Distance"),
+  mutate(summary_n_farm, Category = "Number of Farms in 3km")
+)
+
+# Reorder columns to put 'Category' first
+combined_summary <- combined_summary %>%
+  select(Category, Variable, Max_Difference, Median_Difference, Zero_Percent)
+
+# Print tables using kable
+cat("### Combined Summary Statistics\n")
+kable(combined_summary, format = "markdown", caption = "Summary Statistics for Minimum Distance and Number of Farms Variables")
+
+# Create and style the table using flextable
+combined_table <- flextable(combined_summary)
+combined_table <- set_table_properties(combined_table, width = 0.75, layout = "autofit")
+combined_table <- set_header_labels(combined_table,
+  Category = "Category",
+  Variable = "Farm Type",
+  Max_Difference = "Max Difference",
+  Median_Difference = "Median Difference",
+  Zero_Percent = "% Exact Matches"
+)
+combined_table <- color(combined_table, color = "black", part = "all")
+combined_table <- set_caption(combined_table, "Summary Statistics for the difference between RVO and KRD databases for the VGO3 study population")
+
+# Print the table
+print(combined_table, preview = "html")
+```
+
+# Boxplots with absolute difference between RVO and KRD predictions
+```{r}
+# Function to create boxplot for a set of variables
+create_boxplot <- function(var_list, data, title_prefix) {
+  differences <- data.frame()
+  
+  for (name in names(var_list)) {
+    krd_var <- var_list[[name]][1]
+    rvo_var <- var_list[[name]][2]
+    diff <- abs(data[[rvo_var]] - data[[krd_var]])  # Calculate absolute difference
+    
+    temp_df <- data.frame(
+      Variable = name,
+      Difference = diff
+    )
+    differences <- rbind(differences, temp_df)
+  }
+  
+  # Set the order of the categories
+  differences$Variable <- factor(differences$Variable, levels = c("Pig", "Poultry", "Cattle", "Goat"))
+
+  # Compute min and max labels
+  min_max_labels <- differences %>%
+    group_by(Variable) %>%
+    summarize(
+      min_diff = min(Difference, na.rm = TRUE),
+      max_diff = max(Difference, na.rm = TRUE)
+    )
+  
+  # Create the boxplot
+  ggplot(differences, aes(x = Variable, y = Difference, fill = Variable)) +
+    geom_boxplot(outlier.colour = "black", outlier.size = 2, color = "black") +
+    stat_summary(fun = median, geom = "text", aes(label = round(..y.., 2)),
+                 position = position_nudge(x = 0.3), size = 4, color = "black",
+                 fontface = "bold", vjust = -0.5) +
+    geom_text(data = min_max_labels, aes(x = Variable, y = min_diff, label = round(min_diff, 2)),
+              vjust = -0.5, hjust = -0.1, color = "black", size = 4, fontface = "bold",
+              background = element_rect(fill = "white", color = "black")) +
+    geom_text(data = min_max_labels, aes(x = Variable, y = max_diff, label = round(max_diff, 2)),
+              vjust = 1.5, hjust = -0.1, color = "black", size = 4, fontface = "bold",
+              background = element_rect(fill = "white", color = "black")) +
+    labs(title = paste("Differences between the KRD and RVO databases", title_prefix),
+         x = "Farm Type", y = "Absolute Difference (RVO - KRD)") +
+    theme_minimal() +
+    theme(legend.position = "none",
+          axis.text.x = element_text(angle = 45, hjust = 1))
+}
+
+# Create boxplots for minimum distance variables with absolute difference
+min_distance_plot <- create_boxplot(min_distance_vars, meta_CP_unique_df, "- Distance to nearest farm")
+
+# Create boxplots for number of farms variables with absolute difference
+n_farm_plot <- create_boxplot(n_farm_vars, meta_CP_unique_df, "- Number of Farms within 3km")
+
+# Display the plots
+print(min_distance_plot)
+print(n_farm_plot)
+
+```
+
+# Boxplots without absolute difference between RVO and KRD predictions
+```{r}
+# Function to create boxplot for a set of variables
+create_boxplot <- function(var_list, data, title_prefix) {
+  differences <- data.frame()
+  
+  for (name in names(var_list)) {
+    krd_var <- var_list[[name]][1]
+    rvo_var <- var_list[[name]][2]
+    diff <- data[[rvo_var]] - data[[krd_var]]
+    
+    temp_df <- data.frame(
+      Variable = name,
+      Difference = diff
+    )
+    differences <- rbind(differences, temp_df)
+  }
+  
+  # Compute min and max labels
+  min_max_labels <- differences %>%
+    group_by(Variable) %>%
+    summarize(
+      min_diff = min(Difference, na.rm = TRUE),
+      max_diff = max(Difference, na.rm = TRUE)
+    )
+  
+  # Create the boxplot
+  ggplot(differences, aes(x = Variable, y = Difference, fill = Variable)) +
+    geom_boxplot(outlier.colour = "black", outlier.size = 2, color = "black") +
+    stat_summary(fun = median, geom = "text", aes(label = round(..y.., 2)),
+                 position = position_nudge(x = 0.3), size = 4, color = "black",
+                 fontface = "bold", vjust = -0.5) +
+    geom_text(data = min_max_labels, aes(x = Variable, y = min_diff, label = round(min_diff, 2)),
+              vjust = -0.5, hjust = -0.1, color = "black", size = 4, fontface = "bold",
+              background = element_rect(fill = "white", color = "black")) +
+    geom_text(data = min_max_labels, aes(x = Variable, y = max_diff, label = round(max_diff, 2)),
+              vjust = 1.5, hjust = -0.1, color = "black", size = 4, fontface = "bold",
+              background = element_rect(fill = "white", color = "black")) +
+    labs(title = paste("Differences between the KRD and RVO databases", title_prefix),
+         x = "Farm Type", y = "Difference (RVO - KRD)") +
+    theme_minimal() +
+    theme(legend.position = "none",
+          axis.text.x = element_text(angle = 45, hjust = 1))
+}
+
+# Create boxplots for minimum distance variables
+min_distance_plot <- create_boxplot(min_distance_vars, meta_CP_unique_df, "- Distance to nearest farm")
+
+# Create boxplots for number of farms variables
+n_farm_plot <- create_boxplot(n_farm_vars, meta_CP_unique_df, "- Number of Farms within 3km")
+
+# Display the plots
+print(min_distance_plot)
+print(n_farm_plot)
+```
+
+```{r}
+# Load necessary libraries
+library(dplyr)
+library(corrplot)
+
+# Load necessary libraries
+library(dplyr)
+library(corrplot)
+
+# Define variables for correlation calculation
+correlation_vars <- c(
+  "KRD_MindistPigFarm15.NEG", "RVO2021_MindistPigFarm15plus_NEG",
+  "KRD_MindistPoultryFarm250.NEG", "RVO2021_MindistChickenFarm250plus_NEG",
+  "KRD_MindistCattleFarm5.NEG", "RVO2021_MindistCattleFarm5plus_NEG",
+  "KRD_MindistGoatFarm50.NEG", "RVO2021_MindistGoatFarm50plus_NEG",
+  "KRD_nPigFarm.3000m", "RVO2021_nPigFarm_3000m",
+  "KRD_nPoultryFarm.3000m", "RVO2021_nChickenFarm_3000m",
+  "KRD_nCattleFarm.3000m", "RVO2021_nCattleFarm_3000m",
+  "KRD_nGoatFarm.3000m", "RVO2021_nGoatFarm_3000m"
+)
+
+# Extract relevant columns for correlation
+correlation_data <- meta_CP_unique_df %>%
+  select(all_of(correlation_vars))
+
+# Calculate correlations
+correlation_results <- cor(correlation_data, use = "complete.obs", method = "pearson")
+
+# Reorder the correlation matrix
+krd_vars <- grep("^KRD", correlation_vars, value = TRUE)
+rvo_vars <- grep("^RVO2021", correlation_vars, value = TRUE)
+ordered_correlation_results <- correlation_results[krd_vars, rvo_vars]
+
+# Visualize the lower triangle of the correlation matrix
+corrplot(ordered_correlation_results, method = "color",
+         type = "lower",  # Only show the lower triangle
+         tl.cex = 0.7,    # Text size for labels
+         addCoef.col = "black",  # Color of correlation coefficient labels
+         title = "Correlation Matrix: Pearson Correlation",
+         mar = c(0, 0, 2, 0))  # Adjust margins
+
+
+```
+

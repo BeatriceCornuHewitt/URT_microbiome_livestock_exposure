@@ -1,0 +1,466 @@
+---
+title: "Checking sequences in BLAST"
+---
+# Read in data
+```{r}
+ps_complete <- readRDS("../Output/Phyloseq/2_ps_complete.rds")
+unique(ps_complete@sam_data$population)
+```
+# Packages 
+```{r}
+library(dplyr); library(phyloseq);library(readr); library(dplyr); library(stringr); library(openxlsx)
+```
+
+# Make dataframe
+```{r}
+# Make a dataframe of all sequences in the microbiome
+seq <- refseq(ps_complete) %>%
+  as.data.frame()
+```
+
+# ASVs higher in pneumonia patients closer to goat farms
+```{r}
+which(rownames(seq) == "Streptococcus_148")
+which(rownames(seq) == "Actinomyces_143") 
+which(rownames(seq) == "Actinomyces_odontolyticus_15")
+
+# Check the sequences for all of these ASVs
+print(seq[114, ])
+print(seq[110, ])
+print(seq[14,])
+```
+
+# ASVs higher in goat farmers vs control participants
+```{r}
+which(rownames(seq) == "Acinetobacter_1850") 
+which(rownames(seq) == "Acinetobacter_1686") 
+which(rownames(seq) == "Clostridium_sensu_stricto_1_1299") 
+which(rownames(seq) == "Clostridium_sensu_stricto_1_928")
+which(rownames(seq) == "Fusobacterium_154") 
+which(rownames(seq) == "Micrococcus_3216") 
+which(rownames(seq) == "Nocardiopsis_2784") 
+which(rownames(seq) == "Paeniclostridium_2186") 
+which(rownames(seq) == "Pseudomonas_264") 
+which(rownames(seq) == "Pseudomonas_331") 
+which(rownames(seq) == "Pseudomonas_3386") 
+which(rownames(seq) == "Staphylococcus_217") 
+which(rownames(seq) == "Staphylococcus_256") 
+which(rownames(seq) == "Staphylococcus_340") 
+which(rownames(seq) == "Stenotrophomonas_1519") 
+
+
+# Check the sequences for all of these ASVs
+print(seq[1663, ])
+print(seq[1511, ])
+print(seq[1159, ])
+print(seq[808, ])
+print(seq[118, ])
+print(seq[2932, ])
+print(seq[2530, ])
+print(seq[1970, ])
+print(seq[206, ])
+print(seq[260, ])
+print(seq[3096, ])
+print(seq[165, ])
+print(seq[199, ])
+print(seq[267, ])
+print(seq[1361, ])
+print(seq[195, ])
+
+
+```
+# Check sequences of all ASVs with at least one qval <0.25
+```{r}
+# Define the list of ASVs
+asvs <- c(
+  "Streptococcus_8", "Streptococcus_640", "Streptococcus_4", "Streptococcus_36",
+  "Streptococcus_234", "Streptococcus_23", "Streptococcus_148", "Streptococcus_10",
+  "Streptococcus_mutans_253", "Stenotrophomonas_1519", "Staphylococcus_826",
+  "Staphylococcus_358", "Staphylococcus_340", "Staphylococcus_258", "Staphylococcus_256",
+  "Staphylococcus_217", "Pseudomonas_784", "Pseudomonas_731", "Pseudomonas_3386",
+  "Pseudomonas_331", "Pseudomonas_264", "Pseudomonas_210", "Proteus_235",
+  "Paeniclostridium_2186", "Nocardiopsis_2784", "Nocardioides_764", "Nocardioides_726",
+  "Nocardioides_619", "Nocardioides_593", "Nocardioides_590", "Nocardioides_392",
+  "Nocardioides_2558", "Nocardioides_1905", "Nocardioides_147", "Nocardioides_plantarum_1336",
+  "Nocardioides_antarcticus_2473", "Mycobacterium_268", "Mycobacterium_223", "Moraxella_64",
+  "Moraxella_246", "Micrococcus_3216", "Micrococcus_318", "Lactococcus_363",
+  "Fusobacterium_154", "Fusobacterium_138", "Fusobacterium_periodonticum_18",
+  "Fusobacterium_nucleatum_211", "Fusobacterium_necrophorum_275", "Clostridium_sensu_stricto_1_928",
+  "Clostridium_sensu_stricto_1_1299", "Actinomyces_19", "Actinomyces_143",
+  "Actinomyces_odontolyticus_15", "Acinetobacter_348", "Acinetobacter_1850", "Acinetobacter_1686"
+)
+
+# Create an empty data frame to store results
+results <- data.frame(
+  ASV_Name = character(),
+  Sequence = character(),
+  stringsAsFactors = FALSE 
+)
+
+# Loop through each ASV and retrieve its sequence
+for (asv in asvs) {
+  # Get the row index for the ASV
+  index <- which(rownames(seq) == asv)
+  
+  # Check if the ASV exists in the data frame
+  if (length(index) > 0) {
+    # Get the sequence
+    sequence <- seq[index, ]
+    
+    # Add the result to the data frame
+    results <- rbind(results, data.frame(ASV_Name = asv, Sequence = sequence, stringsAsFactors = FALSE))
+  } else {
+    # Add a row with NA if ASV is not found
+    results <- rbind(results, data.frame(ASV_Name = asv, Sequence = NA, stringsAsFactors = FALSE))
+  }
+}
+
+# Print the results
+print(results)
+
+write.csv(results, "../Output/Goatfarmair/sequences.csv")
+```
+
+# Hotlist bacteria - only control and pneumonia populations  
+```{r}
+# Filter to include only samples from 'CP' and 'GP'
+# Filter the phyloseq object to include only samples with population 'CP' or 'GP' and niche 'NP' or 'OP'
+CP_GP_NP_OP_ps_complete <- subset_samples(
+  ps_complete,
+  population %in% c('CP', 'GP') &
+  niche %in% c('NP', 'OP')
+)
+
+# This ensures that only ASVs present in the filtered samples are retained
+CP_GP_NP_OP_ps_complete <- prune_taxa(taxa_sums(CP_GP_NP_OP_ps_complete) > 0, CP_GP_NP_OP_ps_complete)
+# Apply pres/abundance filter (0.1% rel abundance in at least 2 samples)
+CP_GP_NP_OP_ps_complete_filt <- CP_GP_NP_OP_ps_complete %>% pres_abund_filter()
+# A total of 2316 ASVs were found to be present at or above a level of confident detection (0.1% relative abundance) in at least 2 samples (n = 15791 ASVs excluded).
+
+# Extract all ASV names from CP_GP_ps_complete (only CP and GP) which are in thegenera from the shortlist: "Staphylococcus", "Stenotrophomonas", "Enterococcus", "Moraxella", "Streptococcus", "Paeniclostridium", "Pseudomonas", "Acinetobacter", "Lactococcus", "Trueperella", "Fusobacterium", "Mycobacterium", "Actinomyces", "Clostridium sensu stricto 1", "Micrococcus", "Nocardioides", "Klebsiella", "Proteus", "Providencia", "Pasteurella"
+# Extract the taxonomy table
+tax_table_df_CP_GP <- as.data.frame(tax_table(CP_GP_NP_OP_ps_complete_filt))
+tax_genus <- unique(tax_table_df_CP_GP$Genus)
+
+# Define the list of target genera
+target_genera <- c("Staphylococcus", "Stenotrophomonas", "Enterococcus", "Moraxella", "Streptococcus", "Paeniclostridium", "Pseudomonas", "Acinetobacter", "Lactococcus", "Trueperella", "Fusobacterium", "Mycobacterium", "Actinomyces", "Clostridium sensu stricto 1", "Micrococcus", "Nocardioides", "Klebsiella", "Proteus", "Providencia", "Pasteurella")
+
+# Filter the taxonomy table to include only rows with the specified genera
+filtered_tax_table <- tax_table_df_CP_GP[tax_table_df_CP_GP$Genus %in% target_genera, ]
+# Extract ASV names
+asv_names <- rownames(filtered_tax_table)
+# Display the ASV names
+print(asv_names) # 327 ASVs in those genera in the CP and GP populations
+
+
+# Create an empty data frame to store results
+asv_seq_hotlist_missingspecies <- data.frame(
+  ASV_Name = character(),
+  Sequence = character(),
+  stringsAsFactors = FALSE
+)
+
+# Loop through each ASV and retrieve its sequence
+for (asv in asv_names) {
+  # Get the row index for the ASV
+  index <- which(rownames(seq) == asv)
+  # Check if the ASV exists in the data frame
+  if (length(index) > 0) {
+    # Get the sequence
+    sequence <- seq[index, ]
+    # Add the result to the data frame
+    asv_seq_hotlist_missingspecies <- rbind(asv_seq_hotlist_missingspecies, data.frame(ASV_Name = asv, Sequence = sequence, stringsAsFactors = FALSE))
+  } else {
+    # Add a row with NA if ASV is not found
+    asv_seq_hotlist_missingspecies <- rbind(asv_seq_hotlist_missingspecies, data.frame(ASV_Name = asv, Sequence = NA, stringsAsFactors = FALSE))
+  }
+}
+
+# Print the results
+print(asv_seq_hotlist_missingspecies)
+write.csv(asv_seq_hotlist_missingspecies, "../Output/Goatfarmair/sequences_ASVs_inhotlist_nospeciesinfo_v2.csv")
+
+
+# Function to write dataframe to a FASTA file
+write_fasta_from_df <- function(df, output_file) {
+  # Open file connection in write mode
+  fileConn <- file(output_file, open = "wt")
+  
+  # Write each sequence to the file
+  for (i in 1:nrow(df)) {
+    # Create the FASTA header (ASV_Name) and sequence
+    asv_name <- paste0(">", df$ASV_Name[i])
+    sequence <- df$Sequence[i]
+    
+    # Write the header and sequence to the file
+    writeLines(c(asv_name, sequence), fileConn)
+  }
+  
+  # Close the file connection
+  close(fileConn)
+}
+
+# Specify the output file path
+output_fasta <- "../Output/Goatfarmair/sequences_ASVs_inhotlist_nospeciesinfo_CP_GP_v2.fasta"
+
+# Convert the dataframe to FASTA format
+write_fasta_from_df(asv_seq_hotlist_missingspecies, output_fasta) # Upload this into BLAST
+
+# Make df from data too
+asv_seq_hotlist_missingspecies_df <- as.data.frame(asv_seq_hotlist_missingspecies)
+```
+
+# BLAST results 
+```{r}
+# Open the BLAST_results.out file in excel
+# Edit it, adding headers and removing strain level information
+blast_results <- read.xlsx("../Output/Goatfarmair/BLAST_results_all_v2_edited.xlsx")
+
+# Calculate the percentage of each species for each ASV name
+species_percent <- blast_results %>%
+  group_by(`ASV_Name`, Species) %>%
+  summarise(count = n()) %>%
+  mutate(total = sum(count), percent = (count / total) * 100)
+
+# Filter species with >75% prevalence
+species_dominant <- species_percent %>%
+  filter(percent > 75)
+
+# Create the final dataframe with species and their percentages
+blast_output_df <- species_dominant %>%
+  group_by(`ASV_Name`) %>%
+  summarise(dominant_species = paste(Species, collapse = ", "), 
+            dominant_percent = paste(round(percent, 2), collapse = ", ")) %>%
+  right_join(blast_results %>% select(`ASV_Name`) %>% distinct(), by = "ASV_Name") %>%
+  mutate(dominant_species = ifelse(is.na(dominant_species), 
+                                   "unclassified (no species are dominant in BLAST)", 
+                                   dominant_species),
+         dominant_percent = ifelse(is.na(dominant_percent), 
+                                   NA, 
+                                   dominant_percent))
+
+# Now add the other ASVs to the table which did not have 100% identity hits in BLAST (all asvs in this dataframe asv_seq_hotlist_missingspecies_df)
+
+# Perform the left join on 'ASV_name'
+merged_df <- asv_seq_hotlist_missingspecies_df %>%
+  left_join(blast_output_df %>% select(ASV_Name, dominant_species, dominant_percent), by = "ASV_Name")
+
+# Update the 'dominant_species' column where no match is found
+merged_df <- merged_df %>%
+  mutate(
+    dominant_species = ifelse(is.na(dominant_species), "No species in BLAST have 100% identity match", dominant_species),
+    dominant_percent = ifelse(dominant_species == "No species in BLAST have 100% identity match", NA, dominant_percent)
+  )
+
+# Print the final dataframe
+print(merged_df) # Only 90 ASVs have a species BLAST result with 100% identity match. Some here are only 63 - this is because there were no 100% identity matches for the other 147 ASVs in the dataset
+
+write.csv(merged_df, "../Output/Goatfarmair/ASV_sequence_BLAST_results.csv")
+
+# 304 ASVs were BLASTed (these 304 ASVs were all the ASVs which are present in either CP or GP samples with 0.1% rel abundance in at least 2 samples and with a genus identity that is present in the hotlist). 
+# 209 ASVs did not have a BLAST hit with a 100% identity match 
+# 97 ASVs had a BLAST hit with 100% identity match (not necessarily with prevalence >75% though)
+# 44 ASVs had a BLAST species hit with 100% identity match and >75% prevalence in the BLAST hits
+
+
+```
+# Check of additional interesting ASVs
+```{r}
+which(rownames(seq) == "Rothia_mucilaginosa_32") # 28
+which(rownames(seq) == "Alloprevotella_61") # 50
+which(rownames(seq) == "Actinomyces_graevenitzii_22") # 20
+which(rownames(seq) == "Sphingomonas_175") # 131
+which(rownames(seq) == "Moraxella_5") # 5
+which(rownames(seq) == "Streptococcus_23") # 21
+which(rownames(seq) == "Lawsonella_clevelandensis_84") # 65
+which(rownames(seq) == "Anaerococcus_octavius_83") # 64
+which(rownames(seq) == "Haemophilus_44") # 36
+which(rownames(seq) == "Haemophilus_26") # 23
+
+
+# Check the sequences for all of these ASVs
+print(seq[28, ])
+print(seq[50, ])
+print(seq[20, ])
+print(seq[131, ])
+print(seq[5, ])
+print(seq[21, ])
+print(seq[65, ])
+print(seq[64, ])
+print(seq[36, ])
+print(seq[23, ])
+
+```
+# Check only CP 
+```{r}
+# Filter to include only samples from 'CP' and 'GP'
+# Filter the phyloseq object to include only samples with population 'CP' or 'GP' and niche 'NP' or 'OP'
+CP_NP_OP_ps_complete <- subset_samples(
+  ps_complete,
+  population %in% c('CP') &
+  niche %in% c('NP', 'OP')
+)
+
+# This ensures that only ASVs present in the filtered samples are retained
+CP_NP_OP_ps_complete <- prune_taxa(taxa_sums(CP_NP_OP_ps_complete) > 0, CP_NP_OP_ps_complete)
+# Apply pres/abundance filter (0.1% rel abundance in at least 2 samples)
+CP_NP_OP_ps_complete_filt <- CP_NP_OP_ps_complete %>% pres_abund_filter()
+# A total of 2215 ASVs were found to be present at or above a level of confident detection (0.1% relative abundance) in at least 2 samples (n = 15280 ASVs excluded).
+
+# Extract all ASV names from CP_GP_ps_complete (only CP and GP) which are in thegenera from the shortlist: "Staphylococcus", "Stenotrophomonas", "Enterococcus", "Moraxella", "Streptococcus", "Paeniclostridium", "Pseudomonas", "Acinetobacter", "Lactococcus", "Trueperella", "Fusobacterium", "Mycobacterium", "Actinomyces", "Clostridium sensu stricto 1", "Micrococcus", "Nocardioides", "Klebsiella", "Proteus", "Providencia", "Pasteurella"
+# Extract the taxonomy table
+tax_table_df_CP <- as.data.frame(tax_table(CP_NP_OP_ps_complete_filt))
+tax_genus_CP <- unique(tax_table_df_CP$Genus)
+
+# Define the list of target genera
+target_genera <- c("Staphylococcus", "Stenotrophomonas", "Enterococcus", "Moraxella", "Streptococcus", "Paeniclostridium", "Pseudomonas", "Acinetobacter", "Lactococcus", "Trueperella", "Fusobacterium", "Mycobacterium", "Actinomyces", "Clostridium sensu stricto 1", "Micrococcus", "Nocardioides", "Klebsiella", "Proteus", "Providencia", "Pasteurella")
+
+# Filter the taxonomy table to include only rows with the specified genera
+filtered_tax_table_CP <- tax_table_df_CP[tax_table_df_CP$Genus %in% target_genera, ]
+# Extract ASV names
+asv_names_CP <- rownames(filtered_tax_table_CP)
+# Display the ASV names
+print(asv_names_CP) # 308 ASVs in those genera in the CP population
+
+write.csv(asv_names_CP, "../Output/Goatfarmair/CP_ASVs_list.csv")
+```
+
+# Check only GP 
+
+```{r}
+# Filter to include only samples from 'GP' 
+# Filter the phyloseq object to include only samples with population 'GP' and niche 'NP' or 'OP'
+GP_NP_OP_ps_complete <- subset_samples(
+  ps_complete,
+  population %in% c('GP') &
+    niche %in% c('NP', 'OP')
+)
+
+
+# This ensures that only ASVs present in the filtered samples are retained
+GP_NP_OP_ps_complete <- prune_taxa(taxa_sums(GP_NP_OP_ps_complete) > 0, GP_NP_OP_ps_complete)
+# Apply pres/abundance filter (0.1% rel abundance in at least 2 samples)
+GP_NP_OP_ps_complete_filt <- GP_NP_OP_ps_complete %>% pres_abund_filter()
+# A total of 414 ASVs were found to be present at or above a level of confident detection (0.1% relative abundance) in at least 2 samples (n = 1666 ASVs excluded).
+
+# Extract all ASV names from GP_GP_ps_complete (only GP and GP) which are in thegenera from the shortlist: "Staphylococcus", "Stenotrophomonas", "Enterococcus", "Moraxella", "Streptococcus", "Paeniclostridium", "Pseudomonas", "Acinetobacter", "Lactococcus", "Trueperella", "Fusobacterium", "Mycobacterium", "Actinomyces", "Clostridium sensu stricto 1", "Micrococcus", "Nocardioides", "Klebsiella", "Proteus", "Providencia", "Pasteurella"
+# Extract the taxonomy table
+tax_table_df_GP <- as.data.frame(tax_table(GP_NP_OP_ps_complete_filt))
+tax_genus_GP <- unique(tax_table_df_GP$Genus)
+
+# Define the list of target genera
+target_genera <- c("Staphylococcus", "Stenotrophomonas", "Enterococcus", "Moraxella", "Streptococcus", "Paeniclostridium", "Pseudomonas", "Acinetobacter", "Lactococcus", "Trueperella", "Fusobacterium", "Mycobacterium", "Actinomyces", "Clostridium sensu stricto 1", "Micrococcus", "Nocardioides", "Klebsiella", "Proteus", "Providencia", "Pasteurella")
+
+# Filter the taxonomy table to include only rows with the specified genera
+filtered_tax_table_GP <- tax_table_df_GP[tax_table_df_GP$Genus %in% target_genera, ]
+# Extract ASV names
+asv_names_GP <- rownames(filtered_tax_table_GP)
+# Display the ASV names
+print(asv_names_GP) # 64 ASVs in those genera in the GP population
+
+write.csv(asv_names_GP, "../Output/Goatfarmair/GP_ASVs_list.csv")
+
+
+
+```
+
+# Extra check of some ASVs of their species assignment
+```{r}
+ps_complete@tax_table["Lactococcus_363"]
+ps_complete@tax_table["Clostridium_sensu_stricto_1_2074"]# perfringens/thermophilus
+ps_complete@tax_table["Clostridium_sensu_stricto_1_928"]# celatum/disporicum/saudiense
+ps_complete@tax_table["Clostridium_sensu_stricto_1_1299"]# celatum/disporicum/saudiense
+ps_complete@tax_table["Fusobacterium_necrophorum_275"]# necrophorum
+ps_complete@tax_table["Fusobacterium_154"]# canifelinum/nucleatum
+
+ps_complete@tax_table["Stenotrophomonas_1519"]# maltophilia/rhizophila
+
+ps_complete@tax_table["Stenotrophomonas_3964"]# NA
+ps_complete@tax_table["Staphylococcus_217"]# NA
+ps_complete@tax_table["Staphylococcus_256"]# NA
+ps_complete@tax_table["Staphylococcus_340"]# NA
+ps_complete@tax_table["Staphylococcus_826"]# haemolyticus/pettenkoferi
+
+ps_complete@tax_table["Staphylococcus_742"]# aureus/lugdunensis
+ps_complete@tax_table["Pseudomonas_692"]# oryzihabitans/putida/reidholzensis
+ps_complete@tax_table["Pseudomonas_264"]# NA
+
+ps_complete@tax_table["Micrococcus_3223"]# flavus/luteus/yunnanensis
+ps_complete@tax_table["Micrococcus_3216"]# NA
+
+ps_complete@tax_table["Acinetobacter_1416"]# baumannii/septicus/ursingii
+ps_complete@tax_table["Enterococcus_55"]# NA
+ps_complete@tax_table["Streptococcus_133"]# dysgalactiae/phage/pyogenes
+ps_complete@tax_table["Streptococcus_1088"]# canis/dysgalactiae/pyogenes
+ps_complete@tax_table["Streptococcus_234"]# NA
+ps_complete@tax_table["Streptococcus_148"]# cristatus/sanguinis
+
+
+ps_complete@tax_table["Streptococcus_23"]# NA
+ps_complete@tax_table["Staphylococcus_826"]# haemolyticus/pettenkoferi
+
+ps_complete@tax_table["Actinomyces_143"]# naeslundii/oris/viscosus
+ps_complete@tax_table["Acinetobacter_1850"]# NA
+ps_complete@tax_table["Acinetobacter_1686"]# NA
+ps_complete@tax_table["Clostridium_sensu_stricto_1_1299"]# NA
+
+ps_complete@tax_table["Clostridium_sensu_stricto_1_928"]# celatum/disporicum/saudiense
+ps_complete@tax_table["Fusobacterium_154"]# canifelinum/nucleatum
+ps_complete@tax_table["Micrococcus_3216"]# NA
+ps_complete@tax_table["Paeniclostridium_2186"]# NA
+ps_complete@tax_table["Pseudomonas_264"]# NA
+ps_complete@tax_table["Pseudomonas_331"]# NA
+ps_complete@tax_table["Pseudomonas_3386"]# NA
+ps_complete@tax_table["Stenotrophomonas_1519"]# maltophilia/rhizophila
+ps_complete@tax_table["Moraxella_86"]# NA
+ps_complete@tax_table["Moraxella_91"]# NA
+ps_complete@tax_table["Moraxella_95"]# NA
+ps_complete@tax_table["Moraxella_181"]# NA
+ps_complete@tax_table["Moraxella_246"]# NA
+ps_complete@tax_table["Moraxella_250"]# NA
+ps_complete@tax_table["Moraxella_5"]# catarrhalis/nonliquefaciens
+
+ps_complete@tax_table["Moraxella_5"]# catarrhalis/nonliquefaciens
+ps_complete@tax_table["Alloprevotella_61"]# NA
+ps_complete@tax_table["Sphingomonas_175"]# NA
+ps_complete@tax_table["Haemophilus_44"]# aegyptius/influenzae/virus
+ps_complete@tax_table["Haemophilus_26"]# haemolyticus/influenzae/parainfluenzae
+ps_complete@tax_table["Haemophilus_26"]# haemolyticus/influenzae/parainfluenzae
+ps_complete@tax_table["Prevotella_109"]# NA
+ps_complete@tax_table["Dolosigranulum_199"] # 149
+
+
+
+ps_complete@tax_table["Streptococcus_4"]
+
+which(rownames(seq) == "Streptococcus_4") # 4
+print(seq[4, ]) # Not identified in BLAST
+
+which(rownames(seq) == "Veillonella_6") # 6
+print(seq[6, ]) # Not identified in BLAST
+
+which(rownames(seq) == "Haemophilus_44") 
+print(seq[36, ])
+
+
+which(rownames(seq) == "Streptococcus_23") # 21
+print(seq[21, ])
+
+
+which(rownames(seq) == "Haemophilus_44") # 36
+print(seq[36, ])
+
+which(rownames(seq) == "Haemophilus_26") # 23
+print(seq[23, ])
+
+
+which(rownames(seq) == "Prevotella_109") # 81
+print(seq[81, ]) # Not identified in BLAST
+
+which(rownames(seq) == "Dolosigranulum_199") # 149
+print(seq[149, ]) # Not identified in BLAST
+
+
+```
+
+

@@ -1,0 +1,455 @@
+---
+title: "Univariable PERMANOVAs"
+author: Beatrice Cornu Hewitt
+---
+
+# Packages
+```{r}
+library(tidyverse);library(magrittr);library(glue);library(here);library(ggtext);library(fs);library(phyloseq);library(microbiomer);library(vegan);library(microbiome);library(decontam);library(reshape2);library(colorspace);library(scales);library(ggpubr);library(ggvenn);library(ggnewscale);library(RColorBrewer);library(paletteer);library(broom);library(rcartocolor);library(microViz);library(ggside)
+
+
+theme_set(theme_bw())
+theme_update(axis.text.x = element_text(angle = 45, hjust=1),
+             strip.text = element_text(colour = 'white'),
+             strip.background =element_rect(fill="#2F4858", color = "#2F4858"))
+```
+
+# Set-up
+## Functions
+
+```{r}
+beta_df <- function(ord, meta, var) { 
+  m_sub <- subset(meta, !is.na(meta[var]))
+  ord_sub <- ord[rownames(ord) %in% m_sub$sample_id, colnames(ord) %in% 
+                   m_sub$sample_id]
+  ord_sub <- as.dist(ord_sub)
+  return(list(ord_sub = ord_sub, m_sub = m_sub))
+}
+
+do_permanova <- function(ord, meta, var) {
+  t <- adonis2(as.formula(glue("ord ~ {var}")), 
+               permutations = 999, data = meta)
+  return(t)
+}
+
+do_permanova_com <- function(ord, meta, var) {
+  t <- beta_df(ord, meta, var) %>% { do_permanova(ord = .$ord_sub, 
+                                                    meta = .$m_sub, var) } 
+  t <- broom::tidy(t)
+  t <- subset(t, term == var)
+  
+  t <- t %>% mutate(
+  label_p.value = ifelse(p.value < 0.25, "*", NA),
+  label_p.value = ifelse(p.value < 0.1, "**", label_p.value),
+  label_p.value = ifelse(p.value < 0.05, "***", label_p.value))
+
+  return(t)
+}
+```
+
+# Load data 
+```{r}
+ps <- readRDS("../Output/Phyloseq/ps_complete.Rds")
+
+names <- readxl::read_xlsx("../Output/Metadata/Codebook_metadata_all.xlsx")
+
+t <- subset(names, !grepl("Number", Values))
+m <- meta_to_df(ps)
+m <- mutate_at(m, (colnames(m)[colnames(m) %in% t$`Variable name`]), as.character)
+rownames(m) <- m$sample_id
+m <- select(m, -c("sample_id"))
+sample_data(ps) <- m
+```
+
+# Univariable PERMANOVA nasopharynx
+## Remove low abundant ASVs and convert counts to relative abundances.
+```{r}
+small_ps <- subset_samples(ps, niche == "NP") %>% pres_abund_filter() %>% to_RA() 
+```
+## PERMANOVA overall (all populations)
+We first prepare the data to conduct the analyses on the entire dataset
+
+```{r}
+small_otu <- as.data.frame(otu_table(small_ps)) %>% t()
+small_df <- meta_to_df(small_ps)
+```
+
+We generate a Bray Curtis distance matrix
+
+```{r}
+bray_curtis_dist <- vegdist(small_otu, method = "bray")
+ord_bc <- bray_curtis_dist %>% as.matrix()
+```
+
+Metadata variables of interest to conduct the PERMANOVA for CP
+
+```{r}
+lst_O <- c("population", "gender", "age", "smoked_ever", "sampling_season", "flu_vacc", "pneumococcal_vacc", "animal_contact_lastmth", "abroad_lastmth", "imm_def", "GoatFarmExposureCategory", "KRD_MindistGoatFarm50.NEG","KRD_nGoatsWghtDist.1000m.sum", "KRD_nPoultryWghtDist.1000m.sum", "KRD_nPigsWghtDist.1000m.sum", "KRD_nCowsWghtDist.1000m.sum","KRD_nHopoWghtDist.1000m.sum")
+
+m_sum <- pivot_longer(mutate_all(small_df, as.character), cols = lst_O, 
+                      names_to = "Var", values_to = "Cat")
+m_sum <- m_sum %>% count(Var, Cat)
+m_sum <- m_sum[!is.na(m_sum$Cat),]
+m_sum_k <- subset(m_sum, n > 9)
+m_sum_k <- m_sum_k %>% count(Var)
+m_sum_k <- subset(m_sum_k, n > 1)
+
+lst <- data_frame(Var = unique(append("age", m_sum_k$Var)), fit = NA)
+
+perm_overall <- lst %>% mutate(
+  fit = map(Var, ~do_permanova_com(ord_bc, small_df, .x))) %>% 
+  unnest(fit)
+perm_overall$type <- "Bray Curtis"
+perm_overall$population <- "Overall"
+
+```
+
+## PERMANOVA control population
+Prepare data
+
+```{r}
+small_ps_CP <- subset_samples(small_ps, population == "CP")
+small_otu_CP <- as.data.frame(otu_table(small_ps_CP)) %>% t()
+small_df_CP <- meta_to_df(small_ps_CP)
+```
+
+We generate a Bray Curtis distance matrix
+
+```{r}
+bray_curtis_dist_CP <- vegdist(small_otu_CP, method = "bray")
+ord_bc_CP <- bray_curtis_dist_CP %>% as.matrix()
+```
+
+For all the categorical variables we used this code to conduct the PERMANOVA
+
+```{r}
+lst_CP <- c("gender", "age", "smoked_ever", "sampling_season", "flu_vacc", "pneumococcal_vacc", "animal_contact_lastmth", "abroad_lastmth", "pneumonia_lastyr", "acute_resp_infec_lastyr", "covid19", "antibiotics_lastyr", "antacids_lastyr", "lung_med", "beta_blockers", "heart_vascu_disorder", "diabetes", "nasal_allergy", "asthma_ever", "COPD_emphysema_diag", "EAA_diag", "cort_inhaler_lastyr", "pneumonia_last3yr", "pets_last5yrs", "goat_last5yrs", "no_farm_visit_lastyr", "RVO2021_MindistGoatFarm50plus_NEG", "imm_def", "GoatFarmExposureCategory")
+
+m_sum <- pivot_longer(mutate_all(small_df_CP, as.character), cols = lst_CP, 
+                      names_to = "Var", values_to = "Cat")
+m_sum <- m_sum %>% count(Var, Cat)
+m_sum <- m_sum[!is.na(m_sum$Cat),]
+m_sum_k <- subset(m_sum, n > 9)
+m_sum_k <- m_sum_k %>% count(Var)
+m_sum_k <- subset(m_sum_k, n > 1)
+
+lst <- data_frame(Var = unique(append("age", m_sum_k$Var)), fit = NA)
+
+perm_CP <- lst %>% mutate(
+  fit = map(Var, ~do_permanova_com(ord_bc_CP, small_df_CP, .x))) %>% 
+  unnest(fit)
+perm_CP$type <- "Bray Curtis"
+perm_CP$population <- "CP"
+```
+
+## PERMANOVA goat farmers
+We first prepare the data to conduct the analyses on the entire dataset
+
+```{r}
+small_ps_GF <- subset_samples(small_ps, population == "GF")
+small_otu_GF <- as.data.frame(otu_table(small_ps_GF)) %>% t()
+small_df_GF <- meta_to_df(small_ps_GF)
+```
+
+We generate a Bray Curtis distance matrix
+
+```{r}
+bray_curtis_dist_GF <- vegdist(small_otu_GF, method = "bray")
+ord_bc_GF <- bray_curtis_dist_GF %>% as.matrix()
+```
+
+For all the categorical variables we used this code to conduct the PERMANOVA
+
+```{r}
+lst_GF <- c("gender", "age", "smoked_ever", "sampling_season", "flu_vacc", "pneumococcal_vacc", "animal_contact_lastmth", "abroad_lastmth", "pneumonia_lastyr", "acute_resp_infec_lastyr", "covid19", "antibiotics_lastyr", "antacids_lastyr", "lung_med", "beta_blockers", "heart_vascu_disorder", "diabetes", "nasal_allergy", "asthma_ever", "COPD_emphysema_diag", "EAA_diag", "cort_inhaler_lastyr", "pneumonia_last3yr", "pets_last5yrs", "goat_contact_lastmth", "education_level", "farm_child", "health_complaint_farm_rel", "home_goatfarm", "farm_work_yrs", "farm_work_hrsperweek", "farm_work_feeding", "farm_work_milking", "farm_work_cleanstables", "farm_work_litter", "farm_work_manure", "farm_work_yean", "farm_work_newborn", "farm_work_cleaning", "farm_work_soil", "farm_work_other", "imm_def", "GoatFarmExposureCategory")
+
+m_sum <- pivot_longer(mutate_all(small_df_GF, as.character), cols = lst_GF, 
+                      names_to = "Var", values_to = "Cat")
+m_sum <- m_sum %>% count(Var, Cat)
+m_sum <- m_sum[!is.na(m_sum$Cat),]
+m_sum_k <- subset(m_sum, n > 9)
+m_sum_k <- m_sum_k %>% count(Var)
+m_sum_k <- subset(m_sum_k, n > 1)
+
+lst <- data_frame(Var = unique(append("age", m_sum_k$Var)), fit = NA)
+
+perm_GF <- lst %>% mutate(
+  fit = map(Var, ~do_permanova_com(ord_bc_GF, small_df_GF, .x))) %>% 
+  unnest(fit)
+perm_GF$type <- "Bray Curtis"
+perm_GF$population <- "GF"
+```
+
+## PERMANOVA patients
+We first prepare the data to conduct the analyses on the entire dataset
+
+```{r}
+small_ps_GP <- subset_samples(small_ps, population == "GP")
+small_otu_GP <- as.data.frame(otu_table(small_ps_GP)) %>% t()
+small_df_GP <- meta_to_df(small_ps_GP)
+```
+
+We generate a Bray Curtis distance matrix
+
+```{r}
+bray_curtis_dist_GP <- vegdist(small_otu_GP, method = "bray")
+ord_bc_GP <- bray_curtis_dist_GP %>% as.matrix()
+```
+
+For all the categorical variables we used this code to conduct the PERMANOVA
+
+```{r}
+lst_GP <- c("gender", "age", "smoked_ever", "sampling_season", "flu_vacc", "pneumococcal_vacc", "animal_contact_lastmth", "abroad_lastmth", "practice_number", "CRP_result_mgL", "Saturation_percent", "lung_disease", "lung_inhal_med", "flu_vacc_lastyr", "asthma_status", "COPD_status", "imm_def", "antibiotics_lastmth", "dyspnea", "cough", "hypotension", "fever", "pain_breathing", "tachycardia", "tachypnea", "confusion", "RVO2021_MindistGoatFarm50plus_NEG", "GoatFarmExposureCategory")
+
+m_sum <- pivot_longer(mutate_all(small_df_GP, as.character), cols = lst_GP, 
+                      names_to = "Var", values_to = "Cat")
+m_sum <- m_sum %>% count(Var, Cat)
+m_sum <- m_sum[!is.na(m_sum$Cat),]
+m_sum_k <- subset(m_sum, n > 9)
+m_sum_k <- m_sum_k %>% count(Var)
+m_sum_k <- subset(m_sum_k, n > 1)
+
+lst <- data_frame(Var = unique(append("age", m_sum_k$Var)), fit = NA)
+
+perm_GP <- lst %>% mutate(
+  fit = map(Var, ~do_permanova_com(ord_bc_GP, small_df_GP, .x))) %>% 
+  unnest(fit)
+perm_GP$type <- "Bray Curtis"
+perm_GP$population <- "GP"
+```
+
+## Combine PERMANOVA NP
+
+```{r}
+perm_NP <- rbind(perm_overall, perm_CP, perm_GF, perm_GP)
+perm_NP$niche <- "NP"
+```
+
+# Univariable PERMANOVA oropharynx
+
+First, we removed the low abundant ASVs from the phyloseq object. We convert the counts to relative abundances.
+
+```{r}
+small_ps <- subset_samples(ps, niche == "OP") %>% pres_abund_filter() %>% to_RA() 
+```
+
+## PERMANOVA overall
+We first prepare the data to conduct the analyses on the entire dataset
+
+```{r}
+small_otu <- as.data.frame(otu_table(small_ps)) %>% t()
+small_df <- meta_to_df(small_ps)
+```
+
+We generate a Bray Curtis distance matrix
+
+```{r}
+bray_curtis_dist <- vegdist(small_otu, method = "bray")
+ord_bc <- bray_curtis_dist %>% as.matrix()
+```
+
+For all the categorical variables we used this code to conduct the PERMANOVA
+
+```{r}
+m_sum <- pivot_longer(mutate_all(small_df, as.character), cols = lst_O, 
+                      names_to = "Var", values_to = "Cat")
+m_sum <- m_sum %>% count(Var, Cat)
+m_sum <- m_sum[!is.na(m_sum$Cat),]
+m_sum_k <- subset(m_sum, n > 9)
+m_sum_k <- m_sum_k %>% count(Var)
+m_sum_k <- subset(m_sum_k, n > 1)
+
+lst <- data_frame(Var = unique(append("age", m_sum_k$Var)), fit = NA)
+
+perm_overall <- lst %>% mutate(
+  fit = map(Var, ~do_permanova_com(ord_bc, small_df, .x))) %>% 
+  unnest(fit)
+perm_overall$type <- "Bray Curtis"
+perm_overall$population <- "Overall"
+```
+
+## PERMANOVA control population
+We first prepare the data to conduct the analyses on the entire dataset
+
+```{r}
+small_ps_CP <- subset_samples(small_ps, population == "CP")
+small_otu_CP <- as.data.frame(otu_table(small_ps_CP)) %>% t()
+small_df_CP <- meta_to_df(small_ps_CP)
+```
+
+We generate a Bray Curtis distance matrix
+
+```{r}
+bray_curtis_dist_CP <- vegdist(small_otu_CP, method = "bray")
+ord_bc_CP <- bray_curtis_dist_CP %>% as.matrix()
+```
+
+For all the categorical variables we used this code to conduct the PERMANOVA
+
+```{r}
+m_sum <- pivot_longer(mutate_all(small_df_CP, as.character), cols = lst_CP, 
+                      names_to = "Var", values_to = "Cat")
+m_sum <- m_sum %>% count(Var, Cat)
+m_sum <- m_sum[!is.na(m_sum$Cat),]
+m_sum_k <- subset(m_sum, n > 9)
+m_sum_k <- m_sum_k %>% count(Var)
+m_sum_k <- subset(m_sum_k, n > 1)
+
+lst <- data_frame(Var = unique(append("age", m_sum_k$Var)), fit = NA)
+
+perm_CP <- lst %>% mutate(
+  fit = map(Var, ~do_permanova_com(ord_bc_CP, small_df_CP, .x))) %>% 
+  unnest(fit)
+perm_CP$type <- "Bray Curtis"
+perm_CP$population <- "CP"
+```
+
+## PERMANOVA goat farmers
+We first prepare the data to conduct the analyses on the entire dataset
+
+```{r}
+small_ps_GF <- subset_samples(small_ps, population == "GF")
+small_otu_GF <- as.data.frame(otu_table(small_ps_GF)) %>% t()
+small_df_GF <- meta_to_df(small_ps_GF)
+```
+
+We generate a Bray Curtis distance matrix
+
+```{r}
+bray_curtis_dist_GF <- vegdist(small_otu_GF, method = "bray")
+ord_bc_GF <- bray_curtis_dist_GF %>% as.matrix()
+```
+
+For all the categorical variables we used this code to conduct the PERMANOVA
+
+```{r}
+m_sum <- pivot_longer(mutate_all(small_df_GF, as.character), cols = lst_GF, 
+                      names_to = "Var", values_to = "Cat")
+m_sum <- m_sum %>% count(Var, Cat)
+m_sum <- m_sum[!is.na(m_sum$Cat),]
+m_sum_k <- subset(m_sum, n > 9)
+m_sum_k <- m_sum_k %>% count(Var)
+m_sum_k <- subset(m_sum_k, n > 1)
+
+lst <- data_frame(Var = unique(append("age", m_sum_k$Var)), fit = NA)
+
+perm_GF <- lst %>% mutate(
+  fit = map(Var, ~do_permanova_com(ord_bc_GF, small_df_GF, .x))) %>% 
+  unnest(fit)
+perm_GF$type <- "Bray Curtis"
+perm_GF$population <- "GF"
+```
+
+## PERMANOVA patients
+We first prepare the data to conduct the analyses on the entire dataset
+
+```{r}
+small_ps_GP <- subset_samples(small_ps, population == "GP")
+small_otu_GP <- as.data.frame(otu_table(small_ps_GP)) %>% t()
+small_df_GP <- meta_to_df(small_ps_GP)
+```
+
+We generate a Bray Curtis distance matrix
+
+```{r}
+bray_curtis_dist_GP <- vegdist(small_otu_GP, method = "bray")
+ord_bc_GP <- bray_curtis_dist_GP %>% as.matrix()
+```
+
+For all the categorical variables we used this code to conduct the PERMANOVA
+
+```{r}
+m_sum <- pivot_longer(mutate_all(small_df_GP, as.character), cols = lst_GP, 
+                      names_to = "Var", values_to = "Cat")
+m_sum <- m_sum %>% count(Var, Cat)
+m_sum <- m_sum[!is.na(m_sum$Cat),]
+m_sum_k <- subset(m_sum, n > 9)
+m_sum_k <- m_sum_k %>% count(Var)
+m_sum_k <- subset(m_sum_k, n > 1)
+
+lst <- data_frame(Var = unique(append("age", m_sum_k$Var)), fit = NA)
+
+perm_GP <- lst %>% mutate(
+  fit = map(Var, ~do_permanova_com(ord_bc_GP, small_df_GP, .x))) %>% 
+  unnest(fit)
+perm_GP$type <- "Bray Curtis"
+perm_GP$population <- "GP"
+```
+
+## Combine PERMANOVA OP
+
+```{r}
+perm_OP <- rbind(perm_overall, perm_CP, perm_GF, perm_GP)
+perm_OP$niche <- "OP"
+```
+
+# Visualization
+
+```{r}
+perm <- rbind(perm_NP, perm_OP)
+names <- rename(names, Var = "Variable name")
+perm <- left_join(perm, names)
+perm$Description <- ifelse(perm$Var == "beta_blockers", "Are you using beta blockers", perm$Description)
+perm$Description <- ifelse(perm$Var == "acute_resp_infec_lastyr", "Have you had an acute respiratory infection in the past year?", perm$Description)
+perm$group <- ifelse(perm$Var %in% lst_GF, "GF only", NA)
+perm$group <- ifelse(perm$Var %in% lst_CP, "CP only", perm$group)
+perm$group <- ifelse(perm$Var %in% lst_GP, "GP only", perm$group)
+perm$group <- ifelse(perm$Var %in% lst_O, "All", perm$group)
+perm <- perm %>% mutate(Description = ifelse(Var == "GoatFarmExposureCategory", "Distance to nearest goat farm", Description),
+                        Values = ifelse(Var == "GoatFarmExposureCategory", "<1000, 1000-2000 and >2000m", Values))
+
+```
+
+```{r}
+perm$population <- factor(perm$population, levels = c("Overall", "CP", "GF", "GP"))
+perm$group <- factor(perm$group, levels = c("All", "CP only", "GF only", "GP only"))
+perm$q.value <- p.adjust(perm$p.value, "BH")
+perm <- perm %>% mutate(
+  label_q.value = ifelse(q.value < 0.25, "*", NA),
+  label_q.value = ifelse(q.value < 0.1, "**", label_q.value),
+  label_q.value = ifelse(q.value < 0.05, "***", label_q.value))
+perm <- perm %>% select(Var, Description, Values, population, niche, group, df, SumOfSqs, R2, statistic, 
+                        p.value, label_p.value, q.value, label_q.value, type)
+
+writexl::write_xlsx(perm, "univariable_permanova.csv")
+```
+
+```{r explained_variance, ow = '90%', h = 10, w = 8}
+hm <- perm %>%
+  ggplot(aes(x = population, y = Description , fill = R2)) +
+  geom_tile(colour = "white") + scale_fill_gradient2(low = carto_pal(7, "Earth")[1],
+                       mid = carto_pal(7, "Earth")[4],
+                       high = carto_pal(7, "Earth")[7],
+                       limits = c(0, 0.05), 
+                       na.value = carto_pal(7, "Earth")[7]) + 
+    theme(axis.text.x = element_text(angle = 45, hjust=1),
+          legend.position = "right",
+          legend.key.height=grid::unit(0.7, "cm"),
+          legend.key.width=grid::unit(0.2, "cm"),
+          plot.background=element_blank(), 
+          axis.title.y = element_blank(),
+          axis.title.x = element_blank())  +
+    geom_text(aes(label=label_p.value), color = "white", size = 4, vjust=0.8) + labs(fill = "R2") + 
+    guides(fill = guide_colourbar(title.position="top", title.hjust = 0.5)) + facet_grid(group~niche, scales = "free", space = "free")
+hm
+```
+
+```{r explained_variance_adj, ow = '90%', h = 10, w = 8}
+hm <- perm %>%
+  ggplot(aes(x = population, y = Description , fill = R2)) +
+  geom_tile(colour = "white") + scale_fill_gradient2(low = carto_pal(7, "Earth")[1],
+                       mid = carto_pal(7, "Earth")[4],
+                       high = carto_pal(7, "Earth")[7],
+                       limits = c(0, 0.05), 
+                       na.value = carto_pal(7, "Earth")[7]) + 
+    theme(axis.text.x = element_text(angle = 45, hjust=1),
+          legend.position = "right",
+          legend.key.height=grid::unit(0.7, "cm"),
+          legend.key.width=grid::unit(0.2, "cm"),
+          plot.background=element_blank(), 
+          axis.title.y = element_blank(),
+          axis.title.x = element_blank())  +
+    geom_text(aes(label=label_q.value), color = "white", size = 4, vjust=0.8) + labs(fill = "R2") + 
+    guides(fill = guide_colourbar(title.position="top", title.hjust = 0.5)) + facet_grid(group~niche, scales = "free", space = "free")
+hm
+```

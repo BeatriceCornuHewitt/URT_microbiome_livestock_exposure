@@ -1,0 +1,15 @@
+---
+title: "Phyloseq for Tirza"
+author: "Beatrice Cornu Hewitt" 
+date: "`r Sys.time()`"
+---
+
+```{r}
+ps_complete <- readRDS("../Output/Phyloseq/2_ps_complete.Rds")
+ps_GF <- subset_samples(ps_complete, !(population %in% c("CP", "GP")))
+
+ps_GF_clean <- prune_taxa(taxa_sums(ps_GF) > 0, ps_GF)
+ps_GF_clean; ps_GF
+saveRDS(ps_GF_clean,"../Output/Phyloseq/ps_GF_cleaned.Rds" )
+```
+

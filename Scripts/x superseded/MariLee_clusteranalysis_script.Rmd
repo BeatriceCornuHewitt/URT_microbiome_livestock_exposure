@@ -1,0 +1,962 @@
+---
+title: "Cluster analysis"
+author: "Mari-Lee Odendaal"
+date: "`r Sys.time()`"
+---
+
+
+```{r setup, include=F, message=F, include=F}
+subdir_name <- "4_cluster_analysis"
+
+library(tidyverse);library(magrittr);library(glue);library(here);library(ggtext);library(fs);library(phyloseq);library(microbiomer);library(vegan);library(microbiome);library(decontam);library(reshape2);library(colorspace);library(scales);library(ggpubr);library(ggvenn);library(ggnewscale);library(RColorBrewer);library(paletteer);library(broom);library(rcartocolor);library(dendextend);library(ggmosaic);library(patchwork)
+
+# set paths
+knitr::opts_knit$set(root.dir=".", aliases=c(h = "fig.height", w = "fig.width", ow = "out.width"))
+knitr::opts_chunk$set(dev=c('png', 'pdf'), 
+                      fig.path=here("results", "figures", glue("{subdir_name}/")),
+                      dpi=300)
+
+theme_set(theme_bw())
+theme_update(axis.text.x = element_text(angle = 45, hjust=1),
+             strip.text = element_text(colour = 'white'),
+             strip.background =element_rect(fill="#2F4858", color = "#2F4858"))
+```
+
+```{r knit, echo=F, eval=FALSE, include=F}
+rmarkdown::render(input = here("scripts", str_c(subdir_name, ".Rmd")), output_dir = here("results"))
+```
+
+# Set-up
+## Functions
+
+```{r}
+clust_ind_plot <- function(dist, n, clust_method="average") {
+  
+  clust_ind_fnx <- function(dist, k, method = clust_method) {
+    stats_k <- c(k=k, fpc::cluster.stats(dist, cutree(hclust(dist, method=method), k))[c("ch", "avg.silwidth")])
+    return(stats_k)
+  }
+  clust_ind <- lapply(n, clust_ind_fnx, dist=dist) %>% 
+    bind_rows %>%
+    setNames(c("k", "Calinski-Harabasz", "Silhouette"))
+  
+  p <- clust_ind %>%
+    gather(index, value, -k) %>%
+    ggplot(aes(x=k, y=value)) +
+    geom_point() +
+    geom_line() +
+    facet_wrap(vars(index), scales="free_y")
+  return(list(plot=p, data=clust_ind))
+}
+```
+
+```{r}
+noLabel <- function(x) {
+  if (stats::is.leaf(x)) {
+    attr(x, "label") <- NULL }
+  return(x)
+}
+```
+
+```{r}
+prep_hm_data <- function(otu_ordered) {
+  hm_data <- otu_ordered %>%
+    data.frame(check.names = F) %>%
+    rownames_to_column("OTU") %>% 
+    pivot_longer(-OTU, names_to = "sample_id", values_to = "RA") %>%
+    mutate(RA = if_else(RA == 0, NA_real_, RA),
+           OTU = format_OTU(OTU) %>% fct_inorder() %>% fct_rev(),
+           sample_id = fct_inorder(sample_id))
+  return(hm_data)
+}
+```
+
+```{r}
+create_dendro_gg <- function(hc, hang_height=0.05, size = 0.4) {
+  suppressPackageStartupMessages(library(dendextend))
+  library(ggdendro)
+  
+  dendro_data_bl <- hc %>% as.dendrogram %>% hang.dendrogram(hang_height=hang_height) %>% dendro_data
+  dendro_data_bl$segments$yend[dendro_data_bl$segments$yend<0] <- 0
+  
+  dendro_data_gr <- hc %>% as.dendrogram %>% dendro_data
+  hc_order <- dendro_data_gr$labels$label
+  
+  plot <- ggplot(segment(dendro_data_gr)) +
+    geom_segment(aes(x=x, y=y, xend=xend, yend=yend),colour="white", size = size) + 
+    geom_segment(data=segment(dendro_data_bl),aes(x=x, y=y, xend=xend, yend=yend),  size = size) +
+    scale_x_continuous(expand = rep(1/length(hc_order)/2, 2)) + 
+    scale_y_continuous(expand=c(0,0.02)) +
+    #theme(plot.margin=unit(c(0,0,0,0),"lines")) +
+    theme_void()
+  return(list(plot=plot, hc_order=hc_order)) 
+}
+```
+
+## Input
+
+```{r}
+dir_path = here::here("results", "RData")
+ps1 <- readRDS(file = glue::glue("{dir_path}/ps_complete.Rds")) 
+```
+
+# Nasopharyngeal clusters
+First, we remove the low abundant ASVs, calculate the relative abundance of each ASV per sample and subset the nasopharyngeal samples,
+
+```{r}
+ps_RA_NP <- ps1 %>% pres_abund_filter() %>% to_RA() %>%
+  prune_samples(sample_data(ps1)$niche == "NP", .) 
+```
+
+Next, using the OTU table and meta data, we created a Bray Curtis dissimilarity matrix. This matrix is used to determine the number of clusters/which samples have a more similar microbial profile (belong to the same cluster)
+
+```{r}
+meta_np <- meta_to_df(ps_RA_NP)
+  
+otu_np <- as(otu_table(ps_RA_NP), "matrix")
+if(taxa_are_rows(ps_RA_NP)){otu_np <- t(otu_np)} 
+otu_np <- as.data.frame(otu_np)
+  
+ord_np <- vegdist(otu_np, method = "bray") 
+```
+
+We used complete linkage to create the phylogenetic tree (hierarchical clustering). The method is based on maximum distance; the similarity of any two clusters is the similarity of their most dissimilar pair.
+
+```{r}
+hc_np_c <- hclust(ord_np, method = "complete")
+otu_hm_order_c <- otu_np[hc_np_c$order,]
+```
+
+The Calinski-Harabasz and Silhouette methods were used to determine the appropriate location to cut the tree. Higher value of indices means the clusters are dense and well separated. Here, we looked for a peak or at least an abrupt elbow on the line plot of the indices.
+
+```{r calinski_harabasz_silhouette_np, ow = '90%', h = 4, w = 8}
+clust_ind_plot(ord_np, seq(2, 25, by = 1), clust_method="complete")
+```
+
+We generated a dendrogram to visualize the distribution of the samples across the 10 clusters
+
+```{r tree_np, ow = '90%', h = 4, w = 8}
+dend <- as.dendrogram(hc_np_c)
+dend <- color_branches(dend, k =14, groupLabels=T)
+plot(stats::dendrapply(dend, noLabel))
+```
+
+The function 'cuttree' is used to cut the tree at k = 7 as determined by the indices (see peak)
+
+```{r}
+groups_c <- cutree(hc_np_c, k=14)
+ps_RA_NP@sam_data$cluster <- groups_c[order(rownames(ps_RA_NP@sam_data))]
+ps_RA_NP@sam_data$cluster <- ps_RA_NP@sam_data$cluster %>% as.character()
+```
+
+The nasopharyngeal clusters are renamed based on the most abundant ASVs in the clusters.
+
+```{r}
+ps_RA_NP@sam_data$cluster[ps_RA_NP@sam_data$cluster == "1"] <- "Cor3"
+ps_RA_NP@sam_data$cluster[ps_RA_NP@sam_data$cluster == "2"] <- "Dol1"
+ps_RA_NP@sam_data$cluster[ps_RA_NP@sam_data$cluster == "3"] <- "Mor5"
+ps_RA_NP@sam_data$cluster[ps_RA_NP@sam_data$cluster == "4"] <- "Sta2"
+ps_RA_NP@sam_data$cluster[ps_RA_NP@sam_data$cluster == "5"] <- "Mor47"
+ps_RA_NP@sam_data$cluster[ps_RA_NP@sam_data$cluster == "6"] <- "Other"
+ps_RA_NP@sam_data$cluster[ps_RA_NP@sam_data$cluster == "7"] <- "Cor7"
+ps_RA_NP@sam_data$cluster[ps_RA_NP@sam_data$cluster == "8"] <- "Dol1_Cor28"
+ps_RA_NP@sam_data$cluster[ps_RA_NP@sam_data$cluster == "9"] <- "Other"
+ps_RA_NP@sam_data$cluster[ps_RA_NP@sam_data$cluster == "10"] <- "Hae44"
+ps_RA_NP@sam_data$cluster[ps_RA_NP@sam_data$cluster == "11"] <- "Str23"
+ps_RA_NP@sam_data$cluster[ps_RA_NP@sam_data$cluster == "12"] <- "Hae26"
+ps_RA_NP@sam_data$cluster[ps_RA_NP@sam_data$cluster == "13"] <- "Other"
+ps_RA_NP@sam_data$cluster[ps_RA_NP@sam_data$cluster == "14"] <- "Other"
+
+```
+
+We created a heatmap with the top most abundant ASVs to visualize the different profiles in the nasopharynx. We also include a barplot with the age of the participants and the dendrogram based of the Bray-Curtis dissimilarity indices and complete linkage.
+
+```{r}
+dendro <- create_dendro_gg(hc_np_c, size = 0.15)
+```
+
+```{r}
+otu_hm <- as(otu_table(ps_RA_NP), "matrix")
+otu_hm_order <- otu_hm[order(rowMeans(otu_hm), decreasing = T)[1:45], hc_np_c$order]
+meta_hm_order <- ps_RA_NP %>% meta_to_df()
+meta_hm_order <- meta_hm_order[hc_np_c$order,]
+meta_hm_order$cluster <- factor(meta_hm_order$cluster, levels = c("Cor3", "Cor7", "Dol1", 
+                                                                  "Dol1_Cor28", "Hae26" , 
+                                                                  "Hae44", "Mor47", "Mor5",
+                                                                  "Sta2", "Str23", "Other"))
+
+all(colnames(otu_hm_order) == hc_np_c$labels[hc_np_c$order])
+
+hm_data <- prep_hm_data(otu_hm_order)
+
+hm <- hm_data %>%
+  ggplot(aes(x = sample_id, y = OTU, fill = RA)) +
+  geom_tile() +
+  scale_fill_gradientn(name="Relative abundance", colors = carto_pal(7, "BurgYl"), na.value = "white") +
+  theme_grey(base_size=10) + 
+  theme(axis.text.x = element_blank(), 
+        axis.text.y = element_markdown(), 
+        axis.ticks.x = element_blank(), 
+        legend.position = "bottom",
+        legend.key.height=grid::unit(0.2, "cm"),
+        legend.key.width=grid::unit(0.8, "cm"),
+        plot.background=element_blank()) +
+  xlab("Sample") + ylab("ASV")
+```
+
+```{r}
+meta_hm_order$sample_id <- factor(meta_hm_order$sample_id, levels = meta_hm_order$sample_id)
+
+hm_ann <- meta_hm_order %>%
+  ggplot(aes(x = sample_id, y = "Cluster", fill = cluster)) +
+  theme_void() + geom_tile() + 
+  scale_fill_manual(values = c(paletteer_d("pals::stepped")[c(13,15,12,10,1,3,19,20,5,7,23)])) + 
+  labs(fill = "Cluster") + 
+  theme(axis.text.y = element_text(size = 8), 
+        axis.ticks.length.y = unit(.18, "cm"),
+        legend.direction = "vertical", 
+        legend.box = "vertical",
+        legend.key.size = unit(0.8, "lines")) +
+  guides(fill = guide_legend(nrow = 4))
+
+hm_ann2 <- meta_hm_order %>%
+  ggplot(aes(x = sample_id, y = "Population", fill = population)) +
+  theme_void() + geom_tile() + 
+  scale_fill_brewer(palette = "Set2") + 
+  labs(fill = "Population") + 
+  theme(axis.text.y = element_text(size = 8), 
+        axis.ticks.length.y = unit(.18, "cm"),
+        legend.direction = "vertical", 
+        legend.box = "vertical",
+        legend.key.size = unit(0.8, "lines")) 
+```
+
+```{r}
+df_pres <- ps1 %>% ps_to_df()
+df_pres[, colnames(df_pres)[483:21039]] <- lapply(df_pres[, colnames(df_pres)[483:21039]], function(x) ifelse(x > 2, 1, 0))
+
+df_pres_np <- subset(df_pres, niche == "NP")
+df_pres_op <- subset(df_pres, niche == "OP")
+df_pres_np <- df_pres_np[483:21039]
+df_pres_op <- df_pres_op[483:21039]
+
+prev <- colMeans(df_pres_np)
+prev_np <- data.frame(Taxa = colnames(df_pres_np), Prevalence = prev)
+prev_np$Taxa <- format_OTU(prev_np$Taxa)
+
+prev <- colMeans(df_pres_op)
+prev_op <- data.frame(Taxa = colnames(df_pres_op), Prevalence = prev)
+prev_op$Taxa <- format_OTU(prev_op$Taxa)
+```
+
+```{r}
+prev_np <- subset(prev_np, Taxa %in% hm_data$OTU)
+prev_np$Taxa <- factor(prev_np$Taxa, levels = levels(hm_data$OTU))
+
+p_prev_np <- ggplot(prev_np, aes(x = Prevalence, y = Taxa)) +
+  geom_bar(stat = "identity", fill = "azure4", width = 0.5) +
+  labs(x = "Prevalence") +
+  theme_minimal() + 
+  theme(axis.text.y = element_blank(), 
+        axis.title.y = element_blank(),
+        axis.ticks.y = element_blank()) +
+  scale_x_continuous(breaks = c(0, 0.5, 1),
+                     labels = scales::percent_format())
+```
+
+```{r heatmap_np, ow = '90%', h = 9, w = 10, echo=FALSE}
+layout <- "
+AAAAAA#
+AAAAAA#
+AAAAAA#
+BBBBBB#
+CCCCCC#
+DDDDDDE
+DDDDDDE
+DDDDDDE
+DDDDDDE
+DDDDDDE
+DDDDDDE
+DDDDDDE
+DDDDDDE
+DDDDDDE
+DDDDDDE
+DDDDDDE
+"
+dendro$plot + hm_ann2 + hm_ann + hm + p_prev_np + plot_layout(design = layout, guides = "collect") & theme(legend.position = 'bottom')
+```
+
+To visualize the portion of participant within each of the clusters, we created mosaic plots for both the nasopharynx and oral niches.
+
+```{r}
+m_pn <- meta_hm_order %>% subset(Miseq.Run %in% c("54", "56", "57", "58")) #%>% subset(population != "GF")
+m_CP <- meta_hm_order %>% subset(population != "GP") %>% mutate(
+  GoatFarmExposureCategory = ifelse(population == "GF", "Goat farmer", GoatFarmExposureCategory))
+m_GP <- meta_hm_order %>% subset(population != "CP") %>% mutate(
+  GoatFarmExposureCategory = ifelse(population == "GF", "Goat farmer", GoatFarmExposureCategory),
+  GoatFarmExposureCategory = ifelse(GoatFarmExposureCategory == "1000-2000m", "<2000m", GoatFarmExposureCategory),
+  GoatFarmExposureCategory = ifelse(GoatFarmExposureCategory == "<1000m", "<2000m", GoatFarmExposureCategory))
+
+m_GP$group <- "Exposure (GP/GF)"
+m_CP$group <- "Exposure (CP/GF)"
+m_pn$group <- ".Population"
+
+m_CP$x_lab <- m_CP$GoatFarmExposureCategory
+m_GP <- subset(m_GP, !is.na(GoatFarmExposureCategory))
+m_GP$x_lab <- m_GP$GoatFarmExposureCategory
+m_pn$x_lab <- m_pn$population
+m_CP$x_lab <- factor(m_CP$x_lab, levels = c(">2000m", "1000-2000m", "<1000m", "Goat farmer"))
+m_GP$x_lab <- factor(m_GP$x_lab, levels = c(">2000m", "<2000m", "Goat farmer"))
+
+m_com <- rbind(m_pn, m_CP, m_GP)
+m_com$x_lab <- factor(m_com$x_lab, levels = c("GP", "CP", ">2000m", "1000-2000m", "<1000m", "<2000m", "Goat farmer"))
+
+mos_np_pn <- ggplot(data = m_pn) +
+  geom_mosaic(aes(x= product(x_lab),fill=cluster), offset = 0.005, alpha = 1) +
+  xlab("Age category") + 
+  scale_fill_manual(values = c(paletteer_d("pals::stepped")[c(13,15,12,10,1,3,19,20,5,7,23)])) +
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.title.y = element_blank(),
+        axis.title.x = element_blank(),
+        axis.text.x = element_text(angle = 45, hjust=1),
+        legend.direction = "vertical", 
+        legend.box = "vertical",
+        legend.key.size = unit(0.8, "lines"),
+        legend.position = "none") +
+  guides(fill = guide_legend(ncol = 1)) + 
+  labs(fill = "Cluster") + facet_grid(~group)
+
+mos_np_CP <- ggplot(data = m_CP) +
+  geom_mosaic(aes(x= product(x_lab),fill=cluster), offset = 0.005, alpha = 1) +
+  xlab("Age category") + 
+  scale_fill_manual(values = c(paletteer_d("pals::stepped")[c(13,15,12,10,1,3,19,20,5,7,23)])) +
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.title.y = element_blank(),
+        axis.title.x = element_blank(),
+        axis.text.x = element_text(angle = 45, hjust=1),
+        legend.direction = "vertical", 
+        legend.box = "vertical",
+        legend.position = "none",
+        legend.key.size = unit(0.8, "lines")) +
+  guides(fill = guide_legend(ncol = 1)) + 
+  labs(fill = "Cluster") + facet_grid(~group)
+
+mos_np_GP <- ggplot(data = m_GP) +
+  geom_mosaic(aes(x= product(x_lab),fill=cluster), offset = 0.005, alpha = 1) +
+  xlab("Age category") + 
+  scale_fill_manual(values = c(paletteer_d("pals::stepped")[c(13,15,12,10,1,3,19,20,5,7,23)])) +
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.title.y = element_blank(),
+        axis.title.x = element_blank(),
+        axis.text.x = element_text(angle = 45, hjust=1),
+        legend.direction = "vertical", 
+        legend.box = "vertical",
+        legend.key.size = unit(0.8, "lines"),
+        legend.position = "right") +
+  guides(fill = guide_legend(ncol = 1)) + 
+  labs(fill = "Cluster") + facet_grid(~group)
+```
+
+We create a dataframe with all the NP clusters that will be matched to the metadata and included in the complete phyloseq object
+
+```{r}
+clusters_np_no <- meta_to_df(ps_RA_NP)
+clusters_np_no <- data_frame(sample_id = clusters_np_no$sample_id,
+                             clusters_np_no = clusters_np_no$cluster)
+```
+
+## Fisher exact test
+To determine if cluster membership (in cluster yes/no) is associated with pneumonia and goat Exposure, we conduct Fisher exact tests (because of the small sample size)
+
+```{r}
+m_com_np <- subset(m_com, niche == "NP") %>% left_join(clusters_np_no) %>%
+  mutate(Cor3 = ifelse(clusters_np_no == "Cor3", 1, 0),
+         Cor7 = ifelse(clusters_np_no == "Cor7", 1, 0),
+         Dol1 = ifelse(clusters_np_no == "Dol1", 1, 0),
+         Dol1_Cor28 = ifelse(clusters_np_no == "Dol1_Cor28", 1, 0),
+         Hae26 = ifelse(clusters_np_no == "Hae26", 1, 0),
+         Hae44 = ifelse(clusters_np_no == "Hae44", 1, 0),
+         Mor47 = ifelse(clusters_np_no == "Mor47", 1, 0),
+         Mor5 = ifelse(clusters_np_no == "Mor5", 1, 0),
+         Sta2 = ifelse(clusters_np_no == "Sta2", 1, 0),
+         Str23 = ifelse(clusters_np_no == "Str23", 1, 0))
+```
+
+Next, we create a function where we conduct logistic regression and use the map function to map the list of nasopharyngeal clusters to our function (thus running the function for each of the clusters and creating a final dataframe)
+
+```{r}
+perform_fisher_test <- function(level1, level2) {
+  p.values <- numeric(length(other_variable))
+  odds_ratios <- numeric(length(other_variable))
+  var1_abs <- numeric(length(other_variable))
+  var2_abs <- numeric(length(other_variable))
+  var1_pres <- numeric(length(other_variable))
+  var2_pres <- numeric(length(other_variable))
+  
+  for (i in seq_along(other_variable)) {
+    x <- data_subset[[other_variable[i]]]
+    
+    if (length(x) != length(data_subset[[variable_of_interest]])) {
+      stop("Length of variable columns do not match.")
+    }
+    
+    contingency_table <- table(data_subset[[variable_of_interest]], x)
+    if (!all(c(level1, level2) %in% rownames(contingency_table))) {
+      stop("Specified levels are not present in the variable of interest.")
+    }
+    
+    fisher_result <- fisher.test(contingency_table[c(level1, level2),])
+    var1_abs[i] <- contingency_table[c(level1, level2),][1,1]
+    var2_abs[i] <- contingency_table[c(level1, level2),][2,1]
+    var1_pres[i] <- contingency_table[c(level1, level2),][1,2]
+    var2_pres[i] <- contingency_table[c(level1, level2),][2,2]
+    p.values[i] <- fisher_result$p.value
+    odds_ratios[i] <- fisher_result$estimate
+  }
+  
+  result_df <- data.frame(
+    cluster = other_variable,
+    Var1_abs = var1_abs,
+    Var2_abs = var2_abs,
+    Var1_pres = var1_pres,
+    Var2_pres = var2_pres,
+    p.value = p.values,
+    odds.ratio = odds_ratios
+  )
+  
+  return(result_df)
+}
+```
+
+```{r}
+data_subset <- subset(m_com_np, group == ".Population")
+data_subset$population <- factor(data_subset$population, levels = c("GF", "GP", "CP"))
+variable_of_interest <- "population"
+other_variable <- c("Cor3", "Cor7", "Dol1", "Hae26", "Hae44", "Mor5", "Sta2", "Str23", "Mor47", "Dol1_Cor28")
+levels <- levels(data_subset$population)
+level_pairs <- combn(levels, 2, simplify = TRUE) %>% t() %>% as.data.frame()
+colnames(level_pairs) <- c("Var2", "Var1")
+
+fisher_posthoc_pneumonia <- level_pairs %>%
+  mutate(fit = map2(Var2, Var1, ~ perform_fisher_test(.x, .y))) %>%
+  unnest(cols = fit)
+fisher_posthoc_pneumonia$group <- ".Population"
+
+data_subset <- subset(m_com_np, group == "Exposure (CP/GF)")
+variable_of_interest <- "GoatFarmExposureCategory"
+levels <- unique(data_subset$GoatFarmExposureCategory)
+level_pairs <- combn(levels, 2, simplify = TRUE)
+level_pairs <- level_pairs[,1:3] %>% t() %>% as.data.frame()
+colnames(level_pairs) <- c("Var2", "Var1")
+
+fisher_posthoc_CPGF <- level_pairs %>%
+  mutate(fit = map2(Var1, Var2, ~ perform_fisher_test(.x, .y))) %>%
+  unnest(cols = fit)
+fisher_posthoc_CPGF$group <- "Exposure (CP/GF)"
+
+data_subset <- subset(m_com_np, group == "Exposure (GP/GF)")
+variable_of_interest <- "GoatFarmExposureCategory"
+other_variable <- c("Cor3", "Cor7", "Dol1", "Hae26", "Hae44", "Mor5", "Sta2", "Str23", "Dol1_Cor28")
+levels <- unique(data_subset$GoatFarmExposureCategory)
+level_pairs <- combn(levels, 2, simplify = TRUE)
+level_pairs <- level_pairs[,1:2] %>% t() %>% as.data.frame()
+colnames(level_pairs) <- c("Var2", "Var1")
+
+fisher_posthoc_GP <- level_pairs %>%
+  mutate(fit = map2(Var1, Var2, ~ perform_fisher_test(.x, .y))) %>%
+  unnest(cols = fit)
+fisher_posthoc_GP$group <- "Exposure (GP/GF)"
+```
+
+```{r}
+Fish_np <- rbind(fisher_posthoc_pneumonia, fisher_posthoc_CPGF, fisher_posthoc_GP)
+Fish_np <- Fish_np %>% mutate(q.value = p.adjust(p.value, method = "BH"),
+                              label_q.value = ifelse(q.value < 0.25, "*", NA),
+                              label_q.value = ifelse(q.value < 0.1, "**", label_q.value),
+                              label_q.value = ifelse(q.value < 0.05, "***", label_q.value))
+Fish_np$contrast <- ifelse(Fish_np$group == ".Population", paste(Fish_np$Var2, "vs", Fish_np$Var1),
+                           paste(Fish_np$Var1, "vs", Fish_np$Var2))
+Fish_np$contrast <- factor(Fish_np$contrast, levels = c("GP vs CP", "GF vs CP", "GF vs GP", "1000-2000m vs >2000m", "<1000m vs >2000m", "<2000m vs >2000m", "Goat farmer vs >2000m"))
+
+Fish_np$odds.ratio <- ifelse(Fish_np$odds.ratio == Inf, 7.5, Fish_np$odds.ratio)
+Fish_np$odds.ratio <- ifelse(Fish_np$odds.ratio == 0, 0.03, Fish_np$odds.ratio)
+Fish_np$odds.ratio <- ifelse(Fish_np$Var1_abs < 4 & Fish_np$Var2_abs < 4, NA, Fish_np$odds.ratio)
+Fish_np$odds.ratio <- ifelse(Fish_np$Var1_pres < 4 & Fish_np$Var2_pres < 4, NA, Fish_np$odds.ratio)
+Fish_np <- subset(Fish_np, !is.na(odds.ratio))
+Fish_np$log_odds <- abs(log(Fish_np$odds.ratio))
+Fish_np$Var1_per <- Fish_np$Var1_pres/(Fish_np$Var1_abs+Fish_np$Var1_pres)
+Fish_np$Var2_per <- Fish_np$Var2_pres/(Fish_np$Var2_abs+Fish_np$Var2_pres)
+Fish_np$log_odds <- ifelse(Fish_np$Var1_per > Fish_np$Var2_per, 1*Fish_np$log_odds, -1*Fish_np$log_odds)
+```
+
+We visualise these findings into heatmaps.
+
+```{r}
+hm_np <- Fish_np %>%
+  ggplot(aes(x = contrast, y = cluster, fill = log_odds)) +
+  geom_tile(colour = "white") + 
+  scale_fill_gradient2(low = carto_pal(7, "Earth")[7],
+                       mid = carto_pal(7, "Earth")[4],
+                       high = carto_pal(7, "Earth")[1],
+                       midpoint = 0,
+                       na.value = carto_pal(7, "Earth")[4]) + 
+    theme(axis.text.x = element_text(angle = 45, hjust=1),
+          legend.position = "right",
+          legend.key.height=grid::unit(0.7, "cm"),
+          legend.key.width=grid::unit(0.2, "cm"),
+          plot.background=element_blank(), 
+          axis.title.y = element_blank(),
+          axis.title.x = element_blank())  +
+    geom_text(aes(label=label_q.value), color = "white", size = 4, vjust=0.8) + labs(fill = "Log Odds") + 
+  facet_grid(.~group, scales = "free_x", space = "free_x")
+```
+
+```{r mosaic_plots_NP, ow = '90%', h = 4, w = 9, echo=FALSE}
+layout <- "
+AABBBBCCCDDDDDDD
+"
+mos_np_pn + mos_np_CP + mos_np_GP + hm_np + plot_layout(design = layout) 
+```
+
+# Oral clusters
+First, we remove the low abundant ASVs, calculate the relative abundance of each ASV per sample and subset the nasopharyngeal samples,
+
+```{r}
+ps_RA_OP <- ps1 %>% pres_abund_filter() %>% to_RA() %>%
+  prune_samples(sample_data(ps1)$niche == "OP", .) 
+```
+
+Next, using the OTU table and meta data, we created a Bray Curtis dissimilarity matrix. This matrix is used to determine the number of clusters/which samples have a more similar microbial profile (belong to the same cluster)
+
+```{r}
+meta_op <- meta_to_df(ps_RA_OP)
+  
+otu_op <- as(otu_table(ps_RA_OP), "matrix")
+if(taxa_are_rows(ps_RA_OP)){otu_op <- t(otu_op)} 
+otu_op <- as.data.frame(otu_op)
+  
+ord_op <- vegdist(otu_op, method = "bray") 
+```
+
+We used complete linkage to create the phylogenetic tree (hierarchical clustering). The method is based on maximum distance; the similarity of any two clusters is the similarity of their most dissimilar pair.
+
+```{r}
+hc_op_c <- hclust(ord_op, method = "complete")
+otu_hm_order_c <- otu_op[hc_op_c$order,]
+```
+
+The Calinski-Harabasz and Silhouette methods were used to determine the appropriate location to cut the tree. Higher value of indices means the clusters are dense and well separated. Here, we looked for a peak or at least an abrupt elbow on the line plot of the indices.
+
+```{r calinski_harabasz_silhouette_op, ow = '90%', h = 4, w = 8}
+clust_ind_plot(ord_op, seq(2, 25, by = 1), clust_method="complete")
+```
+
+We generated a dendrogram to visualize the distribution of the samples across the 10 clusters
+
+```{r tree_op, ow = '90%', h = 4, w = 8}
+dend <- as.dendrogram(hc_op_c)
+dend <- color_branches(dend, k =12, groupLabels=T)
+plot(stats::dendrapply(dend, noLabel))
+```
+
+The function 'cuttree' is used to cut the tree at k = 7 as determined by the indices (see peak)
+
+```{r}
+groups_c <- cutree(hc_op_c, k=12)
+ps_RA_OP@sam_data$cluster <- groups_c[order(rownames(ps_RA_OP@sam_data))]
+ps_RA_OP@sam_data$cluster <- ps_RA_OP@sam_data$cluster %>% as.character()
+```
+
+The oropharyngeal clusters are renamed based on the most abundant ASVs in the clusters.
+
+```{r}
+ps_RA_OP@sam_data$cluster[ps_RA_OP@sam_data$cluster == "1"] <- "Str4_Vei6_Pre"
+ps_RA_OP@sam_data$cluster[ps_RA_OP@sam_data$cluster == "2"] <- "Str4_Vei6"
+ps_RA_OP@sam_data$cluster[ps_RA_OP@sam_data$cluster == "3"] <- "Hae14_Nei13"
+ps_RA_OP@sam_data$cluster[ps_RA_OP@sam_data$cluster == "4"] <- "Str8_Str4_Gem27"
+ps_RA_OP@sam_data$cluster[ps_RA_OP@sam_data$cluster == "5"] <- "Pre_Act15_Lep17"
+ps_RA_OP@sam_data$cluster[ps_RA_OP@sam_data$cluster == "6"] <- "Nei13"
+ps_RA_OP@sam_data$cluster[ps_RA_OP@sam_data$cluster == "7"] <- "Str4"
+ps_RA_OP@sam_data$cluster[ps_RA_OP@sam_data$cluster == "8"] <- "Str8_Gem27"
+ps_RA_OP@sam_data$cluster[ps_RA_OP@sam_data$cluster == "9"] <- "Fus18_Mix"
+ps_RA_OP@sam_data$cluster[ps_RA_OP@sam_data$cluster == "10"] <- "Fus72_Por76"
+ps_RA_OP@sam_data$cluster[ps_RA_OP@sam_data$cluster == "11"] <- "Other"
+ps_RA_OP@sam_data$cluster[ps_RA_OP@sam_data$cluster == "12"] <- "Other"
+```
+
+We created a heatmap with the top most abundant ASVs to visualize the different profiles in the nasopharynx. We also include a barplot with the age of the participants and the dendrogram based of the Bray-Curtis dissimilarity indices and complete linkage.
+
+```{r}
+dendro <- create_dendro_gg(hc_op_c, size = 0.15)
+```
+
+```{r}
+otu_hm <- as(otu_table(ps_RA_OP), "matrix")
+otu_hm_order <- otu_hm[order(rowMeans(otu_hm), decreasing = T)[1:45], hc_op_c$order]
+meta_hm_order <- ps_RA_OP %>% meta_to_df()
+meta_hm_order <- meta_hm_order[hc_op_c$order,]
+meta_hm_order$cluster <- factor(meta_hm_order$cluster, 
+                                levels = c("Fus18_Mix", "Fus72_Por76", "Hae14_Nei13", 
+                                           "Nei13", "Pre_Act15_Lep17",  "Str4", "Str4_Vei6", 
+                                           "Str4_Vei6_Pre", "Str8_Gem27", "Str8_Str4_Gem27", "Other"))
+
+all(colnames(otu_hm_order) == hc_op_c$labels[hc_op_c$order])
+
+hm_data <- prep_hm_data(otu_hm_order)
+
+hm <- hm_data %>%
+  ggplot(aes(x = sample_id, y = OTU, fill = RA)) +
+  geom_tile() +
+  scale_fill_gradientn(name="Relative abundance", colors = carto_pal(7, "BurgYl"), na.value = "white") +
+  theme_grey(base_size=10) + 
+  theme(axis.text.x = element_blank(), 
+        axis.text.y = element_markdown(), 
+        axis.ticks.x = element_blank(), 
+        legend.position = "bottom",
+        legend.key.height=grid::unit(0.2, "cm"),
+        legend.key.width=grid::unit(0.8, "cm"),
+        plot.background=element_blank()) +
+  xlab("Sample") + ylab("ASV")
+```
+
+```{r}
+meta_hm_order$sample_id <- factor(meta_hm_order$sample_id, levels = meta_hm_order$sample_id)
+
+hm_ann <- meta_hm_order %>%
+  ggplot(aes(x = sample_id, y = "Cluster", fill = cluster)) +
+  theme_void() + geom_tile() + 
+  scale_fill_manual(values = c(paletteer_d("pals::stepped")[c(13,15,7,9,11,1,3,4,18,19,23)])) + 
+  labs(fill = "Cluster") + 
+  theme(axis.text.y = element_text(size = 8), 
+        axis.ticks.length.y = unit(.18, "cm"),
+        legend.direction = "vertical", 
+        legend.box = "vertical",
+        legend.key.size = unit(0.8, "lines")) +
+  guides(fill = guide_legend(nrow = 4))
+
+hm_ann2 <- meta_hm_order %>%
+  ggplot(aes(x = sample_id, y = "Population", fill = population)) +
+  theme_void() + geom_tile() + 
+  scale_fill_brewer(palette = "Set2") + 
+  labs(fill = "Population") + 
+  theme(axis.text.y = element_text(size = 8), 
+        axis.ticks.length.y = unit(.18, "cm"),
+        legend.direction = "vertical", 
+        legend.box = "vertical",
+        legend.key.size = unit(0.8, "lines")) 
+```
+
+```{r}
+prev_op <- subset(prev_op, Taxa %in% hm_data$OTU)
+prev_op$Taxa <- factor(prev_op$Taxa, levels = levels(hm_data$OTU))
+
+p_prev_op <- ggplot(prev_op, aes(x = Prevalence, y = Taxa)) +
+  geom_bar(stat = "identity", fill = "azure4", width = 0.5) +
+  labs(x = "Prevalence") +
+  theme_minimal() + 
+  theme(axis.text.y = element_blank(), 
+        axis.title.y = element_blank(),
+        axis.ticks.y = element_blank()) +
+  scale_x_continuous(breaks = c(0, 0.5, 1),
+                     labels = scales::percent_format())
+```
+
+```{r heatmap_op, ow = '90%', h = 9, w = 10, echo=FALSE}
+layout <- "
+AAAAAA#
+AAAAAA#
+AAAAAA#
+BBBBBB#
+CCCCCC#
+DDDDDDE
+DDDDDDE
+DDDDDDE
+DDDDDDE
+DDDDDDE
+DDDDDDE
+DDDDDDE
+DDDDDDE
+DDDDDDE
+DDDDDDE
+DDDDDDE
+"
+dendro$plot + hm_ann2 + hm_ann + hm + p_prev_op + plot_layout(design = layout, guides = "collect") & theme(legend.position = 'bottom')
+```
+
+To visualize the portion of participant within each of the clusters, we created mosaic plots for both the nasopharynx and oral niches.
+
+```{r}
+m_pn <- meta_hm_order %>% subset(Miseq.Run %in% c("54", "56", "57", "58")) #%>% subset(population != "GF")
+m_CP <- meta_hm_order %>% subset(population != "GP") %>% mutate(
+  GoatFarmExposureCategory = ifelse(population == "GF", "Goat farmer", GoatFarmExposureCategory))
+m_GP <- meta_hm_order %>% subset(population != "CP") %>% mutate(
+  GoatFarmExposureCategory = ifelse(population == "GF", "Goat farmer", GoatFarmExposureCategory),
+  GoatFarmExposureCategory = ifelse(GoatFarmExposureCategory == "1000-2000m", "<2000m", GoatFarmExposureCategory),
+  GoatFarmExposureCategory = ifelse(GoatFarmExposureCategory == "<1000m", "<2000m", GoatFarmExposureCategory))
+
+m_GP$group <- "Exposure (GP/GF)"
+m_CP$group <- "Exposure (CP/GF)"
+m_pn$group <- ".Population"
+
+m_CP$x_lab <- m_CP$GoatFarmExposureCategory
+m_GP <- subset(m_GP, !is.na(GoatFarmExposureCategory))
+m_GP$x_lab <- m_GP$GoatFarmExposureCategory
+m_pn$x_lab <- m_pn$population
+m_CP$x_lab <- factor(m_CP$x_lab, levels = c(">2000m", "1000-2000m", "<1000m", "Goat farmer"))
+m_GP$x_lab <- factor(m_GP$x_lab, levels = c(">2000m", "<2000m", "Goat farmer"))
+
+m_com <- rbind(m_pn, m_CP, m_GP)
+m_com$x_lab <- factor(m_com$x_lab, levels = c("GP", "CP", ">2000m", "1000-2000m", "<1000m", "<2000m", "Goat farmer"))
+
+mos_op_pn <- ggplot(data = m_pn) +
+  geom_mosaic(aes(x= product(x_lab),fill=cluster), offset = 0.005, alpha = 1) +
+  xlab("Age category") + 
+  scale_fill_manual(values = c(paletteer_d("pals::stepped")[c(13,15,7,9,11,1,3,4,18,19,23)])) +
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.title.y = element_blank(),
+        axis.title.x = element_blank(),
+        axis.text.x = element_text(angle = 45, hjust=1),
+        legend.direction = "vertical", 
+        legend.box = "vertical",
+        legend.key.size = unit(0.8, "lines"),
+        legend.position = "none") +
+  guides(fill = guide_legend(ncol = 1)) + 
+  labs(fill = "Cluster") + facet_grid(~group)
+
+mos_op_CP <- ggplot(data = m_CP) +
+  geom_mosaic(aes(x= product(x_lab),fill=cluster), offset = 0.005, alpha = 1) +
+  xlab("Age category") + 
+  scale_fill_manual(values = c(paletteer_d("pals::stepped")[c(13,15,7,9,11,1,3,4,18,19,23)])) +
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.title.y = element_blank(),
+        axis.title.x = element_blank(),
+        axis.text.x = element_text(angle = 45, hjust=1),
+        legend.direction = "vertical", 
+        legend.box = "vertical",
+        legend.position = "none",
+        legend.key.size = unit(0.8, "lines")) +
+  guides(fill = guide_legend(ncol = 1)) + 
+  labs(fill = "Cluster") + facet_grid(~group)
+
+mos_op_GP <- ggplot(data = m_GP) +
+  geom_mosaic(aes(x= product(x_lab),fill=cluster), offset = 0.005, alpha = 1) +
+  xlab("Age category") + 
+  scale_fill_manual(values = c(paletteer_d("pals::stepped")[c(13,15,7,9,11,1,3,4,18,19,23)])) +
+  theme(axis.text.y = element_blank(),
+        axis.ticks.y = element_blank(),
+        axis.title.y = element_blank(),
+        axis.title.x = element_blank(),
+        axis.text.x = element_text(angle = 45, hjust=1),
+        legend.direction = "vertical", 
+        legend.box = "vertical",
+        legend.key.size = unit(0.8, "lines"),
+        legend.position = "right") +
+  guides(fill = guide_legend(ncol = 1)) + 
+  labs(fill = "Cluster") + facet_grid(~group)
+```
+
+We create a dataframe with all the NP clusters that will be matched to the metadata and included in the complete phyloseq object
+
+```{r}
+clusters_op_no <- meta_to_df(ps_RA_OP)
+clusters_op_no <- data_frame(sample_id = clusters_op_no$sample_id,
+                             clusters_op_no = clusters_op_no$cluster)
+```
+
+
+## Fisher exact test
+To determine if cluster membership (in cluster yes/no) is associated with pneumonia and goat Exposure, we conduct Fisher exact tests (because of the small sample size)
+
+```{r}
+m_com_op <- subset(m_com, niche == "OP") %>% left_join(clusters_op_no) %>%
+  mutate(Str4_Vei6_Pre = ifelse(clusters_op_no == "Str4_Vei6_Pre", 1, 0),
+         Str4_Vei6 = ifelse(clusters_op_no == "Str4_Vei6", 1, 0),
+         Hae14_Nei13 = ifelse(clusters_op_no == "Hae14_Nei13", 1, 0),
+         Str8_Str4_Gem27 = ifelse(clusters_op_no == "Str8_Str4_Gem27", 1, 0),
+         Pre_Act15_Lep17 = ifelse(clusters_op_no == "Pre_Act15_Lep17", 1, 0),
+         Nei13 = ifelse(clusters_op_no == "Nei13", 1, 0),
+         Str4 = ifelse(clusters_op_no == "Str4", 1, 0),
+         Str8_Gem27 = ifelse(clusters_op_no == "Str8_Gem27", 1, 0),
+         Fus18_Mix = ifelse(clusters_op_no == "Fus18_Mix", 1, 0),
+         Fus72_Por76 = ifelse(clusters_op_no == "Fus72_Por76", 1, 0))
+```
+
+Next, we create a function where we conduct logistic regression and use the map function to map the list of nasopharyngeal clusters to our function (thus running the function for each of the clusters and creating a final dataframe)
+
+```{r}
+data_subset <- subset(m_com_op, group == ".Population")
+data_subset$population <- factor(data_subset$population, levels = c("GF", "GP", "CP"))
+variable_of_interest <- "population"
+other_variable <- c("Fus18_Mix", "Fus72_Por76", "Hae14_Nei13", "Nei13", 
+                    "Pre_Act15_Lep17",  "Str4", "Str4_Vei6", "Str4_Vei6_Pre", 
+                    "Str8_Gem27", "Str8_Str4_Gem27")
+levels <- levels(data_subset$population)
+level_pairs <- combn(levels, 2, simplify = TRUE) %>% t() %>% as.data.frame()
+colnames(level_pairs) <- c("Var2", "Var1")
+
+fisher_posthoc_pneumonia <- level_pairs %>%
+  mutate(fit = map2(Var2, Var1, ~ perform_fisher_test(.x, .y))) %>%
+  unnest(cols = fit)
+fisher_posthoc_pneumonia$group <- ".Population"
+
+data_subset <- subset(m_com_op, group == "Exposure (CP/GF)")
+variable_of_interest <- "GoatFarmExposureCategory"
+levels <- unique(data_subset$GoatFarmExposureCategory)
+level_pairs <- combn(levels, 2, simplify = TRUE)
+level_pairs <- level_pairs[,1:3] %>% t() %>% as.data.frame()
+colnames(level_pairs) <- c("Var2", "Var1")
+
+fisher_posthoc_CPGF <- level_pairs %>%
+  mutate(fit = map2(Var1, Var2, ~ perform_fisher_test(.x, .y))) %>%
+  unnest(cols = fit)
+fisher_posthoc_CPGF$group <- "Exposure (CP/GF)"
+
+data_subset <- subset(m_com_op, group == "Exposure (GP/GF)")
+variable_of_interest <- "GoatFarmExposureCategory"
+other_variable <- c("Fus18_Mix","Fus72_Por76","Hae14_Nei13", "Pre_Act15_Lep17", "Nei13",
+                    "Str4", "Str4_Vei6", "Str4_Vei6_Pre", "Str8_Gem27", "Str8_Str4_Gem27")
+level_pairs <- data_frame(Var2 = c(">2000m", ">2000m"), Var1 = c("<2000m", "Goat farmer"))
+
+fisher_posthoc_GP <- level_pairs %>%
+  mutate(fit = map2(Var1, Var2, ~ perform_fisher_test(.x, .y))) %>%
+  unnest(cols = fit)
+fisher_posthoc_GP$group <- "Exposure (GP/GF)"
+```
+
+```{r}
+Fish_op <- rbind(fisher_posthoc_pneumonia, fisher_posthoc_CPGF, fisher_posthoc_GP)
+Fish_op <- Fish_op %>% mutate(q.value = p.adjust(p.value, method = "BH"),
+                              label_q.value = ifelse(q.value < 0.25, "*", NA),
+                              label_q.value = ifelse(q.value < 0.1, "**", label_q.value),
+                              label_q.value = ifelse(q.value < 0.05, "***", label_q.value))
+Fish_op$contrast <- ifelse(Fish_op$group == ".Population", paste(Fish_op$Var2, "vs", Fish_op$Var1),
+                           paste(Fish_op$Var1, "vs", Fish_op$Var2))
+Fish_op$contrast <- factor(Fish_op$contrast, levels = c("GP vs CP", "GF vs CP", "GF vs GP", "1000-2000m vs >2000m", "<1000m vs >2000m", "<2000m vs >2000m", "Goat farmer vs >2000m"))
+
+#Fish_op$odds.ratio <- ifelse(Fish_op$odds.ratio == Inf, 7.5, Fish_op$odds.ratio)
+#Fish_op$odds.ratio <- ifelse(Fish_op$odds.ratio == 0, 0.03, Fish_op$odds.ratio)
+Fish_op$odds.ratio <- ifelse(Fish_op$Var1_abs < 4 & Fish_op$Var2_abs < 4, NA, Fish_op$odds.ratio)
+Fish_op$odds.ratio <- ifelse(Fish_op$Var1_pres < 4 & Fish_op$Var2_pres < 4, NA, Fish_op$odds.ratio)
+Fish_op <- subset(Fish_op, !is.na(odds.ratio))
+Fish_op$log_odds <- abs(log(Fish_op$odds.ratio))
+Fish_op$Var1_per <- Fish_op$Var1_pres/(Fish_op$Var1_abs+Fish_op$Var1_pres)
+Fish_op$Var2_per <- Fish_op$Var2_pres/(Fish_op$Var2_abs+Fish_op$Var2_pres)
+Fish_op$log_odds <- ifelse(Fish_op$Var1_per > Fish_op$Var2_per, 1*Fish_op$log_odds, -1*Fish_op$log_odds)
+```
+
+We visualise these findings into heatmaps.
+
+```{r}
+hm_op <- Fish_op %>%
+  ggplot(aes(x = contrast, y = cluster, fill = log_odds)) +
+  geom_tile(colour = "white") + 
+  scale_fill_gradient2(low = carto_pal(7, "Earth")[7],
+                       mid = carto_pal(7, "Earth")[4],
+                       high = carto_pal(7, "Earth")[1],
+                       midpoint = 0,
+                       na.value = carto_pal(7, "Earth")[4]) + 
+    theme(axis.text.x = element_text(angle = 45, hjust=1),
+          legend.position = "right",
+          legend.key.height=grid::unit(0.7, "cm"),
+          legend.key.width=grid::unit(0.2, "cm"),
+          plot.background=element_blank(), 
+          axis.title.y = element_blank(),
+          axis.title.x = element_blank())  +
+    geom_text(aes(label=label_q.value), color = "white", size = 4, vjust=0.8) + labs(fill = "Log Odds") + 
+  facet_grid(.~group, scales = "free_x", space = "free_x")
+```
+
+```{r mosaic_plots_OP, ow = '90%', h = 4, w = 9.5, echo=FALSE}
+layout <- "
+AABBBBCCCDDDDDDD
+"
+mos_op_pn + mos_op_CP + mos_op_GP + hm_op + plot_layout(design = layout) 
+```
+
+## Fisher test visualisation
+
+```{r cluster_fisher_np, ow = '90%', h = 4, w = 8, echo=FALSE}
+Fish_np$cluster <- gsub("Cor3", "*Corynebacterium* (3)-dominated", Fish_np$cluster)
+Fish_np$cluster <- gsub("Dol1_Cor28", "*D. pigrum* (1) & *Corynebacterium* (28)-dominated", Fish_np$cluster)
+Fish_np$cluster <- gsub("Dol1", "*Dolosigranulum pigrum* (1)-dominated", Fish_np$cluster)
+Fish_np$cluster <- gsub("Hae26", "*Haemophilus* (26)-dominated", Fish_np$cluster)
+Fish_np$cluster <- gsub("Hae44", "*Haemophilus* (44)-dominated", Fish_np$cluster)
+Fish_np$cluster <- gsub("Mor5", "*Moraxella* (5)-dominated", Fish_np$cluster)
+Fish_np$cluster <- gsub("Sta2", "*Staphylococcus* (2)-dominated", Fish_np$cluster)
+Fish_np$cluster <- gsub("Cor7", "*Corynebacterium* (7)-dominated", Fish_np$cluster)
+Fish_np$cluster <- gsub("Str23", "*Steptococcus* (23)-dominated", Fish_np$cluster)
+Fish_np$cluster <- gsub("Mor47", "*Moraxella* (47)-dominated", Fish_np$cluster)
+
+p_np <- Fish_np %>%
+  ggplot(aes(x = contrast, y = cluster, fill = log_odds)) +
+  geom_tile(colour = "white") + 
+  scale_fill_gradient2(low = carto_pal(7, "Earth")[7],
+                       mid = carto_pal(7, "Earth")[4],
+                       high = carto_pal(7, "Earth")[1],
+                       midpoint = 0,
+                       na.value = carto_pal(7, "Earth")[4]) + 
+    theme(axis.text.x = element_text(angle = 45, hjust=1),
+          legend.position = "right",
+          legend.key.height=grid::unit(0.7, "cm"),
+          legend.key.width=grid::unit(0.2, "cm"),
+          plot.background=element_blank(), 
+          axis.title.y = element_blank(),
+          axis.title.x = element_blank(), 
+          axis.text.y = element_markdown())  +
+    geom_text(aes(label=label_q.value), color = "white", size = 4, vjust=0.8) + labs(fill = "Log Odds") + 
+  facet_grid(.~group, scales = "free_x", space = "free_x")
+p_np
+```
+
+```{r cluster_fisher_op, ow = '90%', h = 4, w = 8, echo=FALSE}
+Fish_op$cluster <- gsub("Fus18_Mix", "*Fusobacterium periodonticum* (18)-mix", Fish_op$cluster)
+Fish_op$cluster <- gsub("Hae14_Nei13", "*Haemophilus* (14) & *Neisseria* (13)-mix", Fish_op$cluster)
+Fish_op$cluster <- gsub("Pre_Act15_Lep17", "*Prevotella* (12,16,21), *A. odontolyticus* (15) & *Leptotrichia* (17)-mix", Fish_op$cluster)
+Fish_op$cluster <- gsub("Str4_Vei6_Pre", "*Veilonella* (6) & *Prevotella* (11,12,16,21)-mix", Fish_op$cluster)
+Fish_op$cluster <- gsub("Str8_Str4_Gem27", "*Streptococcus* (8)-mix", Fish_op$cluster)
+Fish_op$cluster <- gsub("Str4_Vei6", "*Steptococcus* (4) & *Veilonella* (6)-dominated", Fish_op$cluster)
+Fish_op$cluster <- gsub("Str4", "*Steptococcus* (4)-dominated", Fish_op$cluster)
+Fish_op$cluster <- gsub("Str8_Gem27", "*Steptococcus* (8) & *Gemella* (27)-dominated", Fish_op$cluster)
+Fish_op$cluster <- gsub("Fus72_Por76", "*F. nucleatum* (72) & *P. endodontalis* (76)-dominated", Fish_op$cluster)
+Fish_op$cluster <- gsub("Nei13", "*Neisseria* (23)-dominated", Fish_op$cluster)
+
+p_op <- Fish_op %>%
+  ggplot(aes(x = contrast, y = cluster, fill = log_odds)) +
+  geom_tile(colour = "white") + 
+  scale_fill_gradient2(low = carto_pal(7, "Earth")[7],
+                       mid = carto_pal(7, "Earth")[4],
+                       high = carto_pal(7, "Earth")[1],
+                       midpoint = 0,
+                       na.value = carto_pal(7, "Earth")[4]) + 
+    theme(axis.text.x = element_text(angle = 45, hjust=1),
+          legend.position = "right",
+          legend.key.height=grid::unit(0.7, "cm"),
+          legend.key.width=grid::unit(0.2, "cm"),
+          plot.background=element_blank(), 
+          axis.title.y = element_blank(),
+          axis.title.x = element_blank(), 
+          axis.text.y = element_markdown())  +
+    geom_text(aes(label=label_q.value), color = "white", size = 4, vjust=0.8) + labs(fill = "Log Odds") + 
+  facet_grid(.~group, scales = "free_x", space = "free_x")
+p_op
+```
+
+```{r cluster_fisher, ow = '90%', h = 6, w = 8, echo=FALSE}
+layout <- "
+A
+B
+"
+(p_np + theme(axis.text.x = element_blank(),axis.ticks.x = element_blank())) + p_op + plot_layout(design = layout) 
+```
+
+# Sessioninfo
+The session info is as follows:
+
+```{r}
+sessionInfo()
+```
