@@ -7,7 +7,17 @@ output: html_document
 
 The overall goal of this script is to identify the contaminants per niche using Decontam and our own manual filtering step. After careful exploration, the list of list of contaminants per niche are stored and later used to exclude the contaminant ASVs from the raw phyloseq object.
 
+Workflow: 
+- Contaminants identified per niche using decontam (combined method)
+- Contaminants identified per Kruskall Wallis test between sequencing runs
+- Contaminants for both niches combined into one and removed from phyloseq object
+- Extra set of contaminants identified for sequencing runs 54, 56, 57 and 58 - these removed from these specific runs from the phyloseq object
+
+# Functions and packages
 ```{r setup, include=F, message=F, include=F}
+# Functions for script
+source("functions.R")
+
 # Define a function to check and install packages
 install_if_missing <- function(packages) {
   new_packages <- packages[!(packages %in% installed.packages()[, "Package"])]
@@ -23,34 +33,30 @@ required_packages2 <- c(
 install_if_missing(required_packages2)
 # Load all required packages
 lapply(required_packages2, library, character.only = TRUE)
-```
 
-# Theme for plots
 
-```{r setup, include=F, message=F, include=F}
+if (!require("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+
+BiocManager::install("decontam")
+library(decontam)
+
+# Set theme for plots
 theme_set(theme_bw())
 theme_update(axis.text.x = element_text(angle = 45, hjust=1),
              strip.text = element_text(colour = 'white'),
              strip.background =element_rect(fill="#2F4858", color = "#2F4858"))
 ```
 
-# Functions
-The functions used in this RMarkdown file are stored in "functions.R"
+# Input data
 ```{r}
-source("functions.R")
+# As input data we will need the previously created raw phyloseq object (created in "2_create_phyloseq.Rmd" script)
+ps1 <- readRDS("../Output/Phyloseq/1_ps_raw.Rds")
 ```
 
-## Input
-As input data we will need the previously created raw phyloseq object.
-
-```{r}
-ps1 <- readRDS("../Output/Phyloseq/ps_raw.Rds")
-ps_raw <- ps1
-```
-
-# Exploration
+# Exploration 
+## Library size
 The library size (number of reads per sample) of the samples are ordered. The blanks have lower reads compared to the nasopharynx samples.
-
 ```{r library_size_per_sample_type, ow = '90%', h = 2.5, w = 5}
 df <- meta_to_df(ps1)
 df <- subset(df, niche != "NP?") %>% subset(., niche != "BB") %>% 
@@ -64,36 +70,30 @@ libsize <- ggplot(data = df, aes(x=Index, y=after_DADA2_reads_nr, color=niche)) 
 
 ggsave("../Output/Microbiome_descriptives/Library_size_persample.png",libsize)
 ```
-
-The overall composition of the NP samples looks like a typical nasopharyngeal microbiota: High abundances of Moraxella, Staphylococcus, Corynebacterium and Dolosigranulum. However, we also find the typical contaminant Pseudomonas and Caulobacteraceae high on the list. Interestingly, the patients have a high relative abundance of Streptococcus and Haemophilus.
-
-
+## Composition plots - before cleaning
 ```{r composition_NP, ow = '90%', h = 5, w = 6}
 NP_composition <- create_ordered_bar(subset_samples(ps1, !is.na(population)), "NP", 15) + 
   theme(axis.text.y = element_blank(), axis.ticks.y = element_blank()) + 
   geom_bar(stat = "identity", width = 1) + 
   facet_wrap(~population, scale = "free")
 
-ggsave("../Output/Microbiome_descriptives/Composition_plot_NP.png", NP_composition)
-ggsave("../Output/Microbiome_descriptives/Composition_plot_NP.svg", NP_composition)
+ggsave("../Output/Microbiome_descriptives/Composition_plot_NP_raw.png", NP_composition)
+ggsave("../Output/Microbiome_descriptives/Composition_plot_NP_raw.svg", NP_composition)
 
-```
-The overall composition of the OP samples looks like a typical oropharyngeal microbiota: Streptococcus, Veilonella, Prevotella, Neisseria, etc.
+# The overall composition of the NP samples looks like a typical nasopharyngeal microbiota: High abundances of Moraxella, Staphylococcus, Corynebacterium and Dolosigranulum. However, we also find the typical contaminant Pseudomonas and Caulobacteraceae high on the list. Interestingly, the patients have a high relative abundance of Streptococcus and Haemophilus.
 
-```{r composition_OP, ow = '90%', h = 5, w = 6}
+
+## OP composition
 OP_composition <- create_ordered_bar(subset_samples(ps1, !is.na(population)), "OP", 15) + 
   theme(axis.text.y = element_blank(), axis.ticks.y = element_blank()) + 
   geom_bar(stat = "identity", width = 1) + 
   facet_wrap(~population, scale = "free")
 
-ggsave("../Output/Microbiome_descriptives/Composition_plot_OP.png", OP_composition)
-ggsave("../Output/Microbiome_descriptives/Composition_plot_OP.svg", OP_composition)
+ggsave("../Output/Microbiome_descriptives/Composition_plot_OP_raw.png", OP_composition)
+ggsave("../Output/Microbiome_descriptives/Composition_plot_OP_raw.svg", OP_composition)
+# The overall composition of the OP samples looks like a typical oropharyngeal microbiota: Streptococcus, Veilonella, Prevotella, Neisseria, etc.
 
-```
-
-The BD controls have high abundances of Pseudomonas, Caulobacteraceae, Bradyrhizobium, Burkholderia, etc.
-
-```{r composition_BD, ow = '90%', h = 5, w = 5.5}
+## Blank and mock sample compositions 
 BD_controls_composition <- create_ordered_bar(ps1, "BD", 10) + 
   theme(axis.text.y = element_blank(), axis.ticks.y = element_blank()) + 
   geom_bar(stat = "identity", width = 1) + 
@@ -101,31 +101,26 @@ BD_controls_composition <- create_ordered_bar(ps1, "BD", 10) +
 
 ggsave("../Output/Microbiome_descriptives/Composition_plot_BD_controls.png", BD_controls_composition)
 
-```
+# The BD controls have high abundances of Pseudomonas, Caulobacteraceae, Bradyrhizobium, Burkholderia, etc.
 
-The FB controls have high abundances of Pseudomonas Caulobacteraceae, Bradyrhizobium, etc.
-
-```{r composition_FB, ow = '90%', h = 5, w = 4}
+# FB controls
 FB_controls_composition <- create_ordered_bar(ps1, "FB", 10) + 
   theme(axis.text.y = element_blank(), axis.ticks.y = element_blank()) + 
   geom_bar(stat = "identity", width = 1) + 
   facet_wrap(~niche, scale = "free")
 
 ggsave("../Output/Microbiome_descriptives/Composition_plot_FBcontrols.png", FB_controls_composition)
-```
+# The FB controls have high abundances of Pseudomonas Caulobacteraceae, Bradyrhizobium, etc.
 
-The Zymomocks have a stable composition.
 
-```{r composition_ZMCB, ow = '90%', h = 5, w = 4}
+# Zymomocks composition
 ZMCB_controls_composition <- create_ordered_bar(ps1, "ZMCB", 10) + 
   theme(axis.text.y = element_blank(), axis.ticks.y = element_blank()) + 
   geom_bar(stat = "identity", width = 1) + 
   facet_wrap(~niche, scale = "free")
 
 ggsave("../Output/Microbiome_descriptives/Composition_plot_ZMCB_controls.png", ZMCB_controls_composition)
-```
 
-```{r composition_ZMCD, ow = '90%', h = 5, w = 4}
 ZMCD_controls_composition <- create_ordered_bar(ps1, "ZMCD", 10) + 
   theme(axis.text.y = element_blank(), axis.ticks.y = element_blank()) + 
   geom_bar(stat = "identity", width = 1) + 
@@ -133,17 +128,13 @@ ZMCD_controls_composition <- create_ordered_bar(ps1, "ZMCD", 10) +
 
 ggsave("../Output/Microbiome_descriptives/Composition_plot_ZMCD_controls.png", ZMCD_controls_composition)
 
-```
-
-The Zymomocks have a stable composition.
-
-```{r composition_UMD, ow = '90%', h = 5, w = 4}
 UMD_controls_composition <- create_ordered_bar(ps1, "UMD", 10) + 
   theme(axis.text.y = element_blank(), axis.ticks.y = element_blank()) + 
   geom_bar(stat = "identity", width = 1) + 
   facet_wrap(~niche, scale = "free")
 
 ggsave("../Output/Microbiome_descriptives/Composition_plot_UMD_controls.png", UMD_controls_composition)
+# The Zymomocks have a stable composition.
 
 ```
 
@@ -152,155 +143,186 @@ ggsave("../Output/Microbiome_descriptives/Composition_plot_UMD_controls.png", UM
 After checking the composition of the Zymo mocks, we remove them together with some other controls from our dataset
 
 ```{r}
-ps1 <- subset_samples(ps1, niche != "ZMCB") %>% 
+# Check the numbers of each of the mocks: 
+ps2 <- NULL
+table(sample_data(ps1)$niche)
+sum(is.na(sample_data(ps1)$niche))  # Check for NA niches - 15 NAs for qPCR
+sum(is.na(sample_data(ps1)$qPCR))   # Check for NA qPCR - 69 NAs for qPCR
+
+sum(sample_data(ps1)$qPCR == 0, na.rm = TRUE) # 24 with qPCR of 0 
+
+# Remove lab mocks
+ps2 <- subset_samples(ps1, niche != "ZMCB") %>% 
   subset_samples(., niche != "ZMCD") %>%  subset_samples(., niche != "BB") %>%
   subset_samples(., niche != "BP") %>% subset_samples(., niche != "NP?") %>%
-  subset_samples(., qPCR != 0)
-sample_data(ps1)$is_neg <- sample_data(ps1)$niche == "BD"
+  subset_samples(., qPCR != 0) # 2593 samples 
 
-ps2 <- ps1
-ps1 <- subset_samples(ps1, niche != "FB") 
-df <- meta_to_df(ps1)
+sample_data(ps2)$is_neg <- sample_data(ps2)$niche == "BD"
+
+ps2 <- subset_samples(ps2, niche != "FB") # 2492
+ps2 <- prune_taxa(taxa_sums(ps2) > 0, ps2)
+df <- meta_to_df(ps2)
+
+nsamples(ps1) # 2792
+nsamples(ps2) # 2492
+
+2593
+2494
+
+# 263 labelled as mocks 
+# 37 with qPCR = 0 or NA
+
+
+
+# Extract sample data
+metadata <- as.data.frame(sample_data(ps1))
+excluded_niches <- c("ZMCB", "ZMCD", "BB", "BP", "FB", "NP?")
+filtered <- metadata[
+  (is.na(metadata$qPCR) | metadata$qPCR == 0) & 
+  !(metadata$niche %in% excluded_niches),
+]
+View(filtered)
+
+
+```
+## Check number of samples per population group pre filtering
+```{r}
+meta_original <- ps2@sam_data
+# Subset the data for population "GF"
+GF <- meta_original[meta_original$population == "GF", ]
+GF_NP <- GF[GF$niche == "NP", ]
+unique_GF_NP <- GF_NP[!duplicated(GF_NP$VGO3_ID), ]
+count_unique_GF_NP <- nrow(unique_GF_NP)
+count_unique_GF_NP # 91
+
+GF_OP <- GF[GF$niche == "OP", ]
+unique_GF_OP <- GF_OP[!duplicated(GF_OP$VGO3_ID), ]
+count_unique_GF_OP <- nrow(unique_GF_OP)
+count_unique_GF_OP # 96
+
+# Subset the data for population "CP"
+CP <- meta_original[meta_original$population == "CP", ]
+CP_NP <- CP[CP$niche == "NP", ]
+unique_CP_NP <- CP_NP[!duplicated(CP_NP$VGO3_ID), ]
+count_unique_CP_NP <- nrow(unique_CP_NP)
+count_unique_CP_NP # 956 
+
+CP_OP <- CP[CP$niche == "OP", ]
+unique_CP_OP <- CP_OP[!duplicated(CP_OP$VGO3_ID), ]
+count_unique_CP_OP <- nrow(unique_CP_OP)
+count_unique_CP_OP # 954
+
+
+meta_original$sample_identifier
+
 ```
 
-## Identifying contaminants using Decontam
+# Decontaminating
+We use different methods to identify contaminants
+# 1: Decontam
 We use the R-package "Decontam" to identify contaminants from our dataset stratified by niche (OP and NP). We identified a total of 128 contaminant in NP and 115 in OP using the combined method in decontam
-
+## NP, OP and combined contaminants
 ```{r}
-contaminants_np <- isContaminant(subset_samples(ps1, 
+contaminants_np <- isContaminant(subset_samples(ps2, 
                                                 niche == "NP" | niche == "BD"), 
                                  method="combined", conc="qPCR", neg="is_neg")
 
 contaminants_np <- subset(contaminants_np, contaminant == TRUE)
-dim(contaminants_np)[1] # 128 identified
-```
+dim(contaminants_np)[1] # 128 identified in the NP
 
-```{r}
-contaminants_op <- isContaminant(subset_samples(ps1, 
+## OP contaminants
+contaminants_op <- isContaminant(subset_samples(ps2, 
                                                 niche == "OP" | niche == "BD"), 
                                  method="combined", conc="qPCR", neg="is_neg")
 
 contaminants_op <- subset(contaminants_op, contaminant == TRUE)
-dim(contaminants_op)[1] # 115
-```
+dim(contaminants_op)[1] # 115 in the OP
 
-23 ASVs were identified as contaminants in both the NP and OP.
-
-```{r}
+# Combined NP and OP decontam contaminants
 con_both <- rownames(contaminants_op)[rownames(contaminants_op) %in% rownames(contaminants_np)]
 con_both
+# 23 ASVs were identified as contaminants in both the NP and OP (i..e overlap)
 ```
 
+### Frequency plot of contaminants
 We create a frequency plot of the top 30 identified contaminants. For most of these contaminant ASVs there seems to be a correlation between their relative abundance and the bacterial density.
 
-```{r decontam_freq_np, ow = '90%', h = 15, w = 15}
-contam_NP_freqplot <- plot_frequency(subset_samples(ps1, niche == "NP"), 
+```{r}
+# Top 30 contaminants in the NP
+contam_NP_freqplot <- plot_frequency(subset_samples(ps2, niche == "NP"), 
                head(rownames(contaminants_np), 30), 
                conc="qPCR") + xlab("Bacterial density (pg/ul)")
-
 contam_NP_freqplot
-```
+# Table of contaminants in NP 
+contaminants_np[which(contaminants_np$contaminant),]
 
-```{r decontam_freq_op, ow = '90%', h = 15, w = 15}
-contam_OP_freqplot <- plot_frequency(subset_samples(ps1, niche == "OP"), 
+# Top 30 contaminants in the OP
+contam_OP_freqplot <- plot_frequency(subset_samples(ps2, niche == "OP"), 
                head(rownames(contaminants_op), 30), 
                conc="qPCR") + xlab("Bacterial density (pg/ul)")
 contam_OP_freqplot
-```
-
-The contaminants identified are shown in the table. These ASVs were also previously identified as the most abundant ASVs in the blanks.
-
-```{r}
+# Table of contaminants in OP
 contaminants_op[which(contaminants_op$contaminant),]
-contaminants_np[which(contaminants_np$contaminant),]
 ```
 
-## Exploration of identified contaminants
+### Exploration of decontam-identified contaminants
 Next, we convert the phyloseq to relative abundance, change the zero counts in a extremely low percentage (Lowest percentage divided by two)
-
 ```{r}
-ps_ra <- subset_samples(ps1, niche == "NP" | niche == "OP") %>% to_RA()
-```
+ps_ra <- subset_samples(ps2, niche == "NP" | niche == "OP") %>% to_RA()
 
-All the identified contaminants found in the niches were screened across MiSeq runs and showed the profiles of a typical contaminant.
-
-```{r decontam_samples_combined, ow = '90%', h = 8, w = 17}
+# Decontam combined NP and OP
 df <- prune_taxa(con_both, ps_ra) %>% ps_to_df()
 df <- pivot_longer(df, all_of(con_both), names_to = "ASV")
 df$value <- df$value + unique(sort(df$value))[2]/2
 df$ASV <- factor(df$ASV, levels=unique(df$ASV)) %>% format_OTU()
-#plot_contaminants(df)
-```
 
-```{r decontam_samples_OP, ow = '90%', h = 20, w = 20}
-con <- rownames(contaminants_op)[!rownames(contaminants_op) %in% con_both][1:40]
-df <- prune_taxa(con, ps_ra) %>% ps_to_df()
-df <- pivot_longer(df, all_of(con), names_to = "ASV")
-df$value <- df$value + unique(sort(df$value))[2]/2
-df$ASV <- factor(df$ASV, levels=unique(df$ASV)) %>% format_OTU()
-#plot_contaminants(df)
-```
-
-```{r decontam_samples_OP_NP, ow = '90%', h = 20, w = 20}
-#plot_contaminants(subset(df, niche == "NP"))
-```
-
-```{r decontam_samples_OP_OP, ow = '90%', h = 20, w = 20}
-#plot_contaminants(subset(df, niche == "OP"))
-```
-
-```{r decontam_samples_NP, ow = '90%', h = 20, w = 20}
+# Decontam NP 
 con <- rownames(contaminants_np)[!rownames(contaminants_np) %in% con_both][1:40]
 df <- prune_taxa(con, ps_ra) %>% ps_to_df()
 df <- pivot_longer(df, all_of(con), names_to = "ASV")
 df$value <- df$value + unique(sort(df$value))[2]/2
 df$ASV <- factor(df$ASV, levels=unique(df$ASV)) %>% format_OTU()
-#plot_contaminants(df)
+
+# Decontam OP
+con <- rownames(contaminants_op)[!rownames(contaminants_op) %in% con_both][1:40]
+df <- prune_taxa(con, ps_ra) %>% ps_to_df()
+df <- pivot_longer(df, all_of(con), names_to = "ASV")
+df$value <- df$value + unique(sort(df$value))[2]/2
+df$ASV <- factor(df$ASV, levels=unique(df$ASV)) %>% format_OTU()
 ```
 
-```{r decontam_samples_NP_NP, ow = '90%', h = 20, w = 20}
-#plot_contaminants(subset(df, niche == "NP"))
-```
-
-```{r decontam_samples_NP_OP, ow = '90%', h = 20, w = 20}
-#plot_contaminants(subset(df, niche == "OP"))
-```
-
-## Identify additional layer of contaminants
-Because we have observed an additional layer of contaminants, we implement a Kruskal-Wallis test to test which ASVs show discrepancies across the DNA isolation runs
-
+# 2: Kruskall-Wallis 
+Because we have observed an additional layer of contaminants, we implement a Kruskal-Wallis test to test which ASVs show discrepancies across the DNA isolation runs. These differences might indicate contamination, so the Kruskal-Wallis test is applied to each ASV to assess whether its relative abundance (RA) differs significantly across the DI.Run groups.
+Prepare NP and OP data
 ```{r}
-ps_np <- subset_samples(ps1, niche == "NP") %>% pres_abund_filter() %>% to_RA() %>% 
+ps_np <- subset_samples(ps2, niche == "NP") %>% pres_abund_filter() %>% to_RA() %>% 
   pres_abund_filter(pres = 20, abund = 0.0001)
 ps_s_n <- ps_np %>% pres_abund_filter() %>% to_RA() %>% 
   pres_abund_filter(pres = 30, abund = 0.0001)
 ps_np <- prune_taxa(!taxa_names(ps_np) %in% taxa_names(ps_s_n) , ps_np)
 
-ps_op <- subset_samples(ps1, niche == "OP") %>% pres_abund_filter() %>% to_RA() %>% 
+ps_op <- subset_samples(ps2, niche == "OP") %>% pres_abund_filter() %>% to_RA() %>% 
   pres_abund_filter(pres = 20, abund = 0.0001)
 ps_s_n <- ps_op %>% pres_abund_filter() %>% to_RA() %>% 
   pres_abund_filter(pres = 30, abund = 0.0001)
 ps_op <- prune_taxa(!taxa_names(ps_op) %in% taxa_names(ps_s_n) , ps_op)
-```
 
-```{r}
+# Adjust structure of data
 df_np <- pivot_longer(ps_to_df(ps_np), cols = taxa_names(ps_np)[!taxa_names(ps_np) %in% c("1174_901_12_1422")], names_to = "ASV", 
                    values_to = "RA")
 
 df_op <- pivot_longer(ps_to_df(ps_op), cols = taxa_names(ps_op), names_to = "ASV", 
                    values_to = "RA")
-```
 
-```{r}
+### NP Kruskall-Wallis
 s_np <- data_frame(ASV = taxa_names(ps_np)[!taxa_names(ps_np) %in% c("1174_901_12_1422")],fit = NA) %>% 
   mutate(map(ASV, ~ kruskal.test(RA ~ DI.Run, data = subset(df_np, ASV == .x)) %>%
                broom::tidy())) %>% unnest()
 
 s_np$Contaminant <- ifelse(s_np$p.value < 0.001, TRUE, FALSE)
 contaminants_op[!rownames(contaminants_op) %in% s_np[s_np$Contaminant,]$ASV,]
-```
 
-```{r}
+### OP Kruskall-Wallis
 s_op <- data_frame(ASV = taxa_names(ps_op),fit = NA) %>% 
   mutate(map(ASV, ~ kruskal.test(RA ~ DI.Run, data = subset(df_op, ASV == .x)) %>%
                broom::tidy())) %>% unnest()
@@ -308,180 +330,149 @@ s_op <- data_frame(ASV = taxa_names(ps_op),fit = NA) %>%
 s_op$Contaminant <- ifelse(s_op$p.value < 0.001, TRUE, FALSE)
 contaminants_np[!rownames(contaminants_np) %in% s_op[s_op$Contaminant,]$ASV,]
 ```
+# 3: Extra contaminants detected
+```{r}
+# Mari-Lee identified an extra layer of 4 contaminants in the dataset
+extra_contams <- c("Phyllobacterium_59", "Nocardioides_147", "Pseudomonas_210", "Hydrogenophaga_palleronii_189")
 
+plot_list <- list()
+
+# Check abundance of these ASVs across different Miseq runs for the differnet population/niche combinations
+df <- ps2 %>% pres_abund_filter() %>% to_RA() %>% ps_to_df() 
+df$niche_pop <- paste(df$niche, df$population)
+
+for (var in extra_contams) {
+  p <- ggplot(df, aes_string(x = "DI.Run", y = var, colour = "niche_pop")) +
+    geom_boxplot() + labs(title = var) + theme_minimal()
+  plot_list[[var]] <- p 
+}
+
+combined_plot <- wrap_plots(plot_list, ncol = 2)
+print(combined_plot)
+
+# ASVs appear differently abundant across the different sequencing runs, therefore likely to be contaminants
+```
+
+# Combining all contaminants from different methods
 ```{r}
 ls_con <- list(NP_decontam = rownames(contaminants_np),
                OP_decontam = rownames(contaminants_op),
                NP_additional = s_np[s_np$Contaminant,]$ASV,
-               OP_additional = s_op[s_op$Contaminant,]$ASV)
+               OP_additional = s_op[s_op$Contaminant,]$ASV,
+               NP_OP_additional = extra_contams)
 
-all_names <- unique(c(ls_con$NP_decontam, ls_con$OP_decontam, 
-                      ls_con$NP_additional, ls_con$OP_additional))
-result_df <- data.frame(name = all_names)
-result_df$NP_decontam <- result_df$name %in% ls_con$NP_decontam
-result_df$OP_decontam <- result_df$name %in% ls_con$OP_decontam
-result_df$NP_additional <- result_df$name %in% ls_con$NP_additional
-result_df$OP_additional <- result_df$name %in% ls_con$OP_additional
-```
-
-```{r}
-con <- c(rownames(contaminants_np), rownames(contaminants_op)) %>% unique()
-con <- con[!con %in% c("Anaerococcus_129", "Anaerococcus_provencensis_172", "Dolosigranulum_pigrum_1",
-          "Enterobacteriaceae_123", "Neisseriaceae_144", "Staphylococcus_2")]  
-```
-
-```{r additional_samples_NP, ow = '90%', h = 12, w = 20}
-s_np <- s_np[!s_np$ASV %in% con,]
-s_np <- s_np[s_np$Contaminant == TRUE,]
-
-df <- prune_taxa(s_np$ASV, ps_ra) %>% ps_to_df()
-df <- pivot_longer(df, all_of(s_np$ASV), names_to = "ASV")
-df$value <- df$value + unique(sort(df$value))[2]/2
-df$ASV <- factor(df$ASV, levels=unique(df$ASV)) %>% format_OTU()
-#plot_contaminants(df)
-```
-
-```{r additional_samples_NP_NP, ow = '90%', h = 12, w = 20}
-#plot_contaminants(subset(df, niche == "NP"))
-```
-
-```{r additional_samples_NP_OP, ow = '90%', h = 12, w = 20}
-#plot_contaminants(subset(df, niche == "OP"))
-```
-
-```{r additional_samples_OP, ow = '90%', h = 6, w = 15}
-s_op <- s_op[!s_op$ASV %in% con,]
-s_op <- s_op[s_op$Contaminant == TRUE,]
-
-df <- prune_taxa(s_op$ASV, ps_ra) %>% ps_to_df()
-df <- pivot_longer(df, all_of(s_op$ASV), names_to = "ASV")
-df$value <- df$value + unique(sort(df$value))[2]/2
-df$ASV <- factor(df$ASV, levels=unique(df$ASV)) %>% format_OTU()
-#plot_contaminants(df)
+all_con <- unique(c(ls_con$NP_decontam, ls_con$OP_decontam, 
+                      ls_con$NP_additional, ls_con$OP_additional, ls_con$NP_OP_additional))
 ```
 
 ## Check "false positives"
-After screening the contaminants, we found six ASVs that were labeled wrongly as a contaminant by Decontam or our manual screen. The figures demonstrating this further are created below.
-
+After screening the contaminants, we found six ASVs that were labeled wrongly as a contaminant by Decontam or our manual screening. The figures demonstrating this further are created below.
 ```{r}
 ncon <- c("Anaerococcus_129", "Anaerococcus_provencensis_172", "Dolosigranulum_pigrum_1",
           "Enterobacteriaceae_123", "Neisseriaceae_144", "Staphylococcus_2")
-```
 
-```{r ncon_freq_op, ow = '90%', h = 2.5, w = 16}
-plot_frequency(subset_samples(ps1, niche == "OP"), ncon, conc="qPCR") + 
+# OP frequency of non-contaminants
+plot_frequency(subset_samples(ps2, niche == "OP"), ncon, conc="qPCR") + 
   xlab("Bacterial density (pg/ul)") + facet_grid(~taxa)
-```
 
-```{r ncon_freq_np, ow = '90%', h = 2.5, w = 16}
-plot_frequency(subset_samples(ps1, niche == "NP"), ncon, conc="qPCR") + 
+# NP frequency of non-contaminants
+plot_frequency(subset_samples(ps2, niche == "NP"), ncon, conc="qPCR") + 
   xlab("Bacterial density (pg/ul)") + facet_grid(~taxa)
-```
 
-```{r ncon_across_isolation_run_op, ow = '90%', h = 2.5, w = 16}
+# Non contaminants across isolation runs 
 df <- prune_taxa(ncon, ps_ra) %>% ps_to_df()
 df <- pivot_longer(df, all_of(ncon), names_to = "ASV")
 df$value <- df$value + unique(sort(df$value))[2]/2
 df$ASV <- factor(df$ASV, levels=unique(df$ASV)) %>% format_OTU()
+# In the NP
+plot_contaminants(subset(df, niche == "NP")) + 
+      scale_colour_manual(values = c("cadetblue4")) + 
+  facet_wrap(~ASV, ncol = 8)
+# In the OP
 plot_contaminants(subset(df, niche == "OP"))  +
     scale_colour_manual(values = c("cadetblue4")) + 
   facet_wrap(~ASV, ncol = 8)
+
 ```
 
-```{r ncon_across_isolation_run_np, ow = '90%', h = 2.5, w = 16}
-plot_contaminants(subset(df, niche == "NP")) + 
-  facet_wrap(~ASV, ncol = 8)
+## Remove these non-contaminants from the contaminant list 
+```{r}
+ncon <- c("Anaerococcus_129", "Anaerococcus_provencensis_172", "Dolosigranulum_pigrum_1",
+          "Enterobacteriaceae_123", "Neisseriaceae_144", "Staphylococcus_2")
+
+# Remove contaminants in 'ncon' from the 'all_names' list
+all_con_filt <- setdiff(all_con, ncon) # these 6 have been removed 
+# This is the final list of contaminants we will want to remove from our phyloseq
 ```
 
-## Percentage contamination
-Bases on the Decontam and manual screen we create one list with all the contaminants. Using this list, we calculate the percentage of contamination found in each sample.
+# Percentage contamination
+Based on the Decontam and manual screening we create one list with all the contaminants. Using this list, we calculate the percentage of contamination found in each sample.
 
 ```{r}
-con_all <- result_df$name[!result_df$name %in% ncon] 
-ps_con <- prune_taxa(con_all, ps2)
-ps_con@sam_data$contaminants_reads <- colSums(ps_con@otu_table)
-m_con <-  meta_to_df(ps_con)
+# Subset the ps to include only ASVs that are contaminants
+ps_con_only <- prune_taxa(all_con_filt, ps2)
+
+ps_con_only@sam_data$contaminants_reads <- colSums(ps_con_only@otu_table)
+
+m_con <-  meta_to_df(ps_con_only)
 m_con$contaminants_per <- m_con$contaminants_reads/m_con$after_DADA2_reads_nr
 m_con <- m_con %>% 
   mutate(population = case_when(
     niche == "FB" ~ "LC",
     TRUE ~ population
   ))
-```
 
-```{r bacterial_density_across_MiSeq_run, ow = '90%', h = 3, w = 8}
+# bacterial_density_across_MiSeq_run plot 
 plot_sample_data(m_con, x=m_con$niche, y=m_con$qPCR) + 
   labs(x = "Sample Type", y = "qPCR (pg/µl)") + 
   scale_y_continuous(trans='log10', breaks=trans_breaks('log10', function(x) 10^x),
                      labels=trans_format('log10', math_format(10^.x))) +
     geom_hline(aes(yintercept = 0.095),  colour="grey50", linetype="dotted") + 
   facet_grid(~Miseq.Run, scale = "fixed")
-```
 
-```{r contamination_across_MiSeq_run, ow = '90%', h = 3, w = 8}
+# Contamination % across miseq run
 plot_sample_data(m_con, x=m_con$niche, y=m_con$contaminants_per) + 
   labs(x = "Sample Type", y = "Contamination (%)") +
     geom_hline(aes(yintercept = 0.9),  colour="grey50", linetype="dotted") + 
   facet_grid(~Miseq.Run, scale = "fixed")
 ```
 
-5 samples have more than 90% contamination
-
-```{r}
-t <- subset(m_con, contaminants_per > 0.9) %>% 
-  subset(niche != "BD") %>% subset(niche != "FB")
-m_con <- m_con %>% select(sample_id, contaminants_per)
-#ps1 <- prune_samples(!sample_names(ps1) %in% t$sample_id, ps1)
-```
-
-## Exclusion of blanks
+# Exclusion of blanks
 We then exclude all the blanks, which leads to a total of 248 nasopharyngeal samples in our dataset (47 blanks excluded)
-
 ```{r}
-ps_raw
-ps1 <- prune_samples(sample_data(ps1)$niche !="BD", ps1)
-ps1 <- prune_taxa(taxa_sums(ps1) > 0, ps1)
-stats <- tibble(step = character(),
-                samples = numeric(),
-                taxa = numeric(),
-                reads = numeric())
-stats <- ps_stats(ps1, stats, "Exclusion of controls")
+ps3 <- prune_samples(sample_data(ps2)$niche !="BD", ps2)
+ps3 <- prune_taxa(taxa_sums(ps3) > 0, ps3)
 ```
 
-## Remove full contaminant list
-After checking the contaminants across isolation run, we found 6 identified contaminants that showed profiles of normal non contaminant ASVs, therefore they were removed from the list.
-
+# Remove full contaminant list from phyloseq
 ```{r}
-con_all
+all_con_filt # Final list of contaminants
+
+# Subset the ps to include only ASVs not in the contaminant list
+ps4 <- prune_taxa(!taxa_names(ps3) %in% all_con_filt, ps3)
+ps4 <- prune_taxa(taxa_sums(ps4) > 0, ps4)
+ps4
+
+# phyloseq-class experiment-level object
+# otu_table()   OTU Table:         [ 23077 taxa and 2356 samples ]
+# sample_data() Sample Data:       [ 2356 samples by 706 sample variables ]
+# tax_table()   Taxonomy Table:    [ 23077 taxa by 9 taxonomic ranks ]
+# refseq()      DNAStringSet:      [ 23077 reference sequences ]
 ```
 
-Then, we subset the contaminant ASVs identified by Decontam and the manual identification step (n = 289)
-
-```{r}
-ps1
-ps1 <- prune_taxa(!taxa_names(ps1) %in% con_all, ps1)
-ps1 <- prune_taxa(taxa_sums(ps1) > 0, ps1)
-
-stats <- ps_stats(ps1, stats, "Exclusion of contaminant ASVs")
-
-```
 
 ## Exclusion low density samples
-Next, we remove all the samples with low bacterial density (lower than 0.1 pg/ul). This includes 20 samples
-
+Next, we remove all the samples with low bacterial density (lower than 0.095 pg/ul). This includes 20 samples
 ```{r}
-ps1
-ps1 <- prune_samples(!sample_data(ps1)$qPCR < 0.095, ps1)
-ps1 <- prune_taxa(taxa_sums(ps1) > 0, ps1)
+ps5 <- prune_samples(sample_data(ps4)$qPCR >= 0.095, ps4)
+ps5 <- prune_taxa(taxa_sums(ps5) > 0, ps5) # Remove taxa with taxa sum of 0
 
-stats <- ps_stats(ps1, stats, "Exclusion of samples with bacterial density <0.095 pg/uL")
 ```
 
-## Exclusion of samples with less than 10000 reads
+## Exclusion of samples with less than 10,000 reads
 First we take a look at the distribution of # reads per sample
-
-```{r distribution_reads, ow = '90%', h = 3, w = 6}
-read_counts <- sample_sums(ps1) %>% enframe() %>% ggplot(aes(y = 1, x = value)) +
+```{r}
+read_counts <- sample_sums(ps5) %>% enframe() %>% ggplot(aes(y = 1, x = value)) +
   ggdist::stat_halfeye( adjust = .5, height = .3, justification = -.3,
                         .width = 0, point_colour = NA) + 
   geom_point(size = 1.3, shape = 16, alpha = .2, 
@@ -493,12 +484,10 @@ read_counts <- sample_sums(ps1) %>% enframe() %>% ggplot(aes(y = 1, x = value)) 
   labs(x = "Number of reads/sample", y = NULL) +
   theme(axis.text.y = element_blank(), axis.ticks.y = element_blank()) +
   geom_vline(xintercept = 10000, linetype = "dashed", color = "red")
-```
+read_counts
 
-Next, we generate rarecurves.
-
-```{r rarefaction_curves, ow = '90%', h = 3, w = 6}
-otu_tab_rare <- ps1 %>% prune_samples(sample_sums(.) < 30000, .) %>% 
+# Rarefaction curves
+otu_tab_rare <- ps5 %>% prune_samples(sample_sums(.) < 30000, .) %>% 
   otu_table() %>% as(., "matrix") %>% t
 
 rare_curve_data <- rarecurve(otu_tab_rare, step = 10)
@@ -516,27 +505,67 @@ rare_curves <- map2_dfr(rare_curve_data,
     labs(x = "Sample size", y = "Number of species")
 
 ggsave("../Output/Microbiome_descriptives/rarefaction_curves.svg", rare_curves)
+
+
+# Add population colours to the lines
+sample_metadata <- data.frame(sample_id = rownames(sample_data(ps5)),
+                              population = sample_data(ps5)$population)
+
+population_colors <- c("CP" = "#e3be6b", "GF" = "#76b5a3")
+
+# Convert rarefaction data to a dataframe
+rare_curves_colour <- map2_dfr(rare_curve_data, rownames(otu_tab_rare), ~enframe(.x) %>% 
+                           mutate(sample_id = .y)) %>%
+  mutate(name = as.numeric(str_remove(name, "N"))) %>%
+  left_join(sample_metadata, by = "sample_id")  # Add population information
+
+# Plot with color mapping
+rare_curves_colour <- ggplot(rare_curves_colour, aes(x = name, y = value, group = sample_id, color = population)) +
+  geom_line(alpha = 0.15) +
+  scale_y_log10() +
+  scale_x_continuous(breaks = c(0, 5000, 10000, 15000, 20000, 25000), 
+                     labels = scales::comma) +
+  geom_vline(aes(xintercept = 10000), colour = "grey50", linetype = "dotted") +
+  scale_color_manual(values = population_colors) +  # Apply custom colors
+  labs(x = "Sample size", y = "Number of species", color = "Population") +
+  theme_minimal() +
+  theme(axis.text.y = element_text(angle = 45))  # Rotate y-axis labels by 45 degrees
+
+
+rare_curves_col <- map2_dfr(rare_curve_data, 
+                        rownames(otu_tab_rare), ~enframe(.x) %>% 
+                          mutate(sample_id = .y)) %>%
+  mutate(name = str_remove(name, "N") %>% as.numeric) %>%
+  left_join(sample_metadata, by = "sample_id") %>%  # Add population information
+  ggplot(aes(x = name, y = value, group = sample_id, color = population)) +  # Add population as color
+  geom_line(alpha = 0.15) +
+  scale_y_log10() +
+  scale_x_continuous(breaks = c(0, 5000, 10000, 15000, 20000, 25000), 
+                     labels = scales::comma) +
+  geom_vline(aes(xintercept = 10000), colour = "grey50", linetype = "dotted") +
+  scale_color_manual(values = population_colors) +  # Apply custom colors
+  labs(x = "Sample size", y = "Number of species", color = "Population") +
+  theme_minimal()+
+  theme(axis.text.x = element_text(angle = 45))  # Rotate y-axis labels by 45 degrees
+
+
+ggsave("../Output/Microbiome_descriptives/rarefaction_curves_colour.svg", rare_curves_col, width = 5, height = 4)
+
+
+readcounts_rarecurves <- grid.arrange(read_counts, rare_curves_col, ncol = 2)
+ggsave("../Output/Microbiome_descriptives/readcounts_rarecurves.svg",readcounts_rarecurves, width = 6, height =3)
+
+
+# Based on these figures, we chose a read cut-off at 10,000 reads. In the rarefaction curves, this was the point where the curves started flattening. 
+# Remove the samples with <10,000 reads
+ps6 <- prune_samples(sample_sums(ps5) > 10000, ps5)
+ps6 <- prune_samples(!is.na(ps6@sam_data$population), ps6)
+ps6 <- prune_taxa(taxa_sums(ps6) > 0, ps6)
+
 ```
-
-```{r rare_curves_read_depth, ow = '90%', h = 3, w = 8, echo=FALSE}
-readcounts_rarecurves <- grid.arrange(read_counts, rare_curves, ncol = 2)
-ggsave("../Output/Microbiome_descriptives/readcounts_rarecurves.svg",readcounts_rarecurves)
-
-```
-
-Based on these figures, we chose a read cut-off at 10,000 reads. In the rarefaction curves, this was the point where the curves started flattening. 
-
+# Summary of pre-processed samples
 ```{r}
-ps1
-ps1 <- prune_samples(sample_sums(ps1) > 10000, ps1)
-ps1 <- prune_samples(!is.na(ps1@sam_data$population), ps1)
-ps1 <- prune_taxa(taxa_sums(ps1) > 0, ps1)
-
-stats <- ps_stats(ps1, stats, "Exclusion of samples with reads < 10,000")
-```
-
-```{r sample_distribution, ow = '90%', h = 4, w = 5}
-m <- meta_to_df(ps1)
+m <- meta_to_df(ps6)
 t <- count(m, population, niche) %>% as.data.frame()
 samples_perpopulation <- ggplot(t, aes(x = population, y = n, fill = niche)) +
   geom_bar(stat = "identity") +
@@ -551,76 +580,208 @@ samples_perpopulation <- ggplot(t, aes(x = population, y = n, fill = niche)) +
         axis.title = element_text(size = 14),
         legend.title =element_text(size = 14),
         legend.text = element_text(size=14))  # Adjust the size as needed
-ggsave("../Output/Microbiome_descriptives/samples_perpopulation.svg", samples_perpopulation)
+ggsave("../Output/Microbiome_descriptives/samples_perpopulation_cleaned.svg", samples_perpopulation)
+
+sum(m$niche == "NP" & m$population != "GP") # 904 NP samples (CP and GF)
+sum(m$niche == "NP" & m$population == "CP") # 824 NP samples (CP)
+sum(m$niche == "NP" & m$population == "GF") # 80 NP samples (CP and GF)
+CP_NP <- m[m$niche == "NP" & m$population == "CP"]
+GF_NP$
+
+levels(m$population)  
+  
+sum(!duplicated(m$VGO3_ID) & m$niche == "NP" & m$population != "GP") # 770
+sum(!duplicated(m$VGO3_ID) & m$niche == "NP" & m$population == "CP") # 769
+sum(!duplicated(m$VGO3_ID) & m$niche == "NP" & m$population == "GF") # 769
+
+
+# Subset the data for population "GF"
+GF <- m[m$population == "GF", ]
+GF_NP <- GF[GF$niche == "NP", ]
+unique_GF_NP <- GF_NP[!duplicated(GF_NP$VGO3_ID), ]
+count_unique_GF_NP <- nrow(unique_GF_NP)
+count_unique_GF_NP # 80 
+
+GF_OP <- GF[GF$niche == "OP", ]
+unique_GF_OP <- GF_OP[!duplicated(GF_OP$VGO3_ID), ]
+count_unique_GF_OP <- nrow(unique_GF_OP)
+count_unique_GF_OP # 95
+
+# Subset the data for population "CP"
+CP <- m[m$population == "CP", ]
+CP_NP <- CP[CP$niche == "NP", ]
+unique_CP_NP <- CP_NP[!duplicated(CP_NP$VGO3_ID), ]
+count_unique_CP_NP <- nrow(unique_CP_NP)
+count_unique_CP_NP # 824 
+
+CP_OP <- CP[CP$niche == "OP", ]
+unique_CP_OP <- CP_OP[!duplicated(CP_OP$VGO3_ID), ]
+count_unique_CP_OP <- nrow(unique_CP_OP)
+count_unique_CP_OP # 951
+
+
+
+GF_CP <- m[m$population %in% c("CP", "GF"), ]
+GF_CP_NP <- GF_CP[GF_CP$niche == "NP", ]
+unique_GF_CP_NP <- GF_CP_NP[!duplicated(GF_CP_NP$VGO3_ID), ]
+count_unique_GF_CP_NP <- nrow(unique_GF_CP_NP)
+count_unique_GF_CP_NP # 904 
+
+
+
+
+ps6@otu_table
+# Extract the taxonomy table
+tax_table_ps6 <- tax_table(ps6)
+
+# Check the number of unique genera
+nrow(ps6@otu_table) # 20470 ASVs
+n_distinct(tax_table_ps6[!is.na(tax_table_ps6[, "Phylum"]), "Phylum"]) # 41
+n_distinct(tax_table_ps6[!is.na(tax_table_ps6[, "Class"]), "Class"]) # 101
+n_distinct(tax_table_ps6[!is.na(tax_table_ps6[, "Order"]), "Order"]) # 231
+n_distinct(tax_table_ps6[!is.na(tax_table_ps6[, "Family"]), "Family"]) # 387
+n_distinct(tax_table_ps6[!is.na(tax_table_ps6[, "Genus"]), "Genus"]) # 1062
+
+
 ```
 
-```{r composition_NP_cleaned, ow = '90%', h = 5, w = 6}
-np_stacked_barplot_cleaned <- create_ordered_bar(ps1, "NP", 15) + 
+# Composition plots - cleaned data
+```{r}
+# NP compostion
+ps6_CP_GF <- prune_samples(
+  sample_data(ps6)$population %in% c("CP", "GF"), 
+  ps6  # You need to specify the phyloseq object here
+)
+
+# Faceted by population
+np_stacked_barplot_cleaned <- create_ordered_bar(ps6_CP_GF, "NP", 15) + 
   theme(axis.text.y = element_blank(), axis.ticks.y = element_blank()) + 
   geom_bar(stat = "identity", width = 1) + 
   facet_wrap(~population, scale = "free")
 
-ggsave("../Output/Microbiome_descriptives/np_stacked_barplot_cleaned.svg", np_stacked_barplot_cleaned)
+ggsave("../Output/Microbiome_descriptives/np_stacked_barplot_cleaned_cp_gf2.svg", np_stacked_barplot_cleaned, width = 6, height = 6)
+
+# Not faceted by population
+combined_stacked_barplot <- create_ordered_bar(ps6_CP_GF, "NP", 15) + 
+  theme(axis.text.y = element_blank(), 
+        axis.ticks.y = element_blank()) + 
+  geom_bar(stat = "identity", width = 1) +
+  # Remove facet_wrap and add population coloring if desired
+  labs(title = "NP Microbiome: Combined residents and goat farmers")
+
+ggsave("../Output/Microbiome_descriptives/np_stacked_barplot_cleaned_cp_gf_combined.svg", combined_stacked_barplot, width = 5, height = 6)
+
+# Stacked bar plot of OP microbiota (cleaned data)
+op_stacked_barplot_cleaned <- create_ordered_bar(ps6_CP_GF, "OP", 15) + 
+  theme(axis.text.y = element_blank(), axis.ticks.y = element_blank()) + 
+  geom_bar(stat = "identity", width = 1) + 
+  facet_wrap(~population, scale = "free")
+
+ggsave("../Output/Microbiome_descriptives/op_stacked_barplot_cleaned_cp_gf.svg", op_stacked_barplot_cleaned, width = 6, height = 6)
+
+# Stacked bar plot of OP microbiota (cleaned data)
+op_stacked_barplot_cleaned_combined <- create_ordered_bar(ps6_CP_GF, "OP", 15) + 
+  theme(axis.text.y = element_blank(), axis.ticks.y = element_blank()) + 
+  geom_bar(stat = "identity", width = 1) + 
+  labs(title = "NP Microbiome: Combined residents and goat farmers")
+
+ggsave("../Output/Microbiome_descriptives/op_stacked_barplot_cleaned_cp_gf_combined.svg", op_stacked_barplot_cleaned_combined, width = 5, height = 6)
+
+# Genus level plots
+# Agglomerate to genus level
+ps_g <- ps6 %>% tax_glom(taxrank = "Genus") %>% to_RA()
+taxa_names(ps_g) <- ps_g@tax_table[,6]
+ps_g <- ps_g %>% pres_abund_filter(pres = 10, abund = 0.01)
+
+# OP cleaned genus level
+ps_RA <- ps_g %>% prune_samples(sample_data(ps_g)$niche == "OP", .) %>% to_RA()
+otu_RA_m <- as(otu_table(ps_RA), "matrix")
+
+bc <- vegdist(t(otu_RA_m), "bray")
+hc <- hclust(bc, method = "average")
+
+excl_cols <- c("sample_id", colnames(phyloseq::sample_data(ps_RA)))
+
+df_topn <- ps_RA %>% get_topn(n = 15, residuals = TRUE) %>%
+  ps_to_df(sample_name = "sample_id") %>%
+  tidyr::pivot_longer(-dplyr::all_of(excl_cols),
+                      names_to = "OTU", values_to = "value") %>%
+  dplyr::mutate(OTU = .data$OTU %>% forcats::fct_inorder() %>%
+                  forcats::fct_rev()) %>% dplyr::arrange(.data$sample_id) %>%
+        dplyr::mutate(sample_id = forcats::fct_inorder(.data$sample_id))
+
+df_topn %>%
+    mutate(sample_id = fct_relevel(sample_id, hc$labels[hc$order])) %>%
+    create_bar(df_topn = ., n = 15, ncol_legend = 1, name_legend = "ASV") +
+    coord_flip() +
+    theme(legend.position = "right") +
+    scale_fill_manual(values = c("#F0F0F0", paletteer_d("pals::stepped")[2:(15+1)])) +
+    labs(fill = "Genus") +
+  theme(axis.text.y = element_blank(), axis.ticks.y = element_blank()) +
+  geom_bar(stat = "identity", width = 1) +
+  facet_wrap(~population, scale = "free")
+
+
+
 ```
 
 # Bacterial density & Shannon index
 Calculate the alpha diversity indices.
 
 ```{r}
-m <- ps1 %>% meta_to_df()
+m <- ps6 %>% meta_to_df()
 m <- left_join(m, m_con)
-```
-
-```{r}
+gc()
 set.seed(77)
-ps2 <- phyloseq::rarefy_even_depth(ps1, replace = T, trimOTUs = T)
+ps_rarefied <- phyloseq::rarefy_even_depth(ps6, replace = T, trimOTUs = T)
 adiv <- data.frame(
-  "Observed" = phyloseq::estimate_richness(ps2, measures = "Observed"),
-  "Shannon" = phyloseq::estimate_richness(ps2, measures = "Shannon"))
+  "Observed" = phyloseq::estimate_richness(ps_rarefied, measures = "Observed"),
+  "Shannon" = phyloseq::estimate_richness(ps_rarefied, measures = "Shannon"),
+  "Simpson" = phyloseq::estimate_richness(ps_rarefied, measures = "Simpson")
+  )
 
 adiv$sample_id <- gsub("\\.", "-", rownames(adiv))
 m <- left_join(m, adiv)
 m$qPCR_log <- log2(m$qPCR)
-```
 
-## Exclusion of duplicates
-We check for duplicates/repeats and find 0
-
-```{r}
+# Exclusion of duplicates - We check for duplicates/repeats and find 0
 m_np <- subset(m, niche == 'NP')
 m_op <- subset(m, niche == 'OP')
-duplicates <- m_np[duplicated(m_np$sample) | duplicated(m_np$sample, fromLast = TRUE), ]
-duplicates <- m_op[duplicated(m_op$sample) | duplicated(m_op$sample, fromLast = TRUE), ]
+m_np[duplicated(m_np$sample) | duplicated(m_np$sample, fromLast = TRUE), ]
+m_op[duplicated(m_op$sample) | duplicated(m_op$sample, fromLast = TRUE), ]
+
+# Add read number metadata
+ps6@sam_data$final_read_nr <- colSums(ps6@otu_table)
 ```
 
+# Visualise alpha diversity 
 ```{r}
-ps1@sam_data$final_read_nr <- colSums(ps1@otu_table)
-```
-
-```{r Shannon_index_across_MiSeq_run, ow = '90%', h = 4, w = 8}
-plot_sample_data(m, x=m$population, y=m$Shannon) + 
+# Shannon_index_across_MiSeq_run 
+shannon_miseq <- plot_sample_data(m, x=m$population, y=m$Shannon) + 
   labs(x = "Population", y = "Shannon index") +
     geom_hline(aes(yintercept = 0.8),  colour="grey50", linetype="dotted") + 
   facet_grid(niche~Miseq.Run, scale = "fixed")
-```
 
-```{r Shannon_index_across_population, ow = '90%', h = 3, w = 4}
+ggsave("../Output/Alpha_diversity/shannon_miseq.svg", shannon_miseq)
+
+# Shannon across population
 shannon_population <- plot_sample_data(m, x=m$population, y=m$Shannon) + 
   labs(x = "Population", y = "Shannon index") +
     geom_hline(aes(yintercept = 0.8),  colour="grey50", linetype="dotted") + 
   facet_grid(.~niche, scale = "fixed")
 
-ggsave("../Output/Alpha_diversity/shannon_population.svg",shannon_population)
-```
+ggsave("../Output/Alpha_diversity/shannon_population.svg", shannon_population)
 
-```{r Observed_species_across_MiSeq_run, ow = '90%', h = 4, w = 8}
-plot_sample_data(m, x=m$population, y=m$Observed) + 
+# observed across miseq runs 
+observed_miseq <- plot_sample_data(m, x=m$population, y=m$Observed) + 
   labs(x = "Population", y = "Observed species") +
     geom_hline(aes(yintercept = 0.8),  colour="grey50", linetype="dotted") + 
   facet_grid(niche~Miseq.Run, scale = "fixed")
-```
 
-```{r Observed_species_across_population, ow = '90%', h = 3, w = 4}
+ggsave("../Output/Alpha_diversity/observed_miseq.svg", observed_miseq)
+
+ 
+# Observed across population
 observed_population <- plot_sample_data(m, x=m$population, y=m$Observed) + 
   labs(x = "Population", y = "Observed species") +
     geom_hline(aes(yintercept = 0.8),  colour="grey50", linetype="dotted") + 
@@ -628,17 +789,16 @@ observed_population <- plot_sample_data(m, x=m$population, y=m$Observed) +
 
 ggsave("../Output/Alpha_diversity/observed_population.svg", observed_population)
 
-```
+# Bacterial density across miseq runs
+bac_density_miseq <- plot_sample_data(m, x=m$population, y=m$qPCR) +
+ labs(x = "Population", y = "qPCR (pg/µl)") +
+ facet_grid(niche~Miseq.Run, scale = "fixed") +
+ scale_y_continuous(trans='log10', breaks=trans_breaks('log10', function(x) 10^x),
+                    labels=trans_format('log10', math_format(10^.x)))
 
-```{r Bacterial_density_across_MiSeq_run, ow = '90%', h = 4, w = 8}
-#plot_sample_data(m, x=m$population, y=m$qPCR) + 
-#  labs(x = "Population", y = "qPCR (pg/µl)") +
-#  facet_grid(niche~Miseq.Run, scale = "fixed") + 
-#  scale_y_continuous(trans='log10', breaks=trans_breaks('log10', function(x) 10^x),
-#                     labels=trans_format('log10', math_format(10^.x)))
-```
+ggsave("../Output/Alpha_diversity/bac_density_miseq.svg", bac_density_miseq)
 
-```{r Bacterial_density_across_population, ow = '90%', h = 3, w = 4}
+# Bacterial density across population
 bacterialdensity_population <- plot_sample_data(m, x=m$population, y=m$qPCR) + 
   labs(x = "Population", y = "qPCR (pg/µl)") +
   facet_grid(.~niche, scale = "fixed") + 
@@ -649,78 +809,42 @@ ggsave("../Output/Alpha_diversity/bacterialdensity_population.svg", bacterialden
 ```
 
 # Check removed samples
-
 ```{r}
-m_raw <- meta_to_df(ps_raw) %>% subset(niche == "NP" | niche == "OP")
+m_raw <- meta_to_df(ps1) %>% subset(niche == "NP" | niche == "OP")
 m_removed <- m_raw[!m_raw$sample_id %in% m$sample_id,]
 table(m_removed$population, m_removed$niche)
-table(m_removed$Miseq.Run)
+#       NP  OP  BD  BP  FB  ZMCB ZMCD UMD  BB
+#   CP 132   7   0   0   0    0    0   0   0
+#   GF  10   1   0   0   0    0    0   0   0
+#   GP  15   0   0   0   0    0    0   0   0
 table(m_removed$Miseq.Run)
 ```
 
-# Save phyloseq objects
-Finally, we save two phyloseq object:
+```{r}
+stats <- tibble(step = character(),
+                samples = numeric(),
+                taxa = numeric(),
+                reads = numeric())
 
+
+stats <- ps_stats(ps1, stats, "Raw data")
+stats <- ps_stats(ps2, stats, "Exclusion of lab mocks")
+stats <- ps_stats(ps3, stats, "Exclusion of field blanks")
+stats <- ps_stats(ps4, stats, "Exclusion of contaminant ASVs")
+stats <- ps_stats(ps5, stats, "Exclusion of samples with bacterial density <0.095 pg/uL")
+stats <- ps_stats(ps6, stats, "Exclusion of samples with reads < 10,000")
+stats <- ps_stats(ps_rarefied, stats, "Rarefied for alpha diversity")
+stats
+
+write.csv(stats, "../Output/Microbiome_descriptives/Processing_steps.csv")
+```
+
+# Save phyloseq objects created
 ```{r}
 rownames(m) <- m$sample_id
 m <- select(m, -c("sample_id"))
-sample_data(ps1) <- m
+sample_data(ps6) <- m
+
+saveRDS(ps6, file = "../Output/Phyloseq/2_ps_complete.Rds")
 ```
 
-```{r}
-saveRDS(ps1, file = "../Output/Phyloseq/ps_complete.Rds")
-```
-
-# Cleaned composition
-
-```{r composition_OP_cleaned, ow = '90%', h = 5, w = 6}
-op_stacked_barplot_cleaned <- create_ordered_bar(ps1, "OP", 15) + 
-  theme(axis.text.y = element_blank(), axis.ticks.y = element_blank()) + 
-  geom_bar(stat = "identity", width = 1) + 
-  facet_wrap(~population, scale = "free")
-
-ggsave("../Output/Microbiome_descriptives/Composition_plot_op_cleaned.svg", op_stacked_barplot_cleaned)
-```
-
-```{r}
-ps_g <- ps1 %>% tax_glom(taxrank = "Genus") %>% to_RA() 
-taxa_names(ps_g) <- ps_g@tax_table[,6]
-ps_g <- ps_g %>% pres_abund_filter(pres = 10, abund = 0.01)
-```
-
-```{r Genus_composition_OP_cleaned, ow = '90%', h = 5, w = 6}
-ps_RA <- ps_g %>% prune_samples(sample_data(ps_g)$niche == "OP", .) %>% to_RA()
-otu_RA_m <- as(otu_table(ps_RA), "matrix")
-  
-bc <- vegdist(t(otu_RA_m), "bray")
-hc <- hclust(bc, method = "average")
-
-excl_cols <- c("sample_id", colnames(phyloseq::sample_data(ps_RA)))
-
-
-df_topn <- ps_RA %>% get_topn(n = 15, residuals = TRUE) %>% 
-  ps_to_df(sample_name = "sample_id") %>% 
-  tidyr::pivot_longer(-dplyr::all_of(excl_cols),  
-                      names_to = "OTU", values_to = "value") %>% 
-  dplyr::mutate(OTU = .data$OTU %>% forcats::fct_inorder() %>% 
-                  forcats::fct_rev()) %>% dplyr::arrange(.data$sample_id) %>% 
-        dplyr::mutate(sample_id = forcats::fct_inorder(.data$sample_id))
-
-df_topn %>%
-    mutate(sample_id = fct_relevel(sample_id, hc$labels[hc$order])) %>%
-    create_bar(df_topn = ., n = 15, ncol_legend = 1, name_legend = "ASV") +
-    coord_flip() +
-    theme(legend.position = "right") + 
-    scale_fill_manual(values = c("#F0F0F0", paletteer_d("pals::stepped")[2:(15+1)])) +
-    labs(fill = "Genus") + 
-  theme(axis.text.y = element_blank(), axis.ticks.y = element_blank()) + 
-  geom_bar(stat = "identity", width = 1) + 
-  facet_wrap(~population, scale = "free")
-```
-
-# Sessioninfo
-The session info is as follows:
-
-```{r}
-sessionInfo()
-```
