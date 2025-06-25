@@ -21,6 +21,9 @@
 # All input files 
 Input/*
 
+# All output files
+Output/*
+
 # RStudio files
 .Rproj.user/
 
