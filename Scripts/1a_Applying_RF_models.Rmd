@@ -1,0 +1,773 @@
+---
+title: "Applying RF exposure models for microbial agents"
+author: "Beatrice Cornu Hewitt" 
+date: "`r Sys.time()`"
+---
+
+Using the models developed in Cornu Hewitt et al. 2024, we estimate each partipant's exposure to E. coli, Staphylococcus spp., tetW and mecA ARGs - we apply the best performing model for each microbial marker. Models were constructed on 2015 livestock data, so use this data for model application for our study population
+
+N.B. on RF exposure models: 
+- All of these models were constructed on winsorised and scaled predictor variables. 
+- The winsorisation is fine, but the 10th-90th percentile range scaling is an issue because the range in the residential addresses will be different to that of the input training sites 
+- Therefore in order to apply the models, I need to remove the scaling of the variables and re-run the RF models. Re-training on unscaled predictors does not affect the performance or the internal structure of the model since decision trees rely on the relative ordering of feature values for making splits.
+- Then use these models for exposure assessment
+
+# Packages
+```{r}
+library(mltools); library(ranger); library(tuneRanger); library(openxlsx); library(dplyr); library(writexl); library(MLmetrics); library(randomForestSRC); library(mlr); library(mlrMBO); library(ggplot2)
+```
+# Data
+```{r}
+# BVB data from 2015
+BVB_2015 <- read.csv("../Input/RF_models/VGO1_2494_BVB2015_copy.csv")
+BVB_2015$X <- NULL
+
+# Extract VGO3_ID from cohort metadata
+VGO3_IDs_cohort <- VGO3_metadata_all_livestock_nodups$VGO3_ID[VGO3_metadata_all_livestock_nodups$population=="CP"]
+
+# Filter BVB_2015 to keep only rows with VGO3_IDs present in VGO3_IDs_cohort
+BVB_2015_filtered <- BVB_2015 %>%
+  filter(respnr %in% VGO3_IDs_cohort)
+
+# Check the resulting filtered dataset
+str(BVB_2015_filtered) # 969 remaining
+
+# Check if any IDs are in the cohort IDs but not in the BVB data
+setdiff(VGO3_IDs_cohort, BVB_2015$respnr) # None missing
+```
+## Re-training RF models with unscaled predictor variables
+```{r}
+# Read in the E. coli, staph, tetW and mecA measurements (temporal variation adjusted, and averaged per site)
+microbial_measurements <- read.csv("../Input/RF_models/VGOB1_BioA_SiteAv.csv")
+names(microbial_measurements)
+# remove column labelled 'x' so that the first column is now the location ID
+microbial_measurements$X <- NULL
+
+# Read in the exposure variables. Each predictor in this csv file has at least 20 non-zeros
+input_variables <- read.csv("../Input/RF_models/VGOB1_ExpoV_Adj_KeptN20.csv")
+names(input_variables)
+# remove column labelled 'x' so that the first column is now the location ID
+input_variables$X <- NULL
+
+# Make all variables that are currently negative positive, and reverse the inversion of the variables that are currently inversed
+input_variables_corrected <- input_variables
+# Apply the transformations: Multiply all columns ending with .NEG by -1, and  Un-inverse all columns ending with .INV
+input_variables_corrected <- input_variables_corrected %>%
+  mutate(across(ends_with(".NEG"), ~ . * -1)) %>%
+  mutate(across(ends_with(".INV"), ~ 1 / .))
+# remove column labelled 'x' so that the first column is now the location ID
+input_variables_corrected$X <- NULL
+
+# Winsorize variables
+input_variables_corrected_wins <- input_variables_corrected
+input_variables_corrected_wins[, 2:140] <- apply(input_variables_corrected_wins[, 2:140], 2, function(x) {
+  pmin(x, quantile(x, 0.95, na.rm = TRUE))
+})
+
+# Now make variables negative and inversed again
+# Apply the transformations: Multiply all columns ending with .NEG by -1, and inverse all columns ending with .INV
+input_variables_corrected_wins <- input_variables_corrected_wins %>%
+  mutate(across(ends_with(".NEG"), ~ . * -1)) %>%
+  mutate(across(ends_with(".INV"), ~ 1 / .))
+
+# Merge microbial measurements with the predictor variables
+variables_measurements <- merge(microbial_measurements, input_variables_corrected_wins, by="Loc_ID", all=TRUE)
+str(variables_measurements, list.len=ncol(variables_measurements)) # all numeric except Loc_ID
+
+# remove column labelled 'LocID' so that the first column is now the location ID
+variables_measurements$Loc_ID <- NULL
+```
+
+## E. coli RF model (level 2)
+### Prepare data 
+```{r}
+# List of variables to keep for level 2 E. coli model
+variables_Ecoli_RF2 <- c("ecoli_copiespm3.ln.diffmeth.mean", "MindistPigs15.NEG", 
+    "MindistPoultry250.NEG", "MindistCows5.NEG", 
+    "MindistHorses5.NEG", "MindistGoats50.NEG", 
+    "MindistSheep50.NEG", "MinDistAnyFarm.NEG", 
+    "MindistPigs15.INV", "MindistPoultry250.INV", 
+    "MindistCows5.INV", "MindistHorses5.INV", 
+    "MindistGoats50.INV", "MindistSheep50.INV", 
+    "MinDistAnyFarm.INV", "npigs.500m", 
+    "npoultry.500m", "ncows.500m", 
+    "nhorses.500m", "npigs.1000m", 
+    "npoultry.1000m", "ncows.1000m", 
+    "nhorses.1000m", "nsheep.1000m", 
+    "npigs.3000m", "npoultry.3000m", 
+    "ncows.3000m", "nhorses.3000m", 
+    "ngoats.3000m", "nsheep.3000m", 
+    "AllFarm.250m", "AllFarm.500m", 
+    "AllFarm.1000m", "AllFarm.3000m", 
+    "PigFarm.500m", "PoultryFarm.500m", 
+    "CattleFarm.500m", "PigFarm.1000m", 
+    "PoultryFarm.1000m", "CattleFarm.1000m", 
+    "HorseFarm.1000m", "PigFarm.3000m", 
+    "PoultryFarm.3000m", "CattleFarm.3000m", 
+    "HorseFarm.3000m", "GoatFarm.3000m", 
+    "SheepFarm.3000m", "npigsWghtDist.1000m.sum", 
+    "npoultryWghtDist.1000m.sum", "ncowsWghtDist.1000m.sum", 
+    "nhorsesWghtDist.1000m.sum", "nsheepWghtDist.1000m.sum", 
+    "npigsWghtDist.3000m.sum", "npoultryWghtDist.3000m.sum", 
+    "ncowsWghtDist.3000m.sum", "nhorsesWghtDist.3000m.sum", 
+    "ngoatsWghtDist.3000m.sum", "nsheepWghtDist.3000m.sum", 
+    "nAnyFarmWghtDist.1000m.sum", "nPigFarmWghtDist.1000m.sum", 
+    "nPoultryFarmWghtDist.1000m.sum", "nCattleFarmWghtDist.1000m.sum", 
+    "nHorseFarmWghtDist.1000m.sum", "nAnyFarmWghtDist.3000m.sum", 
+    "nPigFarmWghtDist.3000m.sum", "nPoultryFarmWghtDist.3000m.sum", 
+    "nCattleFarmWghtDist.3000m.sum", "nHorseFarmWghtDist.3000m.sum", 
+    "nGoatFarmWghtDist.3000m.sum", "nSheepFarmWghtDist.3000m.sum"
+)
+
+# Select only those columns from the dataset
+variables_Ecoli_RF2 <- variables_measurements %>%
+  select(any_of(variables_Ecoli_RF2))
+
+# Check the resulting data
+head(variables_Ecoli_RF2) # 69 input variables, 1 output variable (E. coli) for 61 sites
+```
+### Retrain the model with unscaled predictors
+```{r}
+# Assuming `variables_Ecoli_RF2` is the dataset with the preprocessed, winsorized features.
+# Prepare cross-validation structure
+mat<-matrix(ncol=1,nrow=10)
+mtry_ecoliRF_winsor<-list(mat,mat,mat,mat,mat,mat,mat,mat,mat,mat)
+min.node.size_ecoliRF_winsor<-list(mat,mat,mat,mat,mat,mat,mat,mat,mat,mat)
+sample.fraction_ecoliRF_winsor<-list(mat,mat,mat,mat,mat,mat,mat,mat,mat,mat)
+rsq_ecoliRF_winsor <-list(mat,mat,mat,mat,mat,mat,mat,mat,mat,mat)
+rsq_inner_ecoliRF_winsor<-list(mat,mat,mat,mat,mat,mat,mat,mat,mat,mat)
+
+# Cross-validation (10 folds)
+cv_outer <- folds(x = variables_Ecoli_RF2$ecoli_copiespm3.ln.diffmeth.mean, nfolds = 10, stratified = FALSE, seed = 42)
+
+#### INNER LOOP ####
+for(i in 1:10) {
+  training_outer <- variables_Ecoli_RF2[cv_outer != i, ]
+  test_outer <- variables_Ecoli_RF2[cv_outer == i, ]
+  
+  cv_inner <- folds(x = training_outer$ecoli_copiespm3.ln.diffmeth.mean, nfolds = 10, stratified = FALSE, seed = 42)
+  
+  for(m in 1:10) {
+    training_inner <- training_outer[cv_inner != m, ]
+    validation_inner <- training_outer[cv_inner == m, ]
+    
+    # Task definition
+    tsk_ecoliRF_winsor <- makeRegrTask(data = training_inner, target = "ecoli_copiespm3.ln.diffmeth.mean")
+    path_ecoliRF_winsor <- tempfile()
+    
+    # Tune hyperparameters (without scaling)
+    res_ecoliRF_winsor <- tuneRanger(tsk_ecoliRF_winsor, measure = list(rsq), num.trees = 500, build.final.model = TRUE, save.file.path = path_ecoliRF_winsor)
+    
+    # Store tuned parameters
+    mtry_ecoliRF_winsor[[i]][m] <- res_ecoliRF_winsor$recommended.pars$mtry
+    min.node.size_ecoliRF_winsor[[i]][m] <- res_ecoliRF_winsor$recommended.pars$min.node.size
+    sample.fraction_ecoliRF_winsor[[i]][m] <- res_ecoliRF_winsor$recommended.pars$sample.fraction
+    rsq_ecoliRF_winsor[[i]][m] <- res_ecoliRF_winsor$recommended.pars$rsq
+    
+    # Train model with best parameters
+    model_inner_ecoliRF_winsor <- ranger(ecoli_copiespm3.ln.diffmeth.mean ~ ., 
+                                         data = training_inner, 
+                                         seed = 42,
+                                         mtry = mtry_ecoliRF_winsor[[i]][m],
+                                         min.node.size = min.node.size_ecoliRF_winsor[[i]][m],
+                                         sample.fraction = sample.fraction_ecoliRF_winsor[[i]][m],
+                                         num.trees = 500,
+                                         importance = "impurity",
+                                         objective = "regression")
+    
+    # Predict on validation set
+    preds_inner <- predict(model_inner_ecoliRF_winsor, data = validation_inner)
+    
+    # Evaluate performance
+    rsq_inner_ecoliRF_winsor[[i]][m] <- mlr3measures::rsq(truth = validation_inner$ecoli_copiespm3.ln.diffmeth.mean, response = preds_inner$predictions)
+  }
+}
+
+# Find the best performing model
+best_rsquared_index <- which.max(unlist(rsq_inner_ecoliRF_winsor))
+best_outer <- ceiling(best_rsquared_index / 10)
+best_inner <- best_rsquared_index %% 10
+
+cat("Best R^2: ", rsq_inner_ecoliRF_winsor[[best_outer]][best_inner], "\n")
+cat("Best mtry: ", mtry_ecoliRF_winsor[[best_outer]][best_inner], "\n")
+cat("Best sample.fraction: ", sample.fraction_ecoliRF_winsor[[best_outer]][best_inner], "\n")
+cat("Best min.node.size: ", min.node.size_ecoliRF_winsor[[best_outer]][best_inner], "\n")
+
+#### OUTER LOOP ####
+rsq_outer_ecoliRF_winsor <- list()
+rmse_outer_ecoliRF_winsor <- list()
+all_preds_outer_ecoliRF_winsor <- list()
+all_actuals_outer_ecoliRF_winsor <- list()
+
+for(i in 1:10) {
+  training_outer <- variables_Ecoli_RF2[cv_outer != i, ]
+  test_outer <- variables_Ecoli_RF2[cv_outer == i, ]
+  
+  model_outer <- ranger(ecoli_copiespm3.ln.diffmeth.mean ~ ., 
+                        data = training_outer, 
+                        seed = 42,
+                        mtry = mtry_ecoliRF_winsor[[best_outer]][best_inner],
+                        sample.fraction = sample.fraction_ecoliRF_winsor[[best_outer]][best_inner],
+                        min.node.size = min.node.size_ecoliRF_winsor[[best_outer]][best_inner],
+                        num.trees = 500,
+                        importance = "impurity")
+  
+  preds_outer <- predict(model_outer, data = test_outer)
+  
+  # Store metrics
+  rsq_outer_ecoliRF_winsor[[i]] <- mlr3measures::rsq(truth = test_outer$ecoli_copiespm3.ln.diffmeth.mean, response = preds_outer$predictions)
+  rmse_outer_ecoliRF_winsor[[i]] <- mlr3measures::rmse(truth = test_outer$ecoli_copiespm3.ln.diffmeth.mean, response = preds_outer$predictions)
+  
+  all_preds_outer_ecoliRF_winsor[[i]] <- preds_outer$predictions
+  all_actuals_outer_ecoliRF_winsor[[i]] <- test_outer$ecoli_copiespm3.ln.diffmeth.mean
+}
+
+# Combine all predictions and actual values
+all_preds <- unlist(all_preds_outer_ecoliRF_winsor)
+all_actuals <- unlist(all_actuals_outer_ecoliRF_winsor)
+
+# Calculate overall R^2 and RMSE
+rsq_overall <- lm(all_actuals ~ all_preds)
+cat("Overall R^2: ", summary(rsq_overall)$r.squared, "\n") # Overall R^2:  0.386008 - this is the 10-fold CV R2
+
+rmse_overall <- sqrt(mean((all_actuals - all_preds)^2))
+cat("Overall RMSE: ", rmse_overall, "\n") # Overall RMSE:  0.5337129 
+
+# Save final model on the entire dataset with the best hyperparameters
+RF_ecoli_wins <- ranger(ecoli_copiespm3.ln.diffmeth.mean ~ ., 
+                      data = variables_Ecoli_RF2, 
+                      seed = 42,
+                      mtry = mtry_ecoliRF_winsor[[best_outer]][best_inner],
+                      sample.fraction = sample.fraction_ecoliRF_winsor[[best_outer]][best_inner],
+                      min.node.size = min.node.size_ecoliRF_winsor[[best_outer]][best_inner],
+                      num.trees = 500,
+                      importance = "impurity")
+
+saveRDS(RF_ecoli_wins, file = "../Output/RF_models/final_model_ecoliRF_wins.rds")
+```
+## Staph RF model (level 1)
+### Prepare data
+```{r}
+# List of variables to keep for level 2 E. coli model
+variables_staph_RF1 <- c(
+    "staph_copiespm3.ln.diffmeth.mean",  "MinDistAnyFarm.NEG", "MinDistAnyFarm.INV", "AllFarm.250m", 
+    "AllFarm.500m", "AllFarm.1000m", "AllFarm.3000m", "nAnyFarmWghtDist.1000m.sum", "nAnyFarmWghtDist.3000m.sum")
+
+# Select only those columns from the dataset
+variables_staph_RF1 <- variables_measurements %>%
+  select(any_of(variables_staph_RF1))
+
+# Check the resulting data
+head(variables_staph_RF1) # 8 input variables, 1 output variable (Staph)
+```
+### Retrain the model with unscaled predictors
+```{r}
+# Assuming `variables_staph_RF1` is the dataset with the preprocessed, winsorized features.
+# Prepare cross-validation structure
+mat<-matrix(ncol=1,nrow=10)
+mtry_staphRF_winsor<-list(mat,mat,mat,mat,mat,mat,mat,mat,mat,mat)
+min.node.size_staphRF_winsor<-list(mat,mat,mat,mat,mat,mat,mat,mat,mat,mat)
+sample.fraction_staphRF_winsor<-list(mat,mat,mat,mat,mat,mat,mat,mat,mat,mat)
+rsq_staphRF_winsor <-list(mat,mat,mat,mat,mat,mat,mat,mat,mat,mat)
+rsq_inner_staphRF_winsor<-list(mat,mat,mat,mat,mat,mat,mat,mat,mat,mat)
+
+# Cross-validation (10 folds)
+cv_outer <- folds(x = variables_staph_RF1$staph_copiespm3.ln.diffmeth.mean, nfolds = 10, stratified = FALSE, seed = 42)
+
+#### INNER LOOP ####
+for(i in 1:10) {
+  training_outer <- variables_staph_RF1[cv_outer != i, ]
+  test_outer <- variables_staph_RF1[cv_outer == i, ]
+  
+  cv_inner <- folds(x = training_outer$staph_copiespm3.ln.diffmeth.mean, nfolds = 10, stratified = FALSE, seed = 42)
+  
+  for(m in 1:10) {
+    training_inner <- training_outer[cv_inner != m, ]
+    validation_inner <- training_outer[cv_inner == m, ]
+    
+    # Task definition
+    tsk_staphRF_winsor <- makeRegrTask(data = training_inner, target = "staph_copiespm3.ln.diffmeth.mean")
+    path_staphRF_winsor <- tempfile()
+    
+    # Tune hyperparameters (without scaling)
+    res_staphRF_winsor <- tuneRanger(tsk_staphRF_winsor, measure = list(rsq), num.trees = 500, build.final.model = TRUE, save.file.path = path_staphRF_winsor)
+    
+    # Store tuned parameters
+    mtry_staphRF_winsor[[i]][m] <- res_staphRF_winsor$recommended.pars$mtry
+    min.node.size_staphRF_winsor[[i]][m] <- res_staphRF_winsor$recommended.pars$min.node.size
+    sample.fraction_staphRF_winsor[[i]][m] <- res_staphRF_winsor$recommended.pars$sample.fraction
+    rsq_staphRF_winsor[[i]][m] <- res_staphRF_winsor$recommended.pars$rsq
+    
+    # Train model with best parameters
+    model_inner_staphRF_winsor <- ranger(staph_copiespm3.ln.diffmeth.mean ~ ., 
+                                         data = training_inner, 
+                                         seed = 42,
+                                         mtry = mtry_staphRF_winsor[[i]][m],
+                                         min.node.size = min.node.size_staphRF_winsor[[i]][m],
+                                         sample.fraction = sample.fraction_staphRF_winsor[[i]][m],
+                                         num.trees = 500,
+                                         importance = "impurity",
+                                         objective = "regression")
+    
+    # Predict on validation set
+    preds_inner <- predict(model_inner_staphRF_winsor, data = validation_inner)
+    
+    # Evaluate performance
+    rsq_inner_staphRF_winsor[[i]][m] <- mlr3measures::rsq(truth = validation_inner$staph_copiespm3.ln.diffmeth.mean, response = preds_inner$predictions)
+  }
+}
+
+# Find the best performing model
+best_rsquared_index <- which.max(unlist(rsq_inner_staphRF_winsor))
+best_outer <- ceiling(best_rsquared_index / 10)
+best_inner <- best_rsquared_index %% 10
+
+cat("Best R^2: ", rsq_inner_staphRF_winsor[[best_outer]][best_inner], "\n")
+cat("Best mtry: ", mtry_staphRF_winsor[[best_outer]][best_inner], "\n")
+cat("Best sample.fraction: ", sample.fraction_staphRF_winsor[[best_outer]][best_inner], "\n")
+cat("Best min.node.size: ", min.node.size_staphRF_winsor[[best_outer]][best_inner], "\n")
+
+#### OUTER LOOP ####
+rsq_outer_staphRF_winsor <- list()
+rmse_outer_staphRF_winsor <- list()
+all_preds_outer_staphRF_winsor <- list()
+all_actuals_outer_staphRF_winsor <- list()
+
+for(i in 1:10) {
+  training_outer <- variables_staph_RF1[cv_outer != i, ]
+  test_outer <- variables_staph_RF1[cv_outer == i, ]
+  
+  model_outer <- ranger(staph_copiespm3.ln.diffmeth.mean ~ ., 
+                        data = training_outer, 
+                        seed = 42,
+                        mtry = mtry_staphRF_winsor[[best_outer]][best_inner],
+                        sample.fraction = sample.fraction_staphRF_winsor[[best_outer]][best_inner],
+                        min.node.size = min.node.size_staphRF_winsor[[best_outer]][best_inner],
+                        num.trees = 500,
+                        importance = "impurity")
+  
+  preds_outer <- predict(model_outer, data = test_outer)
+  
+  # Store metrics
+  rsq_outer_staphRF_winsor[[i]] <- mlr3measures::rsq(truth = test_outer$staph_copiespm3.ln.diffmeth.mean, response = preds_outer$predictions)
+  rmse_outer_staphRF_winsor[[i]] <- mlr3measures::rmse(truth = test_outer$staph_copiespm3.ln.diffmeth.mean, response = preds_outer$predictions)
+  
+  all_preds_outer_staphRF_winsor[[i]] <- preds_outer$predictions
+  all_actuals_outer_staphRF_winsor[[i]] <- test_outer$staph_copiespm3.ln.diffmeth.mean
+}
+
+# Combine all predictions and actual values
+all_preds <- unlist(all_preds_outer_staphRF_winsor)
+all_actuals <- unlist(all_actuals_outer_staphRF_winsor)
+
+# Calculate overall R^2 and RMSE
+rsq_overall <- lm(all_actuals ~ all_preds)
+cat("Overall R^2: ", summary(rsq_overall)$r.squared, "\n") # Overall R^2:  0.386008 - this is the 10-fold CV R2
+
+rmse_overall <- sqrt(mean((all_actuals - all_preds)^2))
+cat("Overall RMSE: ", rmse_overall, "\n") # Overall RMSE:  0.5337129 
+
+# Save final model on the entire dataset with the best hyperparameters
+RF_staph_wins <- ranger(staph_copiespm3.ln.diffmeth.mean ~ ., 
+                        data = variables_staph_RF1, 
+                        seed = 42,
+                        mtry = mtry_staphRF_winsor[[best_outer]][best_inner],
+                        sample.fraction = sample.fraction_staphRF_winsor[[best_outer]][best_inner],
+                        min.node.size = min.node.size_staphRF_winsor[[best_outer]][best_inner],
+                        num.trees = 500,
+                        importance = "impurity")
+
+saveRDS(RF_staph_wins, file = "../Output/RF_models/final_model_staphRF_wins.rds")
+```
+## tetW RF model (level 2)
+### Prepare data
+```{r}
+# List of variables to keep for level 2 E. coli model
+variables_tetw_RF2 <- c("tetw_copiespm3.ln.diffmeth.mean", "MindistPigs15.NEG", 
+    "MindistPoultry250.NEG", "MindistCows5.NEG", 
+    "MindistHorses5.NEG", "MindistGoats50.NEG", 
+    "MindistSheep50.NEG", "MinDistAnyFarm.NEG", 
+    "MindistPigs15.INV", "MindistPoultry250.INV", 
+    "MindistCows5.INV", "MindistHorses5.INV", 
+    "MindistGoats50.INV", "MindistSheep50.INV", 
+    "MinDistAnyFarm.INV", "npigs.500m", 
+    "npoultry.500m", "ncows.500m", 
+    "nhorses.500m", "npigs.1000m", 
+    "npoultry.1000m", "ncows.1000m", 
+    "nhorses.1000m", "nsheep.1000m", 
+    "npigs.3000m", "npoultry.3000m", 
+    "ncows.3000m", "nhorses.3000m", 
+    "ngoats.3000m", "nsheep.3000m", 
+    "AllFarm.250m", "AllFarm.500m", 
+    "AllFarm.1000m", "AllFarm.3000m", 
+    "PigFarm.500m", "PoultryFarm.500m", 
+    "CattleFarm.500m", "PigFarm.1000m", 
+    "PoultryFarm.1000m", "CattleFarm.1000m", 
+    "HorseFarm.1000m", "PigFarm.3000m", 
+    "PoultryFarm.3000m", "CattleFarm.3000m", 
+    "HorseFarm.3000m", "GoatFarm.3000m", 
+    "SheepFarm.3000m", "npigsWghtDist.1000m.sum", 
+    "npoultryWghtDist.1000m.sum", "ncowsWghtDist.1000m.sum", 
+    "nhorsesWghtDist.1000m.sum", "nsheepWghtDist.1000m.sum", 
+    "npigsWghtDist.3000m.sum", "npoultryWghtDist.3000m.sum", 
+    "ncowsWghtDist.3000m.sum", "nhorsesWghtDist.3000m.sum", 
+    "ngoatsWghtDist.3000m.sum", "nsheepWghtDist.3000m.sum", 
+    "nAnyFarmWghtDist.1000m.sum", "nPigFarmWghtDist.1000m.sum", 
+    "nPoultryFarmWghtDist.1000m.sum", "nCattleFarmWghtDist.1000m.sum", 
+    "nHorseFarmWghtDist.1000m.sum", "nAnyFarmWghtDist.3000m.sum", 
+    "nPigFarmWghtDist.3000m.sum", "nPoultryFarmWghtDist.3000m.sum", 
+    "nCattleFarmWghtDist.3000m.sum", "nHorseFarmWghtDist.3000m.sum", 
+    "nGoatFarmWghtDist.3000m.sum", "nSheepFarmWghtDist.3000m.sum"
+)
+
+# Select only those columns from the dataset
+variables_tetw_RF2 <- variables_measurements %>%
+  select(any_of(variables_tetw_RF2))
+
+# Check the resulting data
+head(variables_tetw_RF2) # 69 input variables, 1 output variable (tetW)
+```
+### Retrain the model with unscaled predictors
+```{r}
+# Assuming `variables_tetw_RF2` is the dataset with the preprocessed, winsorized features.
+# Prepare cross-validation structure
+mat<-matrix(ncol=1,nrow=10)
+mtry_tetwRF_winsor<-list(mat,mat,mat,mat,mat,mat,mat,mat,mat,mat)
+min.node.size_tetwRF_winsor<-list(mat,mat,mat,mat,mat,mat,mat,mat,mat,mat)
+sample.fraction_tetwRF_winsor<-list(mat,mat,mat,mat,mat,mat,mat,mat,mat,mat)
+rsq_tetwRF_winsor <-list(mat,mat,mat,mat,mat,mat,mat,mat,mat,mat)
+rsq_inner_tetwRF_winsor<-list(mat,mat,mat,mat,mat,mat,mat,mat,mat,mat)
+
+# Cross-validation (10 folds)
+cv_outer <- folds(x = variables_tetw_RF2$tetw_copiespm3.ln.diffmeth.mean, nfolds = 10, stratified = FALSE, seed = 42)
+
+#### INNER LOOP ####
+for(i in 1:10) {
+  training_outer <- variables_tetw_RF2[cv_outer != i, ]
+  test_outer <- variables_tetw_RF2[cv_outer == i, ]
+  
+  cv_inner <- folds(x = training_outer$tetw_copiespm3.ln.diffmeth.mean, nfolds = 10, stratified = FALSE, seed = 42)
+  
+  for(m in 1:10) {
+    training_inner <- training_outer[cv_inner != m, ]
+    validation_inner <- training_outer[cv_inner == m, ]
+    
+    # Task definition
+    tsk_tetwRF_winsor <- makeRegrTask(data = training_inner, target = "tetw_copiespm3.ln.diffmeth.mean")
+    path_tetwRF_winsor <- tempfile()
+    
+    # Tune hyperparameters (without scaling)
+    res_tetwRF_winsor <- tuneRanger(tsk_tetwRF_winsor, measure = list(rsq), num.trees = 500, build.final.model = TRUE, save.file.path = path_tetwRF_winsor)
+    
+    # Store tuned parameters
+    mtry_tetwRF_winsor[[i]][m] <- res_tetwRF_winsor$recommended.pars$mtry
+    min.node.size_tetwRF_winsor[[i]][m] <- res_tetwRF_winsor$recommended.pars$min.node.size
+    sample.fraction_tetwRF_winsor[[i]][m] <- res_tetwRF_winsor$recommended.pars$sample.fraction
+    rsq_tetwRF_winsor[[i]][m] <- res_tetwRF_winsor$recommended.pars$rsq
+    
+    # Train model with best parameters
+    model_inner_tetwRF_winsor <- ranger(tetw_copiespm3.ln.diffmeth.mean ~ ., 
+                                         data = training_inner, 
+                                         seed = 42,
+                                         mtry = mtry_tetwRF_winsor[[i]][m],
+                                         min.node.size = min.node.size_tetwRF_winsor[[i]][m],
+                                         sample.fraction = sample.fraction_tetwRF_winsor[[i]][m],
+                                         num.trees = 500,
+                                         importance = "impurity",
+                                         objective = "regression")
+    
+    # Predict on validation set
+    preds_inner <- predict(model_inner_tetwRF_winsor, data = validation_inner)
+    
+    # Evaluate performance
+    rsq_inner_tetwRF_winsor[[i]][m] <- mlr3measures::rsq(truth = validation_inner$tetw_copiespm3.ln.diffmeth.mean, response = preds_inner$predictions)
+  }
+}
+
+# Find the best performing model
+best_rsquared_index <- which.max(unlist(rsq_inner_tetwRF_winsor))
+best_outer <- ceiling(best_rsquared_index / 10)
+best_inner <- best_rsquared_index %% 10
+
+cat("Best R^2: ", rsq_inner_tetwRF_winsor[[best_outer]][best_inner], "\n")
+cat("Best mtry: ", mtry_tetwRF_winsor[[best_outer]][best_inner], "\n")
+cat("Best sample.fraction: ", sample.fraction_tetwRF_winsor[[best_outer]][best_inner], "\n")
+cat("Best min.node.size: ", min.node.size_tetwRF_winsor[[best_outer]][best_inner], "\n")
+
+#### OUTER LOOP ####
+rsq_outer_tetwRF_winsor <- list()
+rmse_outer_tetwRF_winsor <- list()
+all_preds_outer_tetwRF_winsor <- list()
+all_actuals_outer_tetwRF_winsor <- list()
+
+for(i in 1:10) {
+  training_outer <- variables_tetw_RF2[cv_outer != i, ]
+  test_outer <- variables_tetw_RF2[cv_outer == i, ]
+  
+  model_outer <- ranger(tetw_copiespm3.ln.diffmeth.mean ~ ., 
+                        data = training_outer, 
+                        seed = 42,
+                        mtry = mtry_tetwRF_winsor[[best_outer]][best_inner],
+                        sample.fraction = sample.fraction_tetwRF_winsor[[best_outer]][best_inner],
+                        min.node.size = min.node.size_tetwRF_winsor[[best_outer]][best_inner],
+                        num.trees = 500,
+                        importance = "impurity")
+  
+  preds_outer <- predict(model_outer, data = test_outer)
+  
+  # Store metrics
+  rsq_outer_tetwRF_winsor[[i]] <- mlr3measures::rsq(truth = test_outer$tetw_copiespm3.ln.diffmeth.mean, response = preds_outer$predictions)
+  rmse_outer_tetwRF_winsor[[i]] <- mlr3measures::rmse(truth = test_outer$tetw_copiespm3.ln.diffmeth.mean, response = preds_outer$predictions)
+  
+  all_preds_outer_tetwRF_winsor[[i]] <- preds_outer$predictions
+  all_actuals_outer_tetwRF_winsor[[i]] <- test_outer$tetw_copiespm3.ln.diffmeth.mean
+}
+
+# Combine all predictions and actual values
+all_preds <- unlist(all_preds_outer_tetwRF_winsor)
+all_actuals <- unlist(all_actuals_outer_tetwRF_winsor)
+
+# Calculate overall R^2 and RMSE
+rsq_overall <- lm(all_actuals ~ all_preds)
+cat("Overall R^2: ", summary(rsq_overall)$r.squared, "\n") # Overall R^2:  0.386008 - this is the 10-fold CV R2
+
+rmse_overall <- sqrt(mean((all_actuals - all_preds)^2))
+cat("Overall RMSE: ", rmse_overall, "\n") # Overall RMSE:  0.5337129 
+
+# Save final model on the entire dataset with the best hyperparameters
+RF_tetw_wins <- ranger(tetw_copiespm3.ln.diffmeth.mean ~ ., 
+                        data = variables_tetw_RF2, 
+                        seed = 42,
+                        mtry = mtry_tetwRF_winsor[[best_outer]][best_inner],
+                        sample.fraction = sample.fraction_tetwRF_winsor[[best_outer]][best_inner],
+                        min.node.size = min.node.size_tetwRF_winsor[[best_outer]][best_inner],
+                        num.trees = 500,
+                        importance = "impurity")
+
+saveRDS(RF_tetw_wins, file = "../Output/RF_models/final_model_tetwRF_wins.rds")
+
+```
+
+## mecA RF model (level 3)
+### Prepare data
+```{r}
+# List of variables to keep for level 2 E. coli model
+variables_meca_RF3 <- c(
+    "meca_copiespm3.ln.diffmeth.mean", "MindistPigs15.NEG", "MindistPoultry250.NEG", 
+    "MindistCows5.NEG", "MindistHorses5.NEG", "MindistGoats50.NEG", 
+    "MindistSheep50.NEG", "MinDistAnyFarm.NEG", "MindistPigs15.INV", 
+    "MindistPoultry250.INV", "MindistCows5.INV", "MindistHorses5.INV", 
+    "MindistGoats50.INV", "MindistSheep50.INV", "MinDistAnyFarm.INV", 
+    "npigs.500m", "npoultry.500m", "ncows.500m", "nhorses.500m", 
+    "npigs.1000m", "npoultry.1000m", "ncows.1000m", "nhorses.1000m", 
+    "nsheep.1000m", "npigs.3000m", "npoultry.3000m", "ncows.3000m", 
+    "nhorses.3000m", "ngoats.3000m", "nsheep.3000m", "AllFarm.250m", 
+    "AllFarm.500m", "AllFarm.1000m", "AllFarm.3000m", "PigFarm.500m", 
+    "PoultryFarm.500m", "CattleFarm.500m", "PigFarm.1000m", 
+    "PoultryFarm.1000m", "CattleFarm.1000m", "HorseFarm.1000m", 
+    "PigFarm.3000m", "PoultryFarm.3000m", "CattleFarm.3000m", 
+    "HorseFarm.3000m", "GoatFarm.3000m", "SheepFarm.3000m", 
+    "npigsWghtDist.1000m.sum", "npoultryWghtDist.1000m.sum", 
+    "ncowsWghtDist.1000m.sum", "nhorsesWghtDist.1000m.sum", 
+    "nsheepWghtDist.1000m.sum", "npigsWghtDist.3000m.sum", 
+    "npoultryWghtDist.3000m.sum", "ncowsWghtDist.3000m.sum", 
+    "nhorsesWghtDist.3000m.sum", "ngoatsWghtDist.3000m.sum", 
+    "nsheepWghtDist.3000m.sum", "nAnyFarmWghtDist.1000m.sum", 
+    "nPigFarmWghtDist.1000m.sum", "nPoultryFarmWghtDist.1000m.sum", 
+    "nCattleFarmWghtDist.1000m.sum", "nHorseFarmWghtDist.1000m.sum", 
+    "nAnyFarmWghtDist.3000m.sum", "nPigFarmWghtDist.3000m.sum", 
+    "nPoultryFarmWghtDist.3000m.sum", "nCattleFarmWghtDist.3000m.sum", 
+    "nHorseFarmWghtDist.3000m.sum", "nGoatFarmWghtDist.3000m.sum", 
+    "nSheepFarmWghtDist.3000m.sum", "nfatpigs.500m", "ndairycows.500m", 
+    "nmeatcows.500m", "npiglets.1000m", "nsows.1000m", "nboars.1000m", 
+    "nfatpigs.1000m", "nlayinghens.1000m", "nbroilerchicks.1000m", 
+    "ndairycows.1000m", "nmeatcows.1000m", "npiglets.3000m", 
+    "nsows.3000m", "nboars.3000m", "nfatpigs.3000m", 
+    "nlayinghens.3000m", "nbroilerchicks.3000m", "notherpoultryanim.3000m", 
+    "ndairycows.3000m", "nmeatcows.3000m", "DairyctlFarm.500m", 
+    "PigMultipFarm.1000m", "FatpigFarm.1000m", "HensFarm.1000m", 
+    "BroilerFarm.1000m", "DairyctlFarm.1000m", "MeatctlFarm.1000m", 
+    "PigMultipFarm.3000m", "FatpigFarm.3000m", "HensFarm.3000m", 
+    "BroilerFarm.3000m", "OthpoultFarm.3000m", "DairyctlFarm.3000m", 
+    "MeatctlFarm.3000m", "npigletsWghtDist.1000m.sum", "nsowsWghtDist.1000m.sum", 
+    "nboarsWghtDist.1000m.sum", "nfatpigsWghtDist.1000m.sum", 
+    "nlayinghensWghtDist.1000m.sum", "nbroilerchicksWghtDist.1000m.sum", 
+    "ndairycowsWghtDist.1000m.sum", "nmeatcowsWghtDist.1000m.sum", 
+    "npigletsWghtDist.3000m.sum", "nsowsWghtDist.3000m.sum", 
+    "nboarsWghtDist.3000m.sum", "nfatpigsWghtDist.3000m.sum", 
+    "nlayinghensWghtDist.3000m.sum", "nbroilerchicksWghtDist.3000m.sum", 
+    "notherpoultryanimWghtDist.3000m.sum", "ndairycowsWghtDist.3000m.sum", 
+    "nmeatcowsWghtDist.3000m.sum", "nPigMultipFarmWghtDist.1000m.sum", 
+    "nFatpigFarmWghtDist.1000m.sum", "nHensFarmWghtDist.1000m.sum", 
+    "nBroilerFarmWghtDist.1000m.sum", "nDairyctlFarmWghtDist.1000m.sum", 
+    "nMeatctlFarmWghtDist.1000m.sum", "nPigMultipFarmWghtDist.3000m.sum", 
+    "nFatpigFarmWghtDist.3000m.sum", "nHensFarmWghtDist.3000m.sum", 
+    "nBroilerFarmWghtDist.3000m.sum", "nOthpoultFarmWghtDist.3000m.sum", 
+    "nDairyctlFarmWghtDist.3000m.sum", "nMeatctlFarmWghtDist.3000m.sum"
+)
+
+# Select only those columns from the dataset
+variables_meca_RF3 <- variables_measurements %>%
+  select(any_of(variables_meca_RF3))
+
+# Check the resulting data
+head(variables_meca_RF3) # 133 input variables, 1 output variable (mecA)
+```
+### Retrain the model with unscaled predictors
+```{r}
+# Assuming `variables_meca_RF3` is the dataset with the preprocessed, winsorized features.
+# Prepare cross-validation structure
+mat<-matrix(ncol=1,nrow=10)
+mtry_mecaRF_winsor<-list(mat,mat,mat,mat,mat,mat,mat,mat,mat,mat)
+min.node.size_mecaRF_winsor<-list(mat,mat,mat,mat,mat,mat,mat,mat,mat,mat)
+sample.fraction_mecaRF_winsor<-list(mat,mat,mat,mat,mat,mat,mat,mat,mat,mat)
+rsq_mecaRF_winsor <-list(mat,mat,mat,mat,mat,mat,mat,mat,mat,mat)
+rsq_inner_mecaRF_winsor<-list(mat,mat,mat,mat,mat,mat,mat,mat,mat,mat)
+
+# Cross-validation (10 folds)
+cv_outer <- folds(x = variables_meca_RF3$meca, nfolds = 10, stratified = FALSE, seed = 42)
+
+#### INNER LOOP ####
+for(i in 1:10) {
+  training_outer <- variables_meca_RF3[cv_outer != i, ]
+  test_outer <- variables_meca_RF3[cv_outer == i, ]
+  
+  cv_inner <- folds(x = training_outer$meca_copiespm3.ln.diffmeth.mean, nfolds = 10, stratified = FALSE, seed = 42)
+  
+  for(m in 1:10) {
+    training_inner <- training_outer[cv_inner != m, ]
+    validation_inner <- training_outer[cv_inner == m, ]
+    
+    # Task definition
+    tsk_mecaRF_winsor <- makeRegrTask(data = training_inner, target = "meca_copiespm3.ln.diffmeth.mean")
+    path_mecaRF_winsor <- tempfile()
+    
+    # Tune hyperparameters (without scaling)
+    res_mecaRF_winsor <- tuneRanger(tsk_mecaRF_winsor, measure = list(rsq), num.trees = 500, build.final.model = TRUE, save.file.path = path_mecaRF_winsor)
+    
+    # Store tuned parameters
+    mtry_mecaRF_winsor[[i]][m] <- res_mecaRF_winsor$recommended.pars$mtry
+    min.node.size_mecaRF_winsor[[i]][m] <- res_mecaRF_winsor$recommended.pars$min.node.size
+    sample.fraction_mecaRF_winsor[[i]][m] <- res_mecaRF_winsor$recommended.pars$sample.fraction
+    rsq_mecaRF_winsor[[i]][m] <- res_mecaRF_winsor$recommended.pars$rsq
+    
+    # Train model with best parameters
+    model_inner_mecaRF_winsor <- ranger(meca_copiespm3.ln.diffmeth.mean ~ ., 
+                                        data = training_inner, 
+                                        seed = 42,
+                                        mtry = mtry_mecaRF_winsor[[i]][m],
+                                        min.node.size = min.node.size_mecaRF_winsor[[i]][m],
+                                        sample.fraction = sample.fraction_mecaRF_winsor[[i]][m],
+                                        num.trees = 500,
+                                        importance = "impurity",
+                                        objective = "regression")
+    
+    # Predict on validation set
+    preds_inner <- predict(model_inner_mecaRF_winsor, data = validation_inner)
+    
+    # Evaluate performance
+    rsq_inner_mecaRF_winsor[[i]][m] <- mlr3measures::rsq(truth = validation_inner$meca_copiespm3.ln.diffmeth.mean, response = preds_inner$predictions)
+  }
+}
+
+# Find the best performing model
+best_rsquared_index <- which.max(unlist(rsq_inner_mecaRF_winsor))
+best_outer <- ceiling(best_rsquared_index / 10)
+best_inner <- best_rsquared_index %% 10
+
+cat("Best R^2: ", rsq_inner_mecaRF_winsor[[best_outer]][best_inner], "\n")
+cat("Best mtry: ", mtry_mecaRF_winsor[[best_outer]][best_inner], "\n")
+cat("Best sample.fraction: ", sample.fraction_mecaRF_winsor[[best_outer]][best_inner], "\n")
+cat("Best min.node.size: ", min.node.size_mecaRF_winsor[[best_outer]][best_inner], "\n")
+
+#### OUTER LOOP ####
+rsq_outer_mecaRF_winsor <- list()
+rmse_outer_mecaRF_winsor <- list()
+all_preds_outer_mecaRF_winsor <- list()
+all_actuals_outer_mecaRF_winsor <- list()
+
+for(i in 1:10) {
+  training_outer <- variables_meca_RF3[cv_outer != i, ]
+  test_outer <- variables_meca_RF3[cv_outer == i, ]
+  
+  model_outer <- ranger(meca_copiespm3.ln.diffmeth.mean ~ ., 
+                        data = training_outer, 
+                        seed = 42,
+                        mtry = mtry_mecaRF_winsor[[best_outer]][best_inner],
+                        sample.fraction = sample.fraction_mecaRF_winsor[[best_outer]][best_inner],
+                        min.node.size = min.node.size_mecaRF_winsor[[best_outer]][best_inner],
+                        num.trees = 500,
+                        importance = "impurity")
+  
+  preds_outer <- predict(model_outer, data = test_outer)
+  
+  # Store metrics
+  rsq_outer_mecaRF_winsor[[i]] <- mlr3measures::rsq(truth = test_outer$meca_copiespm3.ln.diffmeth.mean, response = preds_outer$predictions)
+  rmse_outer_mecaRF_winsor[[i]] <- mlr3measures::rmse(truth = test_outer$meca_copiespm3.ln.diffmeth.mean, response = preds_outer$predictions)
+  
+  all_preds_outer_mecaRF_winsor[[i]] <- preds_outer$predictions
+  all_actuals_outer_mecaRF_winsor[[i]] <- test_outer$meca_copiespm3.ln.diffmeth.mean
+}
+
+# Combine all predictions and actual values
+all_preds <- unlist(all_preds_outer_mecaRF_winsor)
+all_actuals <- unlist(all_actuals_outer_mecaRF_winsor)
+
+# Calculate overall R^2 and RMSE
+rsq_overall <- lm(all_actuals ~ all_preds)
+cat("Overall R^2: ", summary(rsq_overall)$r.squared, "\n") # Overall R^2:  0.386008 - this is the 10-fold CV R2
+
+rmse_overall <- sqrt(mean((all_actuals - all_preds)^2))
+cat("Overall RMSE: ", rmse_overall, "\n") # Overall RMSE:  0.5337129 
+
+# Save final model on the entire dataset with the best hyperparameters
+RF_meca_wins <- ranger(meca_copiespm3.ln.diffmeth.mean ~ ., 
+                       data = variables_meca_RF3, 
+                       seed = 42,
+                       mtry = mtry_mecaRF_winsor[[best_outer]][best_inner],
+                       sample.fraction = sample.fraction_mecaRF_winsor[[best_outer]][best_inner],
+                       min.node.size = min.node.size_mecaRF_winsor[[best_outer]][best_inner],
+                       num.trees = 500,
+                       importance = "impurity")
+
+saveRDS(RF_meca_wins, file = "../Output/RF_models/final_model_mecaRF_wins.rds")
+
+```
+
+# Predict concentrations at VGO3 residential addresses (CP)
+```{r}
+RF_ecoli_wins <- readRDS("../Output/RF_models/final_model_ecoliRF_wins.rds")
+RF_staph_wins <- readRDS("../Output/RF_models/final_model_staphRF_wins.rds")
+RF_tetw_wins <- readRDS("../Output/RF_models/final_model_tetwRF_wins.rds")
+RF_meca_wins <- readRDS("../Output/RF_models/final_model_mecaRF_wins.rds")
+
+# Start with the original dataset and keep 'respnr'
+RF_predictions_cohort <- BVB_2015_filtered %>%
+  select(respnr)
+
+# Predict E. coli and add predictions to the dataframe
+ecoli_RF_estimates <- predict(RF_ecoli_wins, data = BVB_2015_filtered)
+RF_predictions_cohort <- RF_predictions_cohort %>%
+  mutate(ecoli_RF_preds = ecoli_RF_estimates$predictions)
+
+# Predict Staph and add predictions to the dataframe
+staph_RF_estimates <- predict(RF_staph_wins, data = BVB_2015_filtered)
+RF_predictions_cohort <- RF_predictions_cohort %>%
+  mutate(staph_RF_preds = staph_RF_estimates$predictions)
+
+# Predict tetW and add predictions to the dataframe
+tetw_RF_estimates <- predict(RF_tetw_wins, data = BVB_2015_filtered)
+RF_predictions_cohort <- RF_predictions_cohort %>%
+  mutate(tetw_RF_preds = tetw_RF_estimates$predictions)
+
+# Predict mecA and add predictions to the dataframe
+meca_RF_estimates <- predict(RF_meca_wins, data = BVB_2015_filtered)
+RF_predictions_cohort <- RF_predictions_cohort %>%
+  mutate(meca_RF_preds = meca_RF_estimates$predictions)
+
+# Final output with all predictions and 'respnr'
+RF_predictions_cohort
+
+# Save predictions
+write.csv(RF_predictions_cohort, "../Output/RF_models/All_RF_model_predictions_whole_cohort.csv")
+```
