@@ -1,0 +1,342 @@
+---
+title: "Within vs between-individual differences in NP vs OP"
+author: "Beatrice Cornu Hewitt" 
+date: "`r Sys.time()`"
+---
+# Packages and data
+```{r}
+library(phyloseq)
+library(vegan)
+library(tidyverse)
+library(ggplot2)
+library(microbiomer)
+library(dplyr)
+library(ggsignif)
+library(patchwork)
+
+# 1. Load and subset Phyloseq object
+ps <- readRDS("../Output/Phyloseq/2_ps_complete.Rds") %>%
+  subset_samples(population %in% c("CP", "GF") & niche %in% c("NP", "OP"))
+
+# Filter phyloseq 
+ps_all <- ps %>% pres_abund_filter() %>% to_RA() 
+# A total of 2531 ASVs were found to be present at or above a level of confident detection (0.1% relative abundance) in at least 2 samples (n = 17939 ASVs excluded).
+```
+# Compute within- vs between-individual BC dissimilarities
+```{r}
+# Calculate Bray-Curtis distances and convert to matrix
+dist_bray <- phyloseq::distance(ps_all, method = "bray")
+dist_mat <- as.matrix(dist_bray)
+
+# Sample metadata
+meta <- data.frame(sample_data(ps_all))
+meta$sample_id <- rownames(meta)
+
+# Distance matrix to long format
+dist_df <- as.data.frame(as.table(dist_mat)) %>%
+  setNames(c("sample1", "sample2", "bray")) %>%
+  filter(as.character(sample1) < as.character(sample2))
+
+# Merge metadata for both samples
+meta_s1 <- meta %>% rename_with(~paste0(., "_s1"))
+meta_s2 <- meta %>% rename_with(~paste0(., "_s2"))
+
+dist_merged <- dist_df %>%
+  left_join(meta_s1, by = c("sample1" = "sample_id_s1")) %>%
+  left_join(meta_s2, by = c("sample2" = "sample_id_s2"))
+
+# Keep only NP vs OP comparisons
+dist_npop <- dist_merged %>%
+  filter((niche_s1 == "NP" & niche_s2 == "OP") | (niche_s1 == "OP" & niche_s2 == "NP"))
+
+# Define matched and population group
+dist_npop <- dist_npop %>%
+  mutate(
+    matched = ifelse(VGO3_ID_s1 == VGO3_ID_s2, "Yes", "No"),
+    population_group = ifelse(population_s1 == population_s2, population_s1, NA_character_)
+  ) %>%
+  filter(!is.na(population_group))
+
+
+
+# # ---------------- FUNCTION TO PLOT JITTER PLOTS ------------------
+# plot_brays_jitter <- function(data, title_prefix) {
+#   plot_list <- list()
+#   results_list <- list()
+#   
+#   for (pop in unique(data$population_group)) {
+#     sub_df <- data %>% filter(population_group == pop)
+#     
+#     # Wilcoxon test (no winsorization)
+#     wt <- wilcox.test(bray ~ matched, data = sub_df, exact = FALSE)
+#     label <- ifelse(wt$p.value < 0.001, "<0.001",
+#                     ifelse(wt$p.value < 0.05, as.character(round(wt$p.value, 3)), NA))
+#     
+#     y_max <- max(sub_df$bray, na.rm = TRUE) * 1.05
+#     
+#     p <- ggplot(sub_df, aes(x = matched, y = bray, fill = matched, color = matched)) +
+#       geom_jitter(position = position_jitter(width = 0.2), alpha = 0.6, size = 1) +
+#       geom_boxplot(alpha = 0.5, outlier.shape = NA) +
+#       scale_fill_manual(values = c("No" = "#d4705e", "Yes" = "azure4")) +
+#       scale_color_manual(values = c("No" = "#d4705e", "Yes" = "azure4")) +
+#       labs(
+#         title = paste(title_prefix, "-", pop),
+#         x = "Matched (same individual)",
+#         y = "Bray-Curtis dissimilarity"
+#       ) +
+#       theme_minimal(base_size = 12) +
+#       theme(legend.position = "none")
+#     
+#     if (!is.na(label)) {
+#       p <- p + ggsignif::geom_signif(
+#         annotations = label,
+#         y_position = y_max,
+#         xmin = 1, xmax = 2,
+#         tip_length = 0.01
+#       )
+#     }
+#     
+#     plot_list[[pop]] <- p
+#     results_list[[pop]] <- list(p_value = wt$p.value)
+#   }
+#   list(plots = plot_list, results = results_list)
+# }
+# 
+# 
+# # Create boxplot with jitter
+# set.seed(123)
+# dist_npop_balanced <- dist_npop %>%
+#   filter(!is.na(matched)) %>%
+#   group_by(population_group) %>%
+#   group_modify(~ {
+#     min_n <- min(table(.x$matched))
+#     .x %>%
+#       group_by(matched) %>%
+#       slice_sample(n = min_n) %>%
+#       ungroup()
+#   }) %>%
+#   ungroup()
+# 
+# res_jitter <- plot_brays_jitter(dist_npop_balanced, "NP vs OP (Jitter + Boxplot)")
+# 
+# final_plot_jitter <- res_jitter$plots[["CP"]] + res_jitter$plots[["GF"]] +
+#   patchwork::plot_layout(ncol = 2) +
+#   patchwork::plot_annotation(tag_levels = "A")
+# 
+# print(final_plot_jitter)
+# 
+# ggsave("../Output/Within_vs_between/Withinvsbet_jitter_boxplot.png", final_plot_jitter, width = 10, height = 5)
+
+
+# Since the boxplots are so hard to see because of the jitter, we create a zoomed in version without the jitter
+# ---------------- FUNCTION TO PLOT BOXPLOTS ------------------
+plot_brays_box <- function(data, title_prefix) {
+  plot_list <- list()
+  results_list <- list()
+  
+  for (pop in unique(data$population_group)) {
+    sub_df <- data %>% filter(population_group == pop)
+    
+    wt <- wilcox.test(bray ~ matched, data = sub_df, exact = FALSE)
+    
+    label <- ifelse(
+      wt$p.value < 0.001, 
+      "italic(p) < 0.001", 
+      paste0("italic(p) == ", sprintf('%.3f', wt$p.value))
+    )
+    
+    whiskers <- sub_df %>%
+      group_by(matched) %>%
+      summarise(
+        whisker_low = boxplot.stats(bray)$stats[1],
+        whisker_high = boxplot.stats(bray)$stats[5]
+      )
+    
+    y_min <- min(whiskers$whisker_low, na.rm = TRUE)
+    y_max <- 1.001  # slightly extend above max possible value
+    
+    pval_y_pos <- 1.0009  # label just below the extended max
+    
+    # Define colors based on population group
+    fill_colors <- if (pop == "CP") {
+      c("No" = "#e3bd6a", "Yes" = "#a87d20")  # lighter and darker blue-gray
+    } else if (pop == "GF") {
+      c("No" = "#76b6a4", "Yes" = "#3f7566")  # lighter and darker reddish brown
+    } else {
+      c("No" = "#d4705e", "Yes" = "azure4")  # fallback colors
+    }
+    p <- ggplot(sub_df, aes(x = matched, y = bray, fill = matched)) +
+      geom_boxplot(alpha = 0.7, outlier.shape = NA) +
+      scale_fill_manual(values = fill_colors) +
+      coord_cartesian(ylim = c(y_min, y_max)) +
+      labs(
+        x = "Matched (same individual)",
+        y = "Bray-Curtis dissimilarity"
+      ) +
+      theme_minimal(base_size = 12) +
+      theme(legend.position = "none")
+    
+    p <- p + ggsignif::geom_signif(
+      annotations = label,
+      y_position = pval_y_pos,
+      xmin = 1, xmax = 2,
+      tip_length = 0.001,
+      parse = TRUE
+    )
+    
+    plot_list[[pop]] <- p
+    results_list[[pop]] <- list(p_value = wt$p.value)
+  }
+  
+  list(plots = plot_list, results = results_list)
+}
+
+
+
+# --------------- DOWNSAMPLE FOR BOXPLOTS -----------------
+set.seed(123)
+plot_list_box <- list()
+for (pop in c("CP", "GF")) {
+  sub_df <- dist_npop %>% filter(population_group == pop)
+  n_yes <- sum(sub_df$matched == "Yes")
+
+  # Calculate counts per group (matched)
+  counts <- sub_df %>% count(matched)
+  
+  # Find sample size per group: minimum between n_yes and group's count
+  sample_sizes <- counts %>%
+    mutate(sample_n = pmin(n, n_yes)) %>%
+    select(matched, sample_n)
+  
+  # Sample accordingly
+  sub_df_balanced <- sub_df %>%
+    group_by(matched) %>%
+    group_modify(~ {
+      n_to_sample <- sample_sizes %>% filter(matched == .y$matched) %>% pull(sample_n)
+      slice_sample(.x, n = n_to_sample)
+    }) %>%
+    ungroup()
+
+  res <- plot_brays_box(sub_df_balanced, "NP vs OP")
+  plot_list_box[[pop]] <- res$plots[[pop]]
+}
+
+
+# Assign updated titles manually
+plot_list_box[["CP"]] <- plot_list_box[["CP"]] 
+plot_list_box[["GF"]] <- plot_list_box[["GF"]] 
+# Combine plots
+final_plot_box <- plot_list_box[["CP"]] + plot_list_box[["GF"]] +
+  patchwork::plot_layout(ncol = 2) +
+  patchwork::plot_annotation(tag_levels = "A")
+
+final_plot_box
+
+```
+# Compare the within-individual BC distances
+```{r}
+# 1. Subset to only within-individual comparisons (matched == "Yes")
+within_indiv_df <- dist_npop %>%
+  filter(matched == "Yes", population_group %in% c("CP", "GF"))
+
+# 2. Wilcoxon rank-sum test (non-parametric)
+wilcox_test_result <- wilcox.test(
+  bray ~ population_group,
+  data = within_indiv_df,
+  exact = FALSE
+)
+
+# 3. View result
+wilcox_test_result # p val = 0.8346 - no significant difference between the two populations in the within-individual BC dissimilarities
+
+
+
+plot_within_indiv_comparison <- function(data) {
+  sub_df <- data %>%
+    filter(matched == "Yes", population_group %in% c("CP", "GF"))
+  
+  wt <- wilcox.test(bray ~ population_group, data = sub_df, exact = FALSE)
+  
+  label <- ifelse(
+    wt$p.value < 0.001,
+    "italic(p) < 0.001",
+    paste0("italic(p) == ", sprintf('%.3f', wt$p.value))
+  )
+  
+  whiskers <- sub_df %>%
+    group_by(population_group) %>%
+    summarise(
+      whisker_low = boxplot.stats(bray)$stats[1],
+      whisker_high = boxplot.stats(bray)$stats[5]
+    )
+  
+  y_min <- min(whiskers$whisker_low, na.rm = TRUE)
+  raw_y_max <- max(whiskers$whisker_high, na.rm = TRUE)
+  
+  # Increase y_max a bit more to leave room for p-value label
+  y_max <- min(1, raw_y_max) 
+  y_max_extended <- y_max + 0.03 * (y_max - y_min)  # extend upper y-limit by 3%
+  
+  box_height <- y_max_extended - y_min
+  tip_length_adjusted <- 0.005 * box_height
+  pval_y_pos <- y_max_extended - 0.01 * box_height
+  
+  p <- ggplot(sub_df, aes(x = population_group, y = bray, fill = population_group)) +
+    geom_boxplot(alpha = 0.7, outlier.shape = NA) +
+    scale_fill_manual(values = c("CP" = "#e3bd6a", "GF" = "#76b6a4")) +
+    scale_x_discrete(labels = c("CP" = "Residents", "GF" = "Goat farmers")) +
+    coord_cartesian(ylim = c(y_min, y_max_extended)) +
+    labs(
+      x = "Population",
+      y = "Bray–Curtis dissimilarity"
+    ) +
+    theme_minimal(base_size = 12) +
+    theme(legend.position = "none")
+  
+  p <- p + ggsignif::geom_signif(
+    annotations = label,
+    y_position = pval_y_pos,
+    xmin = 1,
+    xmax = 2,
+    tip_length = tip_length_adjusted,
+    parse = TRUE
+  )
+  
+  return(p)
+}
+# Call the function
+within_indiv_plot <- plot_within_indiv_comparison(dist_npop)
+```
+# Patchwork figures for supplement
+```{r}
+library(patchwork)
+
+# Assuming plot_list_box[["CP"]] and plot_list_box[["GF"]] exist,
+# and within_indiv_plot is generated as you showed.
+
+# Top row: 2 plots side-by-side
+top_row <- plot_list_box[["CP"]] + plot_list_box[["GF"]] + 
+  patchwork::plot_layout(ncol = 2)
+
+# Combine top row with the within-indiv plot below (1 column)
+final_combined_plot <- top_row / within_indiv_plot + 
+  patchwork::plot_layout(heights = c(1, 0.8)) + 
+  patchwork::plot_annotation(
+    tag_levels = "A",
+    theme = theme(
+      plot.tag = element_text(face = "bold", size = 13)
+    )
+  )
+
+# Display combined plot
+print(final_combined_plot)
+
+# Optional: save to file
+ggsave("../Output/Within_vs_between/Combined_NP_OP_WithinIndiv.png", 
+       final_combined_plot, width = 7, height = 8.5)
+
+ggsave("../Output/Within_vs_between/Combined_NP_OP_WithinIndiv.svg", 
+       final_combined_plot, width = 7, height = 8.5)
+
+```
+
