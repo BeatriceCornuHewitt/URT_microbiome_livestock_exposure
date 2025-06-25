@@ -1,0 +1,1998 @@
+---
+title: "Harmonising VGO3 population metadata"
+author: "Beatrice Cornu Hewitt" 
+date: "`r Sys.time()`"
+---
+
+# Packages
+```{r}
+# Functions for script
+source("functions.R")
+
+# List of required packages
+required_packages <- c(
+  "dplyr", "openxlsx", "tidyr", "epxToR", "tidyverse", "dplyr", 
+  "readxl", "writexl", "openxlsx", "XML"
+)
+# Install missing packages
+install_if_missing(required_packages)
+# Load all required packages
+lapply(required_packages, library, character.only = TRUE)
+```
+
+# CONTROL POPULATION
+## CP data input
+```{r}
+# Input: 
+  # 1. fieldwork questionnaire
+  # 2. fieldwork form
+  # 3. Online questionnaire 
+
+# 1: Field questionnaire  
+field_q <- read.csv("O:/DGK/IRAS/EEPI/Projects/VGO/VGO3_2tm3_4__gezondheid/Data/controle_populatie/Data_analyse/VGO3_CP_R_project/Cleaned data/VGO-3_CP_fieldquest_20220909.csv")
+field_q <- field_q %>% 
+  dplyr::rename(ID=fuhbid) %>% 
+  dplyr::select(-X)
+field_q$ID <- as.character(field_q$ID)
+length(unique(field_q$ID)) # 969 in the home visit questionnaire
+
+# 2: Field form 
+field_f <- read.csv("O:/DGK/IRAS/EEPI/Projects/VGO/VGO3_2tm3_4__gezondheid/Data/controle_populatie/Data_analyse/VGO3_CP_R_project/Cleaned data/VGO-3_CP_fieldform_20220909.csv")
+field_f <- field_f %>% 
+    dplyr::rename(ID=fuhbid) %>% 
+    dplyr::select(-X) 
+field_f$ID <- as.character(field_f$ID)
+length(unique(field_f$ID)) # 969 visited at home 
+
+length(unique(field_f$ID[field_f$fuhbfspirodone == "1"])) # 922 with spirometry done
+length(unique(field_f$ID[field_f$fuhbfserumdone == "1"])) # 930 with serum done
+
+# 3: Online questionnaire
+OQ <- read.xlsx("O:/DGK/IRAS/EEPI/Projects/VGO/VGO3_2tm3_4__gezondheid/Data/controle_populatie/Data_analyse/VGO3_CP_R_project/Cleaned data/VGO3_CP_OnlineQuest_joined_not_cleaned_20221017.xlsx")
+OQ$ID <- as.character(OQ$ID) # Change ID from numeric to character variable
+length(unique(OQ$ID)) # 1071 completed online questionnaire
+
+# 3 datasets to extract info from: field_f, field_q and OQ
+# Variable names: 'fuhb...' means from the field_q or field_f datasets, 'fu...' means from the OQ
+# Check for duplicates in the field_q dataset based on the ID column
+duplicated_ids_field_q <- field_q$ID[duplicated(field_q$ID)] # 13852 is duplicated 
+duplicated_ids_field_f <- field_f$ID[duplicated(field_f$ID)] # 13852 is duplicated 
+duplicated_ids_OQ <- OQ$ID[duplicated(OQ$ID)] # No duplicates 
+# Participant 13852 was visited twice because of antibiotic use during the initial visit, remove the data for the first visit
+
+# Convert date of visit to date format
+field_q$fuhbdate <- as.Date(field_q$fuhbdate, format = "%Y-%m-%d")
+field_f$fuhbdate <- as.Date(field_f$fuhbdate, format = "%Y-%m-%d")
+
+# Function to remove duplicates based on fuhbdate
+remove_duplicates <- function(data, duplicated_ids) {
+  for (id in duplicated_ids) {
+    duplicated_rows <- data[data$ID == id, ]
+    max_date <- max(duplicated_rows$fuhbdate)
+    cleaned_row <- duplicated_rows[duplicated_rows$fuhbdate == max_date, ]
+    data <- data[!(data$ID == id), ]
+    data <- rbind(data, cleaned_row)
+  }
+  return(data)
+}
+
+# Remove duplicates for field_q and field_f
+field_q <- remove_duplicates(field_q, duplicated_ids_field_q)
+field_f <- remove_duplicates(field_f, duplicated_ids_field_f)
+print(field_q)
+print(field_f)
+# 969 participants now (1 row for participant 13852 removed (with earlier visit date))
+
+# Merge field_q and field_f on 'ID'
+merged_df <- merge(field_q, field_f, by = "ID", all.x = TRUE, suffixes = c("", ""))
+
+# Merge the field data with OQ on 'ID' 
+CP_metadata_all <- merge(merged_df, OQ, by = "ID", all.x = TRUE, suffixes = c("", ""))
+
+# Exclude duplicate columns - some columns are the same in the field_f, field_q and OQ
+CP_metadata_all_filt <- CP_metadata_all[!duplicated(colnames(CP_metadata_all))] # 235 variables remaining
+CP_metadata_all_filt %>%
+  filter(fuhbforodone == "0" & fuhbfnasodone == "0") %>%
+  summarise(unique_id_count = n_distinct(ID)) # 6 without OP or NP done
+
+```
+## CP data cleaning
+```{r}
+# Remove some unnecessary data columns from the OQ dataset:
+# "fulyantibiotic", "fulyantibioticmonth", "fulyantibioticyear", "fulyantibioticname": This data on antibiotic usage was taken from the online questionnaire (not at the same time as the field visit), however it does contain information on the type of antibiotic which the fieldwork questionnaire does not - therefore I will keep this metadata and make is obvious which data comes from the fieldwork forma and which is from the online questionnaire. 
+# "fucovidinf": same as fieldwork questinnaire questions about covid19 (fuhbcovidinf and fuhbcovposdate) - better to use fieldwork data
+# "fuabroadlm", "fuabrcnt1txt", "fuabrcnt1nxd", "fuabrcnt2txt", "fuabrcnt2nxd": All this data is related to travelling abroad from the online questionnarire, however since the online questionnaire was done at a different time to the sample collection, it is best we get 'abroad' information from teh field questionnaire which was done at the same time as the sample collection. This does not however contain info on the countries visited, but since dates of OQ and home visit don't match, this data will not be accurate. 
+variables_to_remove <- c("fupconsent", "datumt00", "datumt01", "datumt02", "datumt03", "datumt04", "datumt05", "datumt06", "furemarks", "fuhbcontra", "fuhbcontra1", "fuhbcontra2", "fuhbcontra3", "fuhbcontratest", "fuhbidcheck", "fuhbdate_c", "fuhbfheightmeter", "fuhbfscale", "fucovidinf", "fuabroadlm", "fuabrcnt1txt", "fuabrcnt1nxd", "fuabrcnt2txt", "fuabrcnt2nxd")
+
+CP_metadata_final <- CP_metadata_all_filt[, !names(CP_metadata_all_filt) %in% variables_to_remove]
+# Find variables containing 'date' in their names
+date_variables <- grep("date", names(CP_metadata_final), value = TRUE)
+# These are all character variables (except fuhbdate which was already converted)
+# Some of the dates are in the format YYYY-MM-DD but some are DD-MM-YYYY
+# Define the current date formats for each variable
+date_formats <- c(
+  "fuhbbdate" = "%Y-%m-%d",
+  "fuhbpneumonialydate" = "%d-%m-%Y",
+  "fuhbacawinflydate" = "%d-%m-%Y",
+  "fuhbcovposdate" = "%Y-%m-%d",
+  "fuhbcovsusdate" = "%d-%m-%Y",
+  "fuhbvaccovdate1" = "%Y-%m-%d",
+  "fuhbvaccovdate2" = "%Y-%m-%d",
+  "fuhbantiblydate" = "%Y-%m-%d",
+  "fuhbantacidlydate" = "%Y-%m-%d",
+  "fuhbvaccovdate3" = "%d-%m-%Y",
+  "fuquestdate" = "%Y-%m-%d"
+)
+
+# Convert variables to date format
+for (var in date_variables) {
+  CP_metadata_final[[var]] <- as.Date(CP_metadata_final[[var]], format = date_formats[var])
+}
+# Now all have been converted to date format in the format yyyy-mm-dd
+
+# Check that all dates are correct by checking structure of dates present
+date_variables <- grep("date", names(CP_metadata_final), value = TRUE)
+variables_to_check <- date_variables
+
+# Loop through each variable
+for (variable in variables_to_check) {
+  # Get indices of rows where the year is not in 2020, 2021, or 2022, ignoring NA values
+  rows_with_non_2020_2021_2022 <- which(!is.na(CP_metadata_final[[variable]]) &
+                                        !(format(CP_metadata_final[[variable]], "%Y") %in% c("2020", "2021", "2022")))
+  
+  # Print variable name, rows with non-2020-2022 values, and corresponding values as formatted dates
+  if (length(rows_with_non_2020_2021_2022) > 0) {
+    cat("Variable:", variable, "\n")
+    for (row_index in rows_with_non_2020_2021_2022) {
+      value <- format(CP_metadata_final[[variable]][row_index], "%Y-%m-%d")
+      cat("Row:", row_index, ", Value:", value, "\n")
+    }
+    cat("\n")
+  }
+}
+
+# This prints the date values that are not in 2020, 2021 or 2022 
+# Manually change these values 
+# Variable: fuhbpneumonialydate 
+# Row: 198 , Value: 2015-08-01 
+CP_metadata_final$fuhbpneumonialy[198] # no pneumonia reported 
+CP_metadata_final$fuhbpneumonialydate[198] <- NA # change date value to NA for this participant as no pneumonia reported
+
+# Variable: fuhbacawinflydate 
+# Row: 339 , Value: 2005-09-01 
+CP_metadata_final$fuhbacawinfly[339] # patient did not have an acute respiratory infection in the last year 
+CP_metadata_final$fuhbacawinflydate[339] <- NA # change date value to NA for this participant as no acute respiratory infection reported
+# Row: 566 , Value: 0201-11-01 - must mean 2021
+CP_metadata_final$fuhbacawinfly[566] # patient did have an acute respiratory infection in the last year 
+CP_metadata_final$fuhbacawinflydate[566] <- as.Date('2021-11-01')
+
+# Variable: fuhbcovposdate 
+# Row: 133 , Value: 0202-02-27 - 0202 must mean 2020
+CP_metadata_final$fuhbcovposdate[133] <- as.Date('2020-02-27')
+# Row: 352 , Value: 0221-02-07  - 0221 must mean 2021
+CP_metadata_final$fuhbcovposdate[352] <- as.Date('2021-02-07')
+# Row: 694 , Value: 0201-09-01 - 0201 must mean 2021
+CP_metadata_final$fuhbcovposdate[694] <- as.Date('2021-09-01')
+
+# Variable: fuhbcovsusdate 
+# Row: 621 , Value: 2929-03-01 - Assume 2929 means 2020 - change to 2020
+CP_metadata_final$fuhbcovsusdate[621] <- as.Date('2020-03-01')
+
+# Variable: fuhbvaccovdate1 
+# Row: 860 , Value: 0201-04-25 - must mean 2021
+CP_metadata_final$fuhbvaccovdate1[860] <- as.Date('2021-04-25')
+
+# Variable: fuhbvaccovdate2 
+# Row: 4 , Value: 0210-06-05 - must mean 2021
+CP_metadata_final$fuhbvaccovdate2[4] <- as.Date('2021-06-05')
+# Row: 49 , Value: 0222-01-05 - must mean 2022
+CP_metadata_final$fuhbvaccovdate2[49] <- as.Date('2022-01-05')
+# Row: 106 , Value: 0210-07-15 - must mean 2021
+CP_metadata_final$fuhbvaccovdate2[106] <- as.Date('2021-07-15')
+# Row: 373 , Value: 0210-05-21 - must mean 2021
+CP_metadata_final$fuhbvaccovdate2[373] <- as.Date('2021-05-21')
+# Row: 520 , Value: 0210-07-17 - must mean 2021
+CP_metadata_final$fuhbvaccovdate2[520] <- as.Date('2021-07-17')
+# Row: 766 , Value: 0210-07-19 - must mean 2021
+CP_metadata_final$fuhbvaccovdate2[766] <- as.Date('2021-07-19')
+# Row: 837 , Value: 0211-06-02 - must mean 2021
+CP_metadata_final$fuhbvaccovdate2[837] <- as.Date('2021-06-02')
+# Row: 843 , Value: 0210-05-23 - must mean 2021
+CP_metadata_final$fuhbvaccovdate2[843] <- as.Date('2021-05-23')
+# Row: 899 , Value: 0210-05-30- must mean 2021
+CP_metadata_final$fuhbvaccovdate2[899] <- as.Date('2021-05-30')
+
+# Variable: fuhbantiblydate 
+# Row: 218 , Value: 1950-07-01 
+CP_metadata_final$fuhbantibly[218] # no antibiotic use reported in OQ
+# Change this date to NA
+CP_metadata_final$fuhbantiblydate[218] <- NA
+
+# Row: 566 , Value: 0201-07-01 - must mean 2021
+CP_metadata_final$fuhbantibly[566] # yes this participant had antibiotics 
+CP_metadata_final$fuhbantiblydate[566] <- as.Date('2021-07-01')
+
+# Variable: fuhbantacidlydate 
+# Row: 74 , Value: 0202-09-02 - must mean 2020 
+CP_metadata_final$fuhbantacidly[74] # yes this participant had antibiotics 
+CP_metadata_final$fuhbantacidlydate[74] <- as.Date('2020-09-02')
+
+# Row: 881 , Value: 2011-08-01 - must mean 2021
+CP_metadata_final$fuhbantacidly[881] # yes this participant had antibiotics 
+CP_metadata_final$fuhbantacidlydate[881] <- as.Date('2021-08-01')
+
+# Variable: fuquestdate 
+# Row: 877 , Value: 1973-02-08 
+as.Date(CP_metadata_all$datumt01[877]) # Checking dates in previous dataframe which contains dates from completion of other parts of the questionnaire, the date is 2022-04-08, change to this 
+CP_metadata_final$fuquestdate[877] <- as.Date('2022-04-08')
+
+# Gender
+# Some gender information is missing from fugender (from OQ data) but there is also gender info from the field data (fuhbgender) - delete fugender
+CP_metadata_final <- CP_metadata_final[, !colnames(CP_metadata_final) %in% 'fugender']
+
+# Age is missing for some CPs from the OQ (fuage) 
+# Calculate age from the field data: birthdate (fuhbbdate) and date of sampling (fuhbdate)
+CP_metadata_final$age <- round(as.numeric(difftime(CP_metadata_final$fuhbdate, CP_metadata_final$fuhbbdate, units = "days")) / 365.25)
+# Remove fuage column (from the OQ)
+CP_metadata_final <- CP_metadata_final[, !colnames(CP_metadata_final) %in% 'fuage']
+# Remove fuhbbdate column
+CP_metadata_final <- CP_metadata_final[, !colnames(CP_metadata_final) %in% 'fuhbbdate']
+
+# Dichotomise some variables: 
+# smoke_ever status - where: 0=no, 1=ex-smoker , 2=smoker, use the same code for the CP
+CP_metadata_final$fusmokeever <- ifelse(CP_metadata_final$fusmokeever == "no", "0", ifelse(CP_metadata_final$fusmokeever == "yesstop", "1", ifelse(CP_metadata_final$fusmokeever == "yes", "2", CP_metadata_final$fusmokeever)))
+
+# Add population column to dataframe
+CP_metadata_final$population <- "CP"
+
+VGO3_CP_metadata_clean <- CP_metadata_final
+
+```
+
+## CP multiplex metadata (for Inge)
+```{r}
+# 200 CP who had multiplex testing 
+multiplex_CP <- read.xlsx("O:/DGK/IRAS/EEPI/Projects/VGO/VGO3_2tm3_4__gezondheid/labwerk/NP naar RIVM voor multiplex PCR/VGO3_ID_selection_naso_multiplex_n=200.xlsx" , sheet = "Samples")
+multiplex_CP <- multiplex_CP %>% rename(ID=fuhbid) # for later merging
+multiplex_CP$ID <- as.character(multiplex_CP$ID)
+
+# Identify unique IDs in the multiplex_CP dataframe
+unique_ids_multiplex <- unique(multiplex_CP$ID)
+# Filter CP_metadata_final to include only rows with IDs present in the multiplex dataset
+CP_metadata_multiplex <- CP_metadata_final[CP_metadata_final$ID %in% unique_ids_multiplex, ]
+
+# Variables for Inge Roof 
+Inge_vars_CP <- c("fuquestdate",
+             "fuhbgender", 
+             "age", 
+             "fudisimdfill",
+             "fudisimdfmed",
+             "fuasever", 
+             "fuasdd",
+             "fuascurmed",
+             "fudoctoldcopd",
+             "fudoctoldeaa",
+             "ful12mdailtycortinhaler",
+             "fupneumonia3y",
+             "fupneumoniayr",
+             "fufluvacc",
+             "fufluvaccyr",
+             "fupneumococvac",
+             "fulyantibiotic",
+             "fulyantibioticmonth",
+             "fulyantibioticyear", 
+             "fusmokeever")
+
+# Select the variables from the joined dataframe
+CP_metadata_multiplex_inge <- CP_metadata_multiplex[, c("ID", Inge_vars_CP)]
+
+# Write data and codebook to csv file
+write.csv(CP_metadata_multiplex_inge, "../Output/CP_metadata_multiplex_inge.csv")
+```
+
+# GOAT FARMERS
+## GF data input
+### GF house visit data
+
+```{r}
+# The list of files to read in:
+# ---
+# 14-07-2021 2 Verwerking vragenlijst huisbezoek geitenhouders VGO -Janssen.epx
+# 16-07-2021 Verwerking vragenlijst huisbezoek geitenhouders VGO3 -Janssen.epx
+# 20-10-2021 Verwerking Vragenlijst huisbezoek geitenhouders VGO-3 studie_07JUL2021 (2).epx
+# 19-11-2021 Verwerking Vragenlijst huisbezoek geitenhouders VGO-3 studie_07JUL2021 (1).epx
+# 20-08-2021 Verwerking Vragenlijst huisbezoek geitenhouders VGO-3 studie_07JUL2021 (1).epx
+# 18-02-2022 Verwerking Vragenlijst huisbezoek geitenhouders VGO-3 studie_07JUL2021 (3).epx
+# 30-07-2021 Verwerking Vragenlijst huisbezoek geitenhouders VGO-3 studie_07JUL2021.epx
+# 14-07-2021 1 Verwerking vragenlijst huisbezoek geitenhouders VGO -Janssen.epx
+# 4-11-2021 Verwerking Vragenlijst huisbezoek geitenhouders VGO-3 studie_07JUL2021.epx
+# 22-07-2021 Verwerking vragenlijst huisbezoek geitenhouders VGO3 - kp.epx
+# 11-02-2022 Verwerking Vragenlijst huisbezoek geitenhouders VGO-3 studie_07JUL2021 (2).epx
+# 2-12-2021 Verwerking Vragenlijst huisbezoek geitenhouders VGO-3 studie_07JUL2021 (2).epx
+# 17-12-2021 Verwerking Vragenlijst huisbezoek geitenhouders VGO-3 studie_07JUL2021.epx
+# 14-01-2022 Verwerking Vragenlijst huisbezoek geitenhouders VGO-3 studie_07JUL2021 (1).epx
+# 07-01-2022 Verwerking Vragenlijst huisbezoek geitenhouders VGO-3 studie_07JUL2021.epx
+# 12-11-2021 Verwerking Vragenlijst huisbezoek geitenhouders VGO-3 studie_07JUL2021 (1).epx
+
+# one by one
+filenames <- list.files("O:/DGK/IRAS/EEPI/Projects/VGO/VGO3_2tm3_4__gezondheid/Data/geitenhouders/data veldformulieren", pattern="*.epx")
+paste("O:/DGK/IRAS/EEPI/Projects/VGO/VGO3_2tm3_4__gezondheid/Data/geitenhouders/data veldformulieren", filenames, sep="/")
+
+huisvrgl1 <- read.epx("O:/DGK/IRAS/EEPI/Projects/VGO/VGO3_2tm3_4__gezondheid/Data/geitenhouders/data veldformulieren/14-07-2021 2 Verwerking vragenlijst huisbezoek geitenhouders VGO -Janssen.epx")
+huisvrgl1 <- as.data.frame(huisvrgl1)
+
+huisvrgl2 <- read.epx("O:/DGK/IRAS/EEPI/Projects/VGO/VGO3_2tm3_4__gezondheid/Data/geitenhouders/data veldformulieren/16-07-2021 Verwerking vragenlijst huisbezoek geitenhouders VGO3 -Janssen.epx")
+huisvrgl2 <- as.data.frame(huisvrgl2)
+
+huisvrgl3 <- read.epx("O:/DGK/IRAS/EEPI/Projects/VGO/VGO3_2tm3_4__gezondheid/Data/geitenhouders/data veldformulieren/20-10-2021 Verwerking Vragenlijst huisbezoek geitenhouders VGO-3 studie_07JUL2021 (2).epx")
+huisvrgl3 <- as.data.frame(huisvrgl3)
+
+huisvrgl4 <- read.epx("O:/DGK/IRAS/EEPI/Projects/VGO/VGO3_2tm3_4__gezondheid/Data/geitenhouders/data veldformulieren/19-11-2021 Verwerking Vragenlijst huisbezoek geitenhouders VGO-3 studie_07JUL2021 (1).epx")
+huisvrgl4 <- as.data.frame(huisvrgl4)
+
+huisvrgl5 <- read.epx("O:/DGK/IRAS/EEPI/Projects/VGO/VGO3_2tm3_4__gezondheid/Data/geitenhouders/data veldformulieren/20-08-2021 Verwerking Vragenlijst huisbezoek geitenhouders VGO-3 studie_07JUL2021 (1).epx")
+huisvrgl5 <- as.data.frame(huisvrgl5)
+
+huisvrgl6 <- read.epx("O:/DGK/IRAS/EEPI/Projects/VGO/VGO3_2tm3_4__gezondheid/Data/geitenhouders/data veldformulieren/18-02-2022 Verwerking Vragenlijst huisbezoek geitenhouders VGO-3 studie_07JUL2021 (3).epx")
+huisvrgl6 <- as.data.frame(huisvrgl6)
+
+huisvrgl7 <- read.epx("O:/DGK/IRAS/EEPI/Projects/VGO/VGO3_2tm3_4__gezondheid/Data/geitenhouders/data veldformulieren/30-07-2021 Verwerking Vragenlijst huisbezoek geitenhouders VGO-3 studie_07JUL2021.epx")
+huisvrgl7 <- as.data.frame(huisvrgl7)
+
+huisvrgl8 <- read.epx("O:/DGK/IRAS/EEPI/Projects/VGO/VGO3_2tm3_4__gezondheid/Data/geitenhouders/data veldformulieren/14-07-2021 1 Verwerking vragenlijst huisbezoek geitenhouders VGO -Janssen.epx")
+huisvrgl8 <- as.data.frame(huisvrgl8)
+
+huisvrgl9 <- read.epx("O:/DGK/IRAS/EEPI/Projects/VGO/VGO3_2tm3_4__gezondheid/Data/geitenhouders/data veldformulieren/4-11-2021 Verwerking Vragenlijst huisbezoek geitenhouders VGO-3 studie_07JUL2021.epx")
+huisvrgl9 <- as.data.frame(huisvrgl9)
+
+huisvrgl10 <- read.epx("O:/DGK/IRAS/EEPI/Projects/VGO/VGO3_2tm3_4__gezondheid/Data/geitenhouders/data veldformulieren/11-02-2022 Verwerking Vragenlijst huisbezoek geitenhouders VGO-3 studie_07JUL2021 (2).epx")
+huisvrgl10 <- as.data.frame(huisvrgl10)
+
+huisvrgl11 <- read.epx("O:/DGK/IRAS/EEPI/Projects/VGO/VGO3_2tm3_4__gezondheid/Data/geitenhouders/data veldformulieren/2-12-2021 Verwerking Vragenlijst huisbezoek geitenhouders VGO-3 studie_07JUL2021 (2).epx")
+huisvrgl11 <- as.data.frame(huisvrgl11)
+
+huisvrgl12 <- read.epx("O:/DGK/IRAS/EEPI/Projects/VGO/VGO3_2tm3_4__gezondheid/Data/geitenhouders/data veldformulieren/17-12-2021 Verwerking Vragenlijst huisbezoek geitenhouders VGO-3 studie_07JUL2021.epx")
+huisvrgl12 <- as.data.frame(huisvrgl12)
+
+huisvrgl13 <- read.epx("O:/DGK/IRAS/EEPI/Projects/VGO/VGO3_2tm3_4__gezondheid/Data/geitenhouders/data veldformulieren/14-01-2022 Verwerking Vragenlijst huisbezoek geitenhouders VGO-3 studie_07JUL2021 (1).epx")
+huisvrgl13 <- as.data.frame(huisvrgl13)
+
+huisvrgl14 <- read.epx("O:/DGK/IRAS/EEPI/Projects/VGO/VGO3_2tm3_4__gezondheid/Data/geitenhouders/data veldformulieren/07-01-2022 Verwerking Vragenlijst huisbezoek geitenhouders VGO-3 studie_07JUL2021.epx")
+huisvrgl14 <- as.data.frame(huisvrgl14)
+
+huisvrgl15 <- read.epx("O:/DGK/IRAS/EEPI/Projects/VGO/VGO3_2tm3_4__gezondheid/Data/geitenhouders/data veldformulieren/12-11-2021 Verwerking Vragenlijst huisbezoek geitenhouders VGO-3 studie_07JUL2021 (1).epx")
+huisvrgl15 <- as.data.frame(huisvrgl15)
+
+#between 9 and 10 this file should have been read in;
+# 22-07-2021 Verwerking vragenlijst huisbezoek geitenhouders VGO3 - kp
+#it wasn't saved as an epx file...
+#reading it in now as item 16
+
+huisvrgl16 <- read.epx("O:/DGK/IRAS/EEPI/Projects/VGO/VGO3_2tm3_4__gezondheid/Data/geitenhouders/data veldformulieren/22-07-2021 Verwerking vragenlijst huisbezoek geitenhouders VGO3 - kp.epx")
+huisvrgl16 <- as.data.frame(huisvrgl16)
+
+# Merge 15 house visit dataframes
+huisvrgl <- full_join(huisvrgl1, huisvrgl2)
+huisvrgl <- full_join(huisvrgl, huisvrgl3)
+huisvrgl <- full_join(huisvrgl, huisvrgl4)
+huisvrgl <- full_join(huisvrgl, huisvrgl5)
+huisvrgl <- full_join(huisvrgl, huisvrgl6)
+huisvrgl <- full_join(huisvrgl, huisvrgl7)
+huisvrgl <- full_join(huisvrgl, huisvrgl8)
+huisvrgl <- full_join(huisvrgl, huisvrgl9)
+huisvrgl <- full_join(huisvrgl, huisvrgl10)
+huisvrgl <- full_join(huisvrgl, huisvrgl11)
+huisvrgl <- full_join(huisvrgl, huisvrgl12)
+huisvrgl <- full_join(huisvrgl, huisvrgl13)
+huisvrgl <- full_join(huisvrgl, huisvrgl14)
+huisvrgl <- full_join(huisvrgl, huisvrgl15)
+huisvrgl <- full_join(huisvrgl, huisvrgl16)
+
+
+# Rename fughbid to ID for later merge 
+huisvrgl <-   dplyr::rename(huisvrgl, ID = fughbid)
+
+# Check for duplicate participants 
+# Find duplicated rows based on ID value
+duplicated_rows <- huisvrgl %>%
+  group_by(ID) %>%
+  filter(n() > 1) %>% 
+  arrange(ID)
+
+duplicated_ids_huisvrgl <- huisvrgl$ID[duplicated(huisvrgl$ID)]
+# There are 3 GFs that are duplicated (40138 40080 40299 40067 40067) in the home visit questionnaire - possibly visited more than once? 
+
+# Check if rows are the same for each duplicated ID
+for (id in duplicated_ids_huisvrgl) {
+  duplicated_rows <- huisvrgl[huisvrgl$ID == id, ]
+  if (nrow(unique(duplicated_rows)) == 1) {
+    cat("All rows for ID", id, "are the same.\n")
+  } else {
+    cat("Rows for ID", id, "are not all the same.\n")
+    # Get columns with different values
+    different_columns <- colnames(huisvrgl)[apply(duplicated_rows, 2, function(x) length(unique(x)) > 1)]
+    cat("Different columns:", paste(different_columns, collapse = ", "), "\n")
+  }
+}
+# For 3 of the 4 duplicated participants, the rows do not have the same data (40138 40080 40299)
+
+# Rows for ID 40138 are not all the same. Different columns: fughbhealthremarktxt 
+# Rows for ID 40080 are not all the same. Different columns: fughbanimcontlmchicken, fughbantibly, fughbantiblydate, fughbcovsusdate, fughbkidsdfirst, fughbkidsdlast, fughbpneumonialydate, fughbremarks, fughbvaccov, X.acenocoumarol....MH..vragenlijst.uit.december..dus.niet.alle.gegevens.die.hier.moeten.worden.ingevuld.zijn.aanwezig. 
+# Rows for ID 40299 are not all the same. Different columns: fughbacawinfly, fughbanimcontlmcat, fughbantibly, fughbantiblydate, fughbbdate, fughbcovidinf, fughbcovposdate, fughbdate, fughbfldwrkr, fughbgender, fughbhealthremarks, fughbhealthremarktxt, fughbkids, fughbkidsdlast, fughbremarks, fughbspcltsk, fughbspcltskd, fughbspcltsktxt, fughbvaccov, fugvaccovdate1 
+# All 3 rows for ID 40067 are the same.
+
+# Participant 40067. there are 3 entries all the same for ID 40067. delete 2, keep 1.
+huisvrgl_noduplicates <- huisvrgl
+huisvrgl_noduplicates <- huisvrgl %>%
+  filter(!(duplicated(ID) & ID == 40067))
+
+# Check date of visits for duplicated IDs
+duplicated_rows$fughbdate # "2020-12-18" "2020-12-18" "2021-08-16" "2021-08-16" "2021-11-18" "2021-12-21" The date of visit was only different for participant ID 40299. 
+
+# Participant 40138
+# All variables are the same except "fughbhealthremarktxt"
+duplicated_rows$fughbhealthremarktxt
+participant_40138_data <- duplicated_rows[duplicated_rows$ID == "40138", ]
+participant_40138_data[c("fughbhealthremarktxt")]
+
+# This is: "Chronic arrhythmia" spelled in a different way, therefore delete one row for this participant
+huisvrgl_noduplicates <- huisvrgl_noduplicates %>%
+  slice(-which(duplicated(ID) & ID == 40138)) # 99 rows now, 1 removed
+
+# Participant 40080
+# Different columns: fughbanimcontlmchicken, fughbantibly, fughbantiblydate, fughbcovsusdate, fughbkidsdfirst, fughbkidsdlast, fughbpneumonialydate, fughbremarks, fughbvaccov, X.acenocoumarol....MH..vragenlijst.uit.december..dus.niet.alle.gegevens.die.hier.moeten.worden.ingevuld.zijn.aanwezig. 
+# Date is not different, neither is birthdate, so this is likely a duplicate of the same GF somehow.
+# Manually inspect the different variables
+huisvrgl[huisvrgl$ID=="40080",]
+participant_40080_data <- duplicated_rows[duplicated_rows$ID == 40080, ]
+# Extracting values in the order they appear
+participant_40080_data[c("fughbanimcontlmchicken", "fughbantibly", "fughbantiblydate", "fughbcovsusdate", "fughbkidsdfirst", "fughbkidsdlast", "fughbpneumonialydate", "fughbremarks", "fughbvaccov", "X.acenocoumarol....MH..vragenlijst.uit.december..dus.niet.alle.gegevens.die.hier.moeten.worden.ingevuld.zijn.aanwezig.")]
+# fughbanimcontlmchicken = Ja, Nee 
+# fughbantibly = Nee, Ja 
+# fughbantiblydate = NA, 2020-01-01
+# fughbcovsusdate = NA, 2020-04-01
+# fughbkidsdfirst = 2021-07-02, NA 
+# fughbkidsdlast = 2021-07-03, NA 
+# fughbpneumonialydate = NA, 1960-01-01	(n.b this date is before date of birth)
+# fughbremarks = NA", "Wij hebben zelf melkgeiten, maar wonen circa 100 meter van een biogasinstallatie waar allerlei producten opgelost worden, waaronder ook stoffige producten die over ons erf waaien en dikte fractie van runderdrijfmest uit omliggende dorpen. Ook leven en werken wij onder hoogspanningskabels. MH: vragenlijst uit december, dus niet alle gegevens die hier moeten worden ingevuld waren aanwezig. Ook geeft respondent aan voor het laatst een acute luchtweginfectie te hebben gehad in het geboortejaar, dus dat is opvallend."
+# fughbvaccov = NA, Nee
+# X.acenocoumarol....MH..vragenlijst.uit.december..dus.niet.alle.gegevens.die.hier.moeten.worden.ingevuld.zijn.aanwezig. = <lgl [1]>, <NULL> # Not sure this is a real variable, shoudl remove later I think
+# Check some other data before making a decision
+participant_40080_data$fughbbdate # same birthdate
+participant_40080_data$fughbpneumonialy # No pneumonia
+# From looking at this evidence I believe that the second row for this participant is the 'real'data. However, I don't believe the fughbpneumonialydate variable (it is before the GFs date of birth, and not in the last year as the question asks. 
+# I will exclude the first row for participant 40080 and keep the 2nd row, but I will change the fughbpneumonialydate variable to NA
+huisvrgl_noduplicates <- huisvrgl_noduplicates %>%
+  filter(!(ID == 40080 & fughbanimcontlmchicken == 'Ja')) # Now 98 rows
+# Change the value of fughbpneumonialydate variable for participant 40080 from 1960-01-01 to NA
+huisvrgl_noduplicates <- huisvrgl_noduplicates %>%
+  mutate(fughbpneumonialydate = ifelse(ID == 40080, "NA", fughbpneumonialydate))
+
+
+# Participant 40299
+# Different columns: fughbacawinfly, fughbanimcontlmcat, fughbantibly, fughbantiblydate, fughbbdate, fughbcovidinf, fughbcovposdate, fughbdate, fughbfldwrkr, fughbgender, fughbhealthremarks, fughbhealthremarktxt, fughbkids, fughbkidsdlast, fughbremarks, fughbspcltsk, fughbspcltskd, fughbspcltsktxt, fughbvaccov, fugvaccovdate1 
+# This is alarming as birthdate, gender, visit date and other key identifiers are different
+# Indication that these are 2 different participants and one has been labelled with the incorrect ID number
+# Aniek and Bea looked into this together by looking at the raw input questionnaire data
+# Deduced that one of these labelled 40299 is in fact participant 40127, (fughbdate on 21/12/2021)
+# rename the ID for this participant to 40127
+# Find the index of the row that matches the conditions
+index_to_update <- which(huisvrgl_noduplicates$ID == '40299' & huisvrgl_noduplicates$fughbdate == '2021-12-21')
+# Update the ID value for that row
+if (length(index_to_update) > 0) {
+  huisvrgl_noduplicates$ID[index_to_update] <- '40127'
+} else {
+  print("No participant found with ID '40299' and fughbdate '2021-12-21'")
+}
+
+
+duplicated(huisvrgl_noduplicates$ID)# duplicates remaining
+
+# Fieldwork questionnaire data contains 98 goat farmers
+```
+
+### GF online questionnaire
+
+```{r}
+#  online - read data from folder
+# From folder goat keepers and from folder employees
+# O:/DGK/IRAS/EEPI/Projects/VGO/VGO3_2tm3_4__gezondheid/Data/geitenhouders/data online vragenlijst/Geitenhouders/xlsx
+# O:/DGK/IRAS/EEPI/Projects/VGO/VGO3_2tm3_4__gezondheid/Data/geitenhouders/data online vragenlijst/Werknemers/xlsx 
+
+webvrglgh1 <- read_excel("O:/DGK/IRAS/EEPI/Projects/VGO/VGO3_2tm3_4__gezondheid/Data/geitenhouders/data online vragenlijst/Geitenhouders/xlsx/VGO3_geit_t00participation_20220826.xlsx")
+webvrglgh1 <- as.data.frame(webvrglgh1)
+
+webvrglgh2 <- read_excel("O:/DGK/IRAS/EEPI/Projects/VGO/VGO3_2tm3_4__gezondheid/Data/geitenhouders/data online vragenlijst/Geitenhouders/xlsx/VGO3_geit_t01general_20220826.xlsx")
+webvrglgh2 <- as.data.frame(webvrglgh2)
+
+webvrglgh3 <- read_excel("O:/DGK/IRAS/EEPI/Projects/VGO/VGO3_2tm3_4__gezondheid/Data/geitenhouders/data online vragenlijst/Geitenhouders/xlsx/VGO3_geit_t02health01_20220826.xlsx")
+webvrglgh3 <- as.data.frame(webvrglgh3)
+
+webvrglgh4 <- read_excel("O:/DGK/IRAS/EEPI/Projects/VGO/VGO3_2tm3_4__gezondheid/Data/geitenhouders/data online vragenlijst/Geitenhouders/xlsx/VGO3_geit_t03health02_20220826.xlsx")
+webvrglgh4 <- as.data.frame(webvrglgh4)
+
+webvrglgh5 <- read_excel("O:/DGK/IRAS/EEPI/Projects/VGO/VGO3_2tm3_4__gezondheid/Data/geitenhouders/data online vragenlijst/Geitenhouders/xlsx/VGO3_geit_t04reside_20220826.xlsx")
+webvrglgh5 <- as.data.frame(webvrglgh5)
+
+webvrglgh6 <- read_excel("O:/DGK/IRAS/EEPI/Projects/VGO/VGO3_2tm3_4__gezondheid/Data/geitenhouders/data online vragenlijst/Geitenhouders/xlsx/VGO3_geit_t05occupation_20220826.xlsx")
+webvrglgh6 <- as.data.frame(webvrglgh6)
+
+webvrglgh7 <- read_excel("O:/DGK/IRAS/EEPI/Projects/VGO/VGO3_2tm3_4__gezondheid/Data/geitenhouders/data online vragenlijst/Geitenhouders/xlsx/VGO3_geit_t06smoking_20220826.xlsx")
+webvrglgh7 <- as.data.frame(webvrglgh7)
+
+#werknemer
+webvrglwn1 <- read_excel("O:/DGK/IRAS/EEPI/Projects/VGO/VGO3_2tm3_4__gezondheid/Data/geitenhouders/data online vragenlijst/Werknemers/xlsx/VGO3_geitwn_t00participation.xlsx")
+webvrglwn1 <- as.data.frame(webvrglwn1)
+
+webvrglwn2 <- read_excel("O:/DGK/IRAS/EEPI/Projects/VGO/VGO3_2tm3_4__gezondheid/Data/geitenhouders/data online vragenlijst/Werknemers/xlsx/VGO3_geitwn_t01general.xlsx")
+webvrglwn2 <- as.data.frame(webvrglwn2)
+
+webvrglwn3 <- read_excel("O:/DGK/IRAS/EEPI/Projects/VGO/VGO3_2tm3_4__gezondheid/Data/geitenhouders/data online vragenlijst/Werknemers/xlsx/VGO3_geitwn_t02health01.xlsx")
+webvrglwn3 <- as.data.frame(webvrglwn3)
+
+webvrglwn4 <- read_excel("O:/DGK/IRAS/EEPI/Projects/VGO/VGO3_2tm3_4__gezondheid/Data/geitenhouders/data online vragenlijst/Werknemers/xlsx/VGO3_geitwn_t03health02.xlsx")
+webvrglwn4 <- as.data.frame(webvrglwn4)
+
+webvrglwn5 <- read_excel("O:/DGK/IRAS/EEPI/Projects/VGO/VGO3_2tm3_4__gezondheid/Data/geitenhouders/data online vragenlijst/Werknemers/xlsx/VGO3_geitwn_t04reside.xlsx")
+webvrglwn5 <- as.data.frame(webvrglwn5)
+
+webvrglwn6 <- read_excel("O:/DGK/IRAS/EEPI/Projects/VGO/VGO3_2tm3_4__gezondheid/Data/geitenhouders/data online vragenlijst/Werknemers/xlsx/VGO3_geitwn_t05occupation.xlsx")
+webvrglwn6 <- as.data.frame(webvrglwn6)
+
+webvrglwn7 <- read_excel("O:/DGK/IRAS/EEPI/Projects/VGO/VGO3_2tm3_4__gezondheid/Data/geitenhouders/data online vragenlijst/Werknemers/xlsx/VGO3_geitwn_t06smoking.xlsx")
+webvrglwn7 <- as.data.frame(webvrglwn7)
+
+# Merging online questionnaires GH and WN
+# Merge goat farmers first
+webvrglgh <- full_join(webvrglgh1, webvrglgh2, by="ID")
+webvrglgh <- full_join(webvrglgh, webvrglgh3, by="ID")
+webvrglgh <- full_join(webvrglgh, webvrglgh4, by="ID")
+webvrglgh <- full_join(webvrglgh, webvrglgh5, by="ID")
+webvrglgh <- full_join(webvrglgh, webvrglgh6, by="ID")
+webvrglgh <- full_join(webvrglgh, webvrglgh7, by="ID")
+# Merge employees now
+webvrglwn <- full_join(webvrglwn1, webvrglwn2, by="ID")
+webvrglwn <- full_join(webvrglwn, webvrglwn3, by="ID")
+webvrglwn <- full_join(webvrglwn, webvrglwn4, by="ID")
+webvrglwn <- full_join(webvrglwn, webvrglwn5, by="ID")
+webvrglwn <- full_join(webvrglwn, webvrglwn6, by="ID")
+webvrglwn <- full_join(webvrglwn, webvrglwn7, by="ID")
+
+# Get the names of variables in both datasets
+vars_gh <- names(webvrglgh)
+vars_wn <- names(webvrglwn)
+# Variables that are present in both datasets
+common_vars <- intersect(vars_gh, vars_wn)
+# Find variables with different structures
+different_structure_vars <- character()
+for(var_name in common_vars) {
+  class_gh <- class(webvrglgh[[var_name]])
+  class_wn <- class(webvrglwn[[var_name]])
+  
+  if (!identical(class_gh, class_wn)) {
+    different_structure_vars <- c(different_structure_vars, var_name)
+  }
+}
+different_structure_vars
+# 24 variables with different data structures in the 2 datasets
+# Convert them all to character variables data structure so merge works
+webvrglgh <- webvrglgh %>% mutate_at(vars(different_structure_vars), as.character)
+webvrglwn <- webvrglwn %>% mutate_at(vars(different_structure_vars), as.character)
+
+# Combine the data frames vertically
+webvrgl <- bind_rows(webvrglgh, webvrglwn)
+# Check for duplicate IDs 
+webvrgl$ID[duplicated(webvrgl$ID)] # none
+
+# Examine the data
+str(webvrgl)
+summary(webvrgl)
+head(webvrgl)
+colnames(webvrgl)
+
+# Online questionnaire data contains 98 goat farmers
+```
+
+### GF data merge
+```{r}
+huisvrgl_noduplicates$ID; webvrgl$ID # IDs are different in the 2 dataframes
+# Import matching online questionnaire IDs with fieldwork IDs
+ID_align <- read.xlsx("O:/DGK/IRAS/EEPI/Projects/VGO/VGO3_2tm3_4__gezondheid/Veldwerk/geitenhouders/VGO3_geit_n-x300.130_WvK.xlsx")
+ID_align <- ID_align[, c("participantID", "name")] # participantID in this df is the online questionnaire ID and "name" is the VGO3 participant ID
+
+ID_align$participantID 
+# I notice that all participant IDs in this spreadsheet are: 4013xxxx but in fact they shoudl be 4014xxxx if they are to match the online questionnaire GF IDs. Discussed with Warner and he said that he likely added 10000 to each participant ID. 
+# Replace the third character with '4' if the string starts with '401'
+ID_align <- mutate(ID_align, participantID = ifelse(substr(participantID, 1, 3) == "401", paste0(substr(participantID, 1, 3), "4", substr(participantID, 5, nchar(participantID))), participantID))
+# Confirm the changes
+head(ID_align$participantID)
+
+# Merge webvrgl with ID_align based on the common column ID
+webvrgl_newID <- merge(webvrgl, ID_align, by.x = "ID", by.y = "participantID", all.x = TRUE)
+webvrgl_newID$name # these are the VGO3 IDs 
+webvrgl_newID <- webvrgl_newID %>%
+    dplyr::select(-ID) %>%    # Remove the participantID column
+    dplyr::rename(ID = name)             # Rename the name column to ID
+
+# Check that new ID numbers are the VGO3 IDs and that they match with those in the house visit
+# Get unique IDs from huisvrgl_noduplicates
+ids_huisvrgl <- unique(huisvrgl_noduplicates$ID)
+ids_webvrgl <- unique(webvrgl_newID$ID)
+ids_only_in_huisvrgl <- setdiff(ids_huisvrgl, ids_webvrgl)
+ids_only_in_webvrgl <- setdiff(ids_webvrgl, ids_huisvrgl)
+print("IDs in huisvrgl_noduplicates but not in webvrgl_newID:")
+print(ids_only_in_huisvrgl)
+print("IDs in webvrgl_newID but not in huisvrgl_noduplicates:")
+print(ids_only_in_webvrgl)
+
+
+
+# Now join the huisvrgl with webvrgl as IDs now match
+metadatagf <- merge(huisvrgl_noduplicates, webvrgl_newID, by = "ID", all.x = TRUE, suffixes = c("", ""))
+# Quick sanity check for duplicate IDs in the dataset - should be just ID 40299 that is duplicated
+metadatagf$ID[duplicated(metadatagf$ID)] # None
+
+head(metadatagf)
+
+# # Sanity check to see if gender is the same in the OQ as the fieldwork 
+# # Check if both columns are not NA
+# # Create a function to adjust fugender values to match fughbgender
+# adjust_fugender <- function(value) {
+#   # Adjust the values to match the coding scheme of fughbgender
+#   # Replace NA values with NA
+#   ifelse(is.na(value), NA, value - 1)
+# }
+# 
+# # Adjust fugender values
+# adjusted_fugender <- adjust_fugender(metadatagf$fugender)
+# 
+# # Compare adjusted fugender with fughbgender
+# same_gender <- adjusted_fugender == metadatagf$fughbgender
+# 
+# # If one value is NA and the other is not, set the result to FALSE
+# same_gender[is.na(adjusted_fugender) & !is.na(metadatagf$fughbgender)] <- FALSE
+# same_gender[!is.na(adjusted_fugender) & is.na(metadatagf$fughbgender)] <- FALSE
+# 
+# # Print the result
+# print(same_gender)
+# print(metadatagf[!same_gender,])
+# # Gender is the same between the OQ and fieldwork data, except that some gender variables are missing in the OQ (therefore are NA)
+```
+
+## GF data cleaning
+```{r}
+# Find variables containing 'date' in their names
+date_variables_GF <- grep("date", names(metadatagf), value = TRUE)
+# These are all character variables (except fuhbdate which was already converted)
+# Some of the dates are in the format YYYY-MM-DD but some are DD-MM-YYYY
+# Define the current date formats for each variable
+str(metadatagf$fughbacawinflydate)
+str(metadatagf$fughbantacidlydate)
+str(metadatagf$fughbantiblydate)
+str(metadatagf$fughbbdate)
+str(metadatagf$fughbcovposdate)
+str(metadatagf$fughbcovsusdate)
+str(metadatagf$fughbdate)
+str(metadatagf$fughbpneumonialydate) # Needs converting to date format
+str(metadatagf$fughbvacdate2)
+str(metadatagf$fugvaccovdate1)
+str(metadatagf$fuquestdate) # this one is not a date format - convert it
+
+metadatagf$fughbpneumonialydate <- as.numeric(metadatagf$fughbpneumonialydate)
+metadatagf$fughbpneumonialydate <- as.Date(metadatagf$fughbpneumonialydate, origin = "1899-12-30")
+
+metadatagf$fuquestdate <- as.Date(metadatagf$fuquestdate, format="%y-%m-%d")
+
+# Function to convert "Nee" to 0 and "Ja" to 1
+convert_to_binary <- function(column) {
+  ifelse(column == "Nee", 0, ifelse(column == "Ja", 1, column))
+}
+
+# Columns to be converted
+columns_to_convert <- c(
+  "fughbabroadlm", "fughbacawinfly", "fughbanimcontlmbird", "fughbanimcontlmcat", 
+  "fughbanimcontlmchicken", "fughbanimcontlmcow", "fughbanimcontlmdog", 
+  "fughbanimcontlmgoat", "fughbanimcontlmhorse", "fughbanimcontlmpig", 
+  "fughbanimcontlmrodent", "fughbanimcontlmsheep", "fughbantacidly", 
+  "fughbantibly", "fughbbetablock",
+  "fughbhealthremarks", "fughbkids", "fughblungmed", "fughblungmed1m4h", 
+  "fughblungmed1m8h", "fughblungmed2m4h", "fughblungmed2m8h", 
+  "fughblungmed3m4h", "fughblungmed3m8h", "fughbpneumonialy", "fughbspcltsk"
+)
+
+# Apply the conversion function to each column
+metadatagf[columns_to_convert] <- lapply(metadatagf[columns_to_convert], convert_to_binary)
+
+# Dichotomise gender so that 0 = male and 1 = female
+metadatagf$fughbgender <- ifelse(metadatagf$fughbgender == "Man", "0",ifelse(metadatagf$fughbgender == "Vrouw", "1", metadatagf$fughbgender)) 
+
+# fughbvaccov - rename to this to: 0=no, 1=yes:Pfizer/BioNTech, 2=yes:Moderna, 3=yes:AstraZeneca, 4=yes:Janssen, 5=yes:don't know which vaccine
+metadatagf$fughbvaccov <- ifelse(metadatagf$fughbvaccov == "Nee", "0",  ifelse(metadatagf$fughbvaccov == "Ja, Pfizer,BioNTech", "1", ifelse(metadatagf$fughbvaccov == "Ja, Moderna", "2", ifelse(metadatagf$fughbvaccov == "Ja, AstraZenica", "3", ifelse(metadatagf$fughbvaccov == "Ja, met het Janssen vaccin", "4", ifelse(metadatagf$fughbvaccov == "Ja, Onbekend welk vaccin", "5", metadatagf$fughbvaccov))))))
+
+# smoke_ever status - where: 0=no, 1=ex-smoker , 2=smoker
+metadatagf$fusmokeever <- ifelse(metadatagf$fusmokeever == "no", "0", ifelse(metadatagf$fusmokeever == "yesstop", "1", ifelse(metadatagf$fusmokeever == "yes", "2", metadatagf$fusmokeever)))
+
+# lung medication type
+metadatagf$fughblungmed1type <- ifelse(metadatagf$fugbhlungmed1type == "Inhalatie", "1", ifelse(metadatagf$fugbhlungmed1type == "Oraal", "2", metadatagf$fugbhlungmed1type))
+
+metadatagf$fughblungmed2type <- ifelse(metadatagf$fughblungmed2type == "Inhalatie", "1", ifelse(metadatagf$fughblungmed2type == "Oraal", "2", metadatagf$fughblungmed2type))
+
+metadatagf$fughblungmed3type <- ifelse(metadatagf$fughblungmed3type == "Inhalatie", "1", ifelse(metadatagf$fughblungmed3type == "Oraal", "2", metadatagf$fughblungmed3type))
+
+metadatagf$fughblungmed4type <- ifelse(metadatagf$fughblungmed4type == "Inhalatie", "1", ifelse(metadatagf$fughblungmed4type == "Oraal", "2", metadatagf$fughblungmed4type))
+
+metadatagf$fughblungmed5type <- ifelse(metadatagf$fughblungmed5type == "Inhalatie", "1", ifelse(metadatagf$fughblungmed5type == "Oraal", "2", metadatagf$fughblungmed5type))
+
+
+# Add population column to dataframe
+metadatagf$population <- "GF"
+
+# Remove some variables from the dataset 
+# "fughbbdate" - this is the birthdate, remove to keep confidential
+# Some data from the online questionnaire which will not be needed or is duplicated in the field questionnaire: "fughbidcheck", "datumt00", "datumt01","datumt02","datumt03", "fuabroadlm", "fuabrcnt1txt","fuabrcnt1nxd", "fuabrcnt2txt", "fuabrcnt2nxd", "datumt04", "datumt05", "datumt06", "datumt02.x","datumt02.y", "fugender"
+# Remove columns from VGO3_GF_metadata
+# GF metadata (n=98)
+VGO3_GF_metadata_clean <- metadatagf[, !(names(metadatagf) %in% c("fughbbdate", 
+  "fughbidcheck",
+  "fughbcovidinf",
+  "datumt00", 
+  "fugender", 
+  "datumt01", 
+  "datumt02", 
+  "datumt03", 
+  "fuabroadlm", 
+  "fuabrcnt1txt", 
+  "fuabrcnt1nxd", 
+  "fuabrcnt2txt", 
+  "fuabrcnt2nxd", 
+  "datumt04", 
+  "datumt05", 
+  "datumt06", 
+  "datumt02.x", 
+  "datumt02.y",
+  "X.acenocoumarol....MH..vragenlijst.uit.december..dus.niet.alle.gegevens.die.hier.moeten.worden.ingevuld.zijn.aanwezig."))]
+```
+
+
+# PNEUMONIA PATIENTS
+## GP data input
+```{r}
+# GP metadata (n=108)
+VGO3_GP_metadata <- read.csv("../Input/Metadata_VGOIII_20240108_GP.csv")
+```
+
+## GP data cleaning
+```{r}
+# Inge Roof shared the VGO3 GP metadata 
+# Some variables have been dichotomised by Inge Roof and are hence duplicated
+# We need to remove some variables from the dataset 
+# "Unilabnummer", "Ontvangstdatum" - lab identification and date of sample receival - not needed for analyses now
+# All of these variables  have also been dichotomised, we will use the dichotomised versions of them: "Geslacht", "SymptDyspneu", "SymptHoesten", "SymptHypotensie", "SymptKoorts", "SymptPijnAdem", "SymptTachycardie", "SymptTachypneu", "SymptVerwardheid", "CRP_bepaling", "Saturatie", "Chron_longziekte", "Inhalatie_medicatie", "Griepprik", "Pneumokok_vaccinatie", "Buitenland_afg4wk", "AB_afg4wk", "Immuundeficientie"
+# The variable "Gender" has been dichotomised into: 0 = female, 1= male. However for the CP and GF populations, the coding is the other way aroudn (0= male, 1= female), therefore we will choose the non-dichotomised variable for gender "Geslacht" and dichotomise it ourselves
+# This variable "Smoking_dich" is the dichotomised version of "Roker" varible, however not included past smoking, therefore we will use the original 'roker' variable and convert to past, current, never. 
+# Assuming VGO3_GP_metadata is your dataframe
+VGO3_GP_metadata_clean <- VGO3_GP_metadata[, !(names(VGO3_GP_metadata) %in% c("Unilabnummer", "Ontvangstdatum", "SymptDyspneu", "SymptHoesten", "SymptHypotensie", "SymptKoorts", "SymptPijnAdem", "SymptTachycardie", "SymptTachypneu", "SymptVerwardheid", "CRP_bepaling", "Saturatie", "Chron_longziekte", "Inhalatie_medicatie", "Griepprik", "Pneumokok_vaccinatie", "Buitenland_afg4wk", "AB_afg4wk", "Immuundeficientie","Gender", "Smoking_dich"))]
+
+# Dichotomise gender variable where 0=male, 1=female, NA=missing
+VGO3_GP_metadata_clean$Geslacht <- ifelse(VGO3_GP_metadata_clean$Geslacht == "M", 0,
+                                       ifelse(VGO3_GP_metadata_clean$Geslacht == "V", 1,
+                                              ifelse(VGO3_GP_metadata_clean$Geslacht == ".", NA,
+                                                VGO3_GP_metadata_clean$Geslacht))) 
+
+# Dichotomise animal contact status - where: 0=no, 1=yes 
+VGO3_GP_metadata_clean$Woon_werk_veeh <- ifelse(VGO3_GP_metadata_clean$Woon_werk_veeh == "Nee", "0", ifelse(VGO3_GP_metadata_clean$Woon_werk_veeh == "Ja, met diersoort:", "1",ifelse(VGO3_GP_metadata_clean$Woon_werk_veeh == "", NA, VGO3_GP_metadata_clean$Woon_werk_veeh)))
+
+# Dichotomise smoking status - where: 0=no, 1=ex-smoker , 2=smoker, use the same code for the GP
+VGO3_GP_metadata_clean$Roker <- ifelse(VGO3_GP_metadata_clean$Roker == "Nee, nooit gerookt", "0", ifelse(VGO3_GP_metadata_clean$Roker == "Nee, gestopt", "1", ifelse(VGO3_GP_metadata_clean$Roker == "Ja", "2", ifelse(VGO3_GP_metadata_clean$Roker == "", NA,VGO3_GP_metadata_clean$Roker))))
+
+# Niches are not labelled uniformly: "neuswat", "keelwat" but also sometimes "keel- en neuswat"
+# Change niche labels
+VGO3_GP_metadata_clean$Materiaal <- ifelse(VGO3_GP_metadata_clean$Materiaal == "neuswat", "NP",
+                                       ifelse(VGO3_GP_metadata_clean$Materiaal == "keelwat", "OP",
+                                              VGO3_GP_metadata_clean$Materiaal))
+# Some are both i.e. "keel- en neuswat"
+VGO3_GP_metadata_clean[VGO3_GP_metadata_clean$niche == "keel- en neuswat", ]
+# Rows 39 & 40 (ID 52774) have 'niche' = "keel- en neuswat"
+# Rows 71 & 72 (ID 52321) have 'niche' = "keel- en neuswat"
+# Check if the column values are the same for rows 39 and 40
+rows_39_40 <- VGO3_GP_metadata_clean[c(39, 40), ]
+all.equal(rows_39_40[39, ], rows_39_40[40, ]) # TRUE - exactly same 
+# Check if the column values are the same for rows 71 and 72
+rows_71_72 <- VGO3_GP_metadata_clean[c(71, 72), ]
+all.equal(rows_71_72[71, ], rows_71_72[72, ]) # TRUE - exactly same 
+# Therefore I can randomly make one NP and one OP in 'niche'
+VGO3_GP_metadata_clean$Materiaal[39] <- "OP"
+VGO3_GP_metadata_clean$Materiaal[40] <- "NP"
+VGO3_GP_metadata_clean$Materiaal[71] <- "OP"
+VGO3_GP_metadata_clean$Materiaal[72] <- "NP"
+
+# Check for duplicates
+duplicates <- duplicated(VGO3_GP_metadata_clean[c("VGO_studienr", "Materiaal")])
+duplicated_rows <- VGO3_GP_metadata_clean[duplicates, ]
+print(duplicated_rows) # Duplicates for 52797 OP and 50113 NP
+VGO3_GP_metadata_clean <- VGO3_GP_metadata_clean[!duplicates, ] # 214 observations now (from 216)
+
+# Date variables are in the format 23-Sep-20 in the GP dataset, convert to 2020-09-23 to match with CP and GP date variables
+# There are only 2 date variables in the GP metadata now
+VGO3_GP_metadata_clean$Afnamedatum
+VGO3_GP_metadata_clean$eerste_ziektedag
+
+# Convert date from '23-Sep-20' to '2020-09-23' format
+VGO3_GP_metadata_clean$Afnamedatum <- as.Date(VGO3_GP_metadata_clean$Afnamedatum, format = "%d-%b-%y")
+
+# Convert date from '23-Sep-20' to '2020-09-23' format
+VGO3_GP_metadata_clean$eerste_ziektedag <- as.Date(VGO3_GP_metadata_clean$eerste_ziektedag, format = "%d-%b-%y")
+
+# Add population column to dataframe
+VGO3_GP_metadata_clean$population <- "GP"
+```
+# Rename metadata columns for CP, GP and GF 
+```{r}
+VGO3_CP_metadata_clean
+VGO3_GF_metadata_clean
+VGO3_GP_metadata_clean
+
+# Rename the metadata variables to harmonise with metadata variables for GP and GF populations
+# Define the mapping between original and new variable names
+variable_mapping_CP <- c(
+  "ID" = "ID",
+  "age" = "age",
+  "population" = "population",
+  "fuhbfieldworker" = "fieldworker",
+  "fuhbdate" = "visit_date",
+  "fuhbtime" = "visit_time",
+  "fuhbgender" = "gender",
+  "fuhbabroadlm" = "abroad_lastmth",
+  "fuhbanimcontlm" = "animal_contact_lastmth",
+  "fuhbanimcontlmcat" = "cat_contact_lastmth",
+  "fubhaclmdog" = "dog_contact_lastmth",
+  "fuhbaclmrodent" = "rodent_contact_lastmth",
+  "fuhbaclmbird" = "bird_contact_lastmth",
+  "fuhbaclmchicken" = "chicken_contact_lastmth",
+  "fuhbaclmsheep" = "sheep_contact_lastmth",
+  "fuhbaclmcow" = "cow_contact_lastmth",
+  "fuhbaclmpig" = "pig_contact_lastmth",
+  "fubhaclmhorse" = "horse_contact_lastmth",
+  "fuhbaclmother" = "otheranim_contact_lastmth",
+  "fuhbpneumonialy" = "pneumonia_lastyr",
+  "fuhbpneumonialydate" = "pneumonia_lastyr_date",
+  "fuhbacawinfly" = "acute_resp_infec_lastyr",
+  "fuhbacawinflydate" = "acute_resp_infec_lastyr_date",
+  "fuhbcovidinf" = "covid19",
+  "fuhbcovposdate" = "covid19_confirmed_date",
+  "fuhbcovsusdate" = "covid19_suspected_date",
+  "fuhbvaccov" = "covid19_vaccine",
+  "fuhbvaccovdate1" = "covid19_vaccine1_date",
+  "fuhbvaccovdate2" = "covid19_vaccine2_date",
+  "fuhbantibly" = "antibiotics_lastyr",
+  "fuhbantiblydate" = "antibiotics_lastyr_date",
+  "fuhbantacidly" = "antacids_lastyr",
+  "fuhbantacidlydate" = "antacids_lastyr_date",
+  "fuhblungmed" = "lung_med",
+  "fuhblungmed1" = "lung_med1_name",
+  "fubhlungmed1type" = "lung_med1_type",
+  "fuhblungmed1m4h" = "lung_med1_more4hrs",
+  "fuhblungmed1m8h" = "lung_med1_more8hrs",
+  "fuhblungmed2" = "lung_med2_name",
+  "fuhblungmed2type" = "lung_med2_type",
+  "fuhblungmed2m4h" = "lung_med2_more4hrs",
+  "fuhblungmed2m8h" = "lung_med2_more8hrs",
+  "fuhblungmed3" = "lung_med3_name",
+  "fuhblungmed3type" = "lung_med3_type",
+  "fuhblungmed3m4h" = "lung_med3_more4hrs",
+  "fuhblungmed3m8h" = "lung_med3_more8hrs",
+  "fuhblungmed4" = "lung_med4_name",
+  "fuhblungmed4type" = "lung_med4_type",
+  "fuhblungmed4m4h" = "lung_med4_more4hrs",
+  "fuhblungmed4m8h" = "lung_med4_more8hrs",
+  "fuhblungmed5" = "lung_med5_name",
+  "fuhblungmed5type" = "lung_med5_type",
+  "fuhblungmed5m4h" = "lung_med5_more4hrs",
+  "fuhblungmed5m8h" = "lung_med5_more8hrs",
+  "fuhbbetablock" = "beta_blockers",
+  "fuhbhearthfaill3m" = "heart_failure_attack_3m",
+  "fuhbchabsur" = "chest_abdom_surg_3m",
+  "fuhbaaneur" = "aortic_aneurysm",
+  "fuhbbloodcough" = "cough_blood",
+  "fuhbeyeearbrainsurglm" = "eye_ear_brain_surg_lastmth",
+  "fuhbimdfmed" = "imm_def_med_current",
+  "fuhbimdfill" = "imm_def_illness_current",
+  "fuhbltripreg" = "preg_last_trimester",
+  "fuhbnotcomftill" = "lungfunc_discom",
+  "fuhbtestdiff" = "breathalyser_diff",
+  "fuhbtestdifftxt" = "breathalyser_reason",
+  "fuhbremarks" = "further_comm",
+  "fuhbvaccovdate3" = "covid19_vaccine3_date",
+  "fuhbfheight1" = "length_1",
+  "fuhbfheight2" = "length_2",
+  "fuhbfweigth" = "weight",
+  "fuhbfspirometer" = "spirometer_num",
+  "fuhbfinfcons" = "consent",
+  "fuhbfinfconstxt" = "consent_notes",
+  "fuhbfonlquestcomp" = "onlquest_done",
+  "fuhbfonlquesttxt" = "onlquest_comments",
+  "fuhbfhbquestdone" = "fieldquest_done",
+  "fuhbfhbquesttxt" = "fieldquest_comments",
+  "fuhbfspirodone" = "spirometry_done",
+  "fuhbfspirotxt" = "spirometry_notes",
+  "fuhbfserumdone" = "serum_done",
+  "fuhbfserumtime" = "serum_time",
+  "fuhbfserumtimestore4" = "serum_tube_time_in_cooling",
+  "fuhbfserumtxt" = "serum_remarks",
+  "fuhbfblkcheck" = "First_visit",
+  "fuhbforoblanc" = "OP_blank_done",
+  "fuhbforoblankid" = "OP_swab_ID",
+  "fuhbfnasoblanc" = "NP_blank_done",
+  "fuhbfnasoblancid" = "NP_blank_ID",
+  "fuhbforodone" = "OP_swab_done",
+  "fuhbfnasotxt" = "NP_swab_remarks",
+  "fuhbfnasodone" = "NP_swab_done",
+  "fuhbforotxt" = "OP_remarks",
+  "fuhbfremarksfldwrkr" = "fieldworker_remarks",
+  "fuquestdate" = "questionnaire_date",
+  "fuactivworkle19h" = "work_less_19hrs",
+  "fuactivworkmo19h" = "work_more_19hrs",
+  "fuactivhh" = "manage_house",
+  "fuactivunemp" = "unemployed",
+  "fuactivstud" = "student",
+  "fuactivunfit" = "disabled",
+  "fuactivretired" = "retired",
+  "fuactivvol" = "voluntarywork",
+  "fuhealthcur" = "health_status",
+  "fudishvasc" = "heart_vascu_disorder",
+  "fudisimdfill" = "imm_def_illness",
+  "fudisimdfmed" = "imm_def_med",
+  "fudisdiab" = "diabetes",
+  "fuwheezly" = "wheezing_lastyr",
+  "fuwheezlysob" = "wheezing_SOB",
+  "fuwheezlyncold" = "wheezing_not_cold",
+  "ful12mwokechesttight" = "tight_chest_lastyr",
+  "ful12mwokesob" = "SOB_lastyr",
+  "ful12mwokecough" = "cough_lastyr",
+  "ful12msobrest" = "SOB_rest_lastyr",
+  "funasalallergy" = "nasal_allergy",
+  "funasalallergyjan" = "nasal_allergy_Jan",
+  "funasalallergyfeb" = "nasal_allergy_Feb",
+  "funasalallergymar" = "nasal_allergy_Mar",
+  "funasalallergyapr" = "nasal_allergy_Apr",
+  "funasalallergymay" = "nasal_allergy_May",
+  "funasalallergyjun" = "nasal_allergy_Jun",
+  "funasalallergyjul" = "nasal_allergy_Jul",
+  "funasalallergyaug" = "nasal_allergy_Aug",
+  "funasalallergysep" = "nasal_allergy_Sep",
+  "funasalallergyoct" = "nasal_allergy_Oct",
+  "funasalallergynov" = "nasal_allergy_Nov",
+  "funasalallergydec" = "nasal_allergy_Dec",
+  "fuasever" = "asthma_ever",
+  "fuasdd" = "asthma_diag",
+  "fuasagestart" = "asthma_1st_att_age",
+  "fuasjanfeb" = "asthma_Jan_Feb",
+  "fuasmarapr" = "asthma_Mar_Apr",
+  "fuasmayjun" = "asthma_May_Jun",
+  "fuasjulaug" = "asthma_Jul_Aug",
+  "fuassepoct" = "asthma_Sep_Oct",
+  "fuasnovdec" = "asthma_Nov_Dec",
+  "fuas12m" = "asthma_att_lastyr",
+  "fuascurmed" = "asthma_med",
+  "ful3mdailycough" = "cough_daily_3mperyr",
+  "ful3mdailyphlegm" = "phlegm_daily_3mperyr",
+  "fudoctoldcopd" = "COPD_emphysema_diag",
+  "fudoctoldeaa" = "EAA_diag",
+  "ful12mdailtycortinhaler" = "cort_inhaler_lastyr",
+  "fupneumonia3y" = "pneumonia_last3yr",
+  "fupneumoniayr" = "pneumonia_yr",
+  "fupneumgp" = "pneumonia_GP_diag",
+  "fupneumgpab" = "pneumonia_antibiotics",
+  "fupneumgpspec" = "pneumonia_specialist",
+  "fupneumspec" = "pneumonia_specialist_conf",
+  "fupneumphoto" = "pneumonia_chest_photo",
+  "fupneumphotopos" = "pneumonia_conf_photo",
+  "fupneumspecab" = "pneumonia_specialist_antibiotics",
+  "fupneumho" = "pneumonia_hosp",
+  "fupneumhodnx" = "pneumonia_hosp_length",
+  "fupneumfever" = "pneumonia_fever",
+  "fupneumdysp" = "pneumonia_dyspnea",
+  "fupneumcough" = "pneumonia_cough",
+  "fupneummyalgia" = "pneumonia_muscle_pain",
+  "fupneumpob" = "pneumonia_chest_pain",
+  "fupneumwhz" = "pneumonia_wheezing",
+  "fupneumstom" = "pneumonia_stomach_pain",
+  "fupneumtired" = "pneumonia_fatigue",
+  "fupneumdp" = "pneumonia_depressed",
+  "fufluvacc" = "flu_vacc",
+  "fufluvaccyr" = "flu_vacc_duration",
+  "fupneumococvac" = "pneumococcal_vacc",
+  "fulyantibiotic" = "antibiotics_lastyr_oqdata",
+  "fulyantibioticmonth" = "antibiotic_month_oqdata", 
+  "fulyantibioticyear" = "antibiotic_year_oqdata",
+  "fulyantibioticname" = "last_antibiotic_used",
+  "fucovidcont" = "covid19_close_contact",
+  "fucovidconth" = "covid19_household",
+  "fuhomecurm" = "home_start_month",
+  "fuhomecury" = "home_start_year",
+  "fuhomeown" = "home_type",
+  "fuhomemove" = "move_plans",
+  "fuhomemovena" = "move_no_reason",
+  "fuhomemovehlt" = "move_health",
+  "fuhomemovejob" = "move_job",
+  "fuhomemovehse" = "move_house",
+  "fuhomemoveenv" = "move_env",
+  "fuhomepets" = "pets_last5yrs",
+  "fuhomecat" = "cat_last5yrs",
+  "fuhomedog" = "dog_last5yrs",
+  "fuhomebird" = "bird_last5yrs",
+  "fuhomergh" = "small_animals_last5yrs",
+  "fuhomemsrat" = "rodent_last5yrs",
+  "fuhomefish" = "fish_last5yrs",
+  "fuhometurtl" = "turtle_last5yrs",
+  "fuhomefarmanim" = "farmanim_hobby_last5yrs",
+  "fuhomepig" = "pig_last5yrs",
+  "fuhomecow" = "cow_last5yrs",
+  "fuhomesheep" = "sheep_last5yrs",
+  "fuhomegoat" = "goat_last5yrs",
+  "fuhomepoultry" = "poultry_last5yrs",
+  "fuhomehorse" = "horse_last5yrs",
+  "fufarmvstno" = "no_farm_visit_lastyr",
+  "fufarmvstfam" = "family_farm_visit_lastyr",
+  "fufarmvstjob" = "job_farm_visit_lastyr",
+  "fufarmvstshop" = "buy_farm_visit_lastyr",
+  "fufarmvstpet" = "petting_zoo_visit_lastyr",
+  "fufarmvstoth" = "other_reason_farm_visit_lastyr",
+  "fusmokeever" = "smoked_ever",
+  "fusmokestopyr" = "smoking_year_stop",
+  "fusmokestartage" = "smoking_age_start",
+  "fusmokecigtd" = "cigarettes_per_day",
+  "fusmokecigard" = "cigars_per_day",
+  "fusmokepiped" = "pipes_per_day",
+  "fusmokeindoor" = "smoke_exp_indoor_freq"
+)
+
+
+# Get the column names from the dataframe
+df_column_names_CP <- names(VGO3_CP_metadata_clean)
+# Get the variable names from your mapping
+variable_names_CP <- names(variable_mapping_CP)
+# Check if all variable names exist in the dataframe
+missing_variables_CP <- variable_names_CP[!(variable_names_CP %in% df_column_names_CP)]
+if (length(missing_variables_CP) > 0) {
+  print("The following variables are missing from the dataframe:")
+  print(missing_variables_CP)
+} else {
+  print("All variables exist in the dataframe.")
+}
+
+# Rename the variables using the mapping
+old_colnames_CP <- names(VGO3_CP_metadata_clean)
+# Get the new column names from variable_mapping_CP
+new_colnames_CP <- variable_mapping_CP[old_colnames_CP]
+# Assign the new column names to VGO3_CP_metadata
+names(VGO3_CP_metadata_clean) <- new_colnames_CP
+head(VGO3_CP_metadata_clean)
+
+# Rename the metadata variables to harmonise with metadata variables for CPs
+# Define a mapping of old column names to new column names
+variable_mapping_GF <- c(
+  "ID" = "ID",
+  "population" = "population",
+  "fughbabroadlm" = "abroad_lastmth",
+  "fughbacawinfly" = "acute_resp_infec_lastyr",
+  "fughbacawinflydate" = "acute_resp_infec_lastyr_date",
+  "fughbanimcontlm" = "animal_contact_lastmth",
+  "fughbanimcontlmbird" = "bird_contact_lastmth",
+  "fughbanimcontlmcat" = "cat_contact_lastmth",
+  "fughbanimcontlmchicken" = "chicken_contact_lastmth",
+  "fughbanimcontlmcow" = "cow_contact_lastmth",
+  "fughbanimcontlmdog" = "dog_contact_lastmth",
+  "fughbanimcontlmgoat" = "goat_contact_lastmth",
+  "fughbanimcontlmhorse" = "horse_contact_lastmth",
+  "fughbanimcontlmother" = "otheranim_contact_lastmth",
+  "fughbanimcontlmpig" = "pig_contact_lastmth",
+  "fughbanimcontlmrodent" = "rodent_contact_lastmth",
+  "fughbanimcontlmsheep" = "sheep_contact_lastmth",
+  "fughbantacidly" = "antacids_lastyr",
+  "fughbantacidlydate" = "antacids_lastyr_date",
+  "fughbantibly" = "antibiotics_lastyr",
+  "fughbantiblydate" = "antibiotics_lastyr_date",
+  "fughbbetablock" = "beta_blockers",
+  "fughbcovposdate" = "covid19_confirmed_date",
+  "fughbcovsusdate" = "covid19_suspected_date",
+  "fughbdate" = "visit_date",
+  "fughbfldwrkr" = "fieldworker",
+  "fughbgender" = "gender",
+  "fughbhealthremarks" = "health_remarks",
+  "fughbhealthremarktxt" = "health_remarks_text",
+  "fughbkids" = "lambs_thisyr",
+  "fughbkidsdfirst" = "lamb_oldest_date",
+  "fughbkidsdlast" = "lamb_youngest_date",
+  "fughblungmed" = "lung_med",
+  "fughblungmed1" = "lung_med1",
+  "fughblungmed1m4h" = "lung_med1m4h",
+  "fughblungmed1m8h" = "lung_med1m8h",
+  "fugbhlungmed1type" = "lung_med1type",
+  "fughblungmed2" = "lung_med2",
+  "fughblungmed2m4h" = "lung_med2m4h",
+  "fughblungmed2m8h" = "lung_med2m8h",
+  "fughblungmed2type" = "lung_med2type",
+  "fughblungmed3" = "lung_med3",
+  "fughblungmed3m4h" = "lung_med3m4h",
+  "fughblungmed3m8h" = "lung_med3m8h",
+  "fughblungmed3type" = "lung_med3type",
+  "fughblungmed4" = "lung_med4",
+  "fughblungmed4m4h" = "lung_med4m4h",
+  "fughblungmed4m8h" = "lung_med4m8h",
+  "fughblungmed4type" = "lung_med4type",
+  "fughblungmed5" = "lung_med5",
+  "fughblungmed5m4h" = "lung_med5m4h",
+  "fughblungmed5m8h" = "lung_med5m8h",
+  "fughblungmed5type" = "lung_med5type",
+  "fughbpneumonialy" = "pneumonia_lastyr",
+  "fughbpneumonialydate" = "pneumonia_lastyr_date",
+  "fughbremarks" = "further_comm",
+  "fughbspcltsk" = "special_work",
+  "fughbspcltskd" = "special_work_type",
+  "fughbspcltsktxt" = "special_work_date",
+  "fughbvaccov" = "covid19_vaccine",
+  "fugvaccovdate1" = "covid19_vaccine1_date",
+  "fughbvacdate2" = "covid19_vaccine2_date",
+  "fupconsent" = "consent",
+  "fuquestdate" = "questionnaire_date",
+  "fuage" = "age",
+  "fueducation" = "education_level",
+  "fufarmchild" = "farm_child",
+  "fufarmchstyr" = "farm_child_fromage",
+  "fufarmchendyr" = "farm_child_untilage",
+  "fufarmchgoat" = "farm_child_goat",
+  "fufarmchdairy" = "farm_child_dairy",
+  "fufarmchveal" = "farm_child_veal",
+  "fufarmchsheep" = "farm_child_sheep",
+  "fufarmchpig" = "farm_child_pig",
+  "fufarmchpoultry" = "farm_child_poultry",
+  "fufarmchhorse" = "farm_child_horse",
+  "fufarmchcrop" = "farm_child_agri",
+  "fufarmchother" = "farm_child_other",
+  "fufarmchothertxt" = "farm_child_othertext",
+  "fuhealthcur" = "health_status",
+  "fudishvasc" = "heart_vascu_disorder",
+  "fudisimdfill" = "imm_def_illness",
+  "fudisimdfmed" = "imm_def_med",
+  "fudisdiab" = "diabetes",
+  "fuwheezly" = "wheezing_lastyr",
+  "fuwheezlysob" = "wheezing_SOB",
+  "fuwheezlyncold" = "wheezing_not_cold",
+  "ful12mwokechesttight" = "tight_chest_lastyr",
+  "ful12mwokesob" = "SOB_lastyr",
+  "ful12mwokecough" = "cough_lastyr",
+  "ful12msobrest" = "SOB_rest_lastyr",
+  "funasalallergy" = "nasal_allergy",
+  "fuasever" = "asthma_ever",
+  "fuasdd" = "asthma_diag",
+  "fuasagestart" = "asthma_1st_att_age",
+  "fuas12m" = "asthma_att_lastyr",
+  "fuascurmed" = "asthma_med",
+  "ful3mdailycough" = "cough_daily_3mperyr",
+  "ful3mdailyphlegm" = "phlegm_daily_3mperyr",
+  "fudoctoldcopd" = "COPD_emphysema_diag",
+  "fudoctoldeaa" = "EAA_diag",
+  "ful12mdailtycortinhaler" = "cort_inhaler_lastyr",
+  "fupneumonia3y" = "pneumonia_last3yr",
+  "fupneumoniayr" = "pneumonia_yr",
+  "fupneumgp" = "pneumonia_GP_diag",
+  "fupneumgpab" = "pneumonia_antibiotics",
+  "fupneumgpspec" = "pneumonia_specialist",
+  "fupneumspec" = "pneumonia_specialist_conf",
+  "fupneumphoto" = "pneumonia_chest_photo",
+  "fupneumphotopos" = "pneumonia_conf_photo",
+  "fupneumspecab" = "pneumonia_specialist_antibiotics",
+  "fupneumho" = "pneumonia_hosp",
+  "fupneumhodnx" = "pneumonia_hosp_length",
+  "fupneumfever" = "pneumonia_fever",
+  "fupneumdysp" = "pneumonia_dyspnea",
+  "fupneumcough" = "pneumonia_cough",
+  "fupneummyalgia" = "pneumonia_muscle_pain",
+  "fupneumpob" = "pneumonia_chest_pain",
+  "fupneumwhz" = "pneumonia_wheezing",
+  "fupneumstom" = "pneumonia_stomach_pain",
+  "fupneumtired" = "pneumonia_fatigue",
+  "fupneumdp" = "pneumonia_depressed",
+  "fufluvacc...66" = "flu_vacc",
+  "fufluvacc...67" = "flu_vacc_duration",
+  "fupneumococvac" = "pneumococcal_vacc",
+  "fulyantibiotic" = "antibiotics_lastyr_oqdata",
+  "fulyantibioticmonth" = "antibiotic_month_oqdata", 
+  "fulyantibioticyear" = "antibiotic_year_oqdata",
+  "fulyantibioticname" = "last_antibiotic_used",
+  "fuhealthcomplfarm" = "health_complaint_farm_rel",
+  "fuhealthcomplfarmtxt" = "health_complaint_farm_text",
+  "fucovidinf" = "covid19_infection",
+  "fucovidcont" = "covid19_close_contact",
+  "fucovidconth" = "covid19_household",
+  "fuhomefarm" = "home_goatfarm",
+  "fuhomecurmonth" = "home_start_month",
+  "fuhomecuryear" = "home_start_year",
+  "fuhomeown" = "home_type",
+  "fuhomepets" = "pets_last5yrs",
+  "fuhomecat" = "cat_last5yrs",
+  "fuhomedog" = "dog_last5yrs",
+  "fuhomebird" = "bird_last5yrs",
+  "fuhomergh" = "small_animals_last5yrs",
+  "fuhomemsrat" = "rodent_last5yrs",
+  "fuhomefish" = "fish_last5yrs",
+  "fuhometurtl" = "turtle_last5yrs",
+  "fuoccfarmyrs" = "farm_work_yrs",
+  "fuoccfarmhrswk" = "farm_work_hrsperweek",
+  "fuoccactfeed" = "farm_work_feeding",
+  "fuoccactmilk" = "farm_work_milking",
+  "fuoccactstblcl" = "farm_work_cleanstables",
+  "fuoccactlitter" = "farm_work_litter",
+  "fuoccactmconv" = "farm_work_manure",
+  "fuoccacthyean" = "farm_work_yean",
+  "fuoccactcnwb" = "farm_work_newborn",
+  "fuoccactclean" = "farm_work_cleaning",
+  "fuoccactwsoil" = "farm_work_soil",
+  "fuoccactother" = "farm_work_other",
+  "fuoccactothertxt" = "farm_work_othertext",
+  "fuotherwork" = "other_work",
+  "fuotherwkind1" = "other_work1_type",
+  "fuotherwkind2" = "other_work2_type",
+  "fuotherwkindhour1" = "other_work1_hrs",
+  "fuotherwkindhour2" = "other_work2_hrs",
+  "fusmokeever" = "smoked_ever",
+  "fusmokestopyr" = "smoking_year_stop",
+  "fusmokestartage" = "smoking_age_start",
+  "fusmokecigtd" = "cigarettes_per_day",
+  "fusmokecigard" = "cigars_per_day",
+  "fusmokepiped" = "pipes_per_day",
+  "fusmokeindoor" = "smoke_exp_indoor_freq"
+)
+
+
+# Get the column names from the dataframe
+df_column_names_GF <- names(VGO3_GF_metadata_clean)
+# Get the variable names from your mapping
+variable_names_GF <- names(variable_mapping_GF)
+# Check if all variable names exist in the dataframe
+missing_variables_GF <- variable_names_GF[!(variable_names_GF %in% df_column_names_GF)]
+if (length(missing_variables_GF) > 0) {
+  print("The following variables are missing from the dataframe:")
+  print(missing_variables_GF)
+} else {
+  print("All variables exist in the dataframe.")
+}
+
+# Rename the variables using the mapping
+old_colnames_GF <- names(VGO3_GF_metadata_clean)
+# Get the new column names from variable_mapping_CP
+new_colnames_GF <- variable_mapping_GF[old_colnames_GF]
+# Assign the new column names to VGO3_CP_metadata
+names(VGO3_GF_metadata_clean) <- new_colnames_GF
+head(VGO3_GF_metadata_clean)
+
+# GP 
+# Some of the variables are the same as those we have for the CP and GF populations, but they have different variable names - we need to harmonise this
+# There are several variables which are not available for CP and GF populations, we will just rename these to useful and obvious variable names
+# Define the mapping between original and new variable names
+variable_mapping_GP <- c(
+  "Afnamedatum" = "visit_date",
+  "population" = "population",
+  "VGO_praktijk_ID" = "practice_number",
+  "VGO_studienr" = "ID",
+  "Materiaal" = "niche",
+  "Geslacht" = "gender",
+  "leeftijd" = "age",
+  "eerste_ziektedag" = "pneumonia_sympt_onset_date",
+  "Opmerkingen_intern" = "sampling_notes",
+  "SymptAnders" = "symptom_other",
+  "SymptNamelijk" = "symptom_named",
+  "CRP_uitslag_mg_L" = "CRP_result_mgL",
+  "Saturatie_uitslag" = "Saturation_percent",
+  "Roker" = "smoked_ever",
+  "Woon_werk_veeh" = "animal_contact_lastmth",
+  "Met_diersoort" = "animal_type_contact",
+  "Chron_longziekte_anders" = "lung_disease_other",
+  "Naam_medicatie" = "lung_inhal_med_name",
+  "Griepprik_laatste_jaartal" = "flu_vacc_lastyr",
+  "CRP" = "CRP_test_done",
+  "Saturation" = "Saturation_test_done",
+  "lungdisease_dich" = "lung_disease",
+  "astma" = "asthma_ever",
+  "COPD" = "COPD_status",
+  "immunocompromised" = "imm_def",
+  "inhalation_use" = "lung_inhal_med",
+  "flu_vaccin" = "flu_vacc",
+  "pneumo_vaccin" = "pneumococcal_vacc",
+  "abroad" = "abroad_lastmth",
+  "AB_use" = "antibiotics_lastmth",
+  "dyspnea" = "dyspnea",
+  "cough" = "cough",
+  "hypotension" = "hypotension",
+  "fever" = "fever",
+  "pain_breathing" = "pain_breathing",
+  "tachycardia" = "tachycardia",
+  "tachypnea" = "tachypnea",
+  "confusion" = "confusion"
+)
+
+
+# Get the column names from the dataframe
+df_column_names_GP <- names(VGO3_GP_metadata_clean)
+# Get the variable names from your mapping
+variable_names_GP <- names(variable_mapping_GP)
+# Check if all variable names exist in the dataframe
+missing_variables <- variable_names_GP[!(variable_names_GP %in% df_column_names_GP)]
+if (length(missing_variables) > 0) {
+  print("The following variables are missing from the dataframe:")
+  print(missing_variables)
+} else {
+  print("All variables exist in the dataframe.")
+}
+
+# Rename the variables using the mapping
+old_colnames_GP <- names(VGO3_GP_metadata_clean)
+# Get the new column names from variable_mapping_CP
+new_colnames_GP <- variable_mapping_GP[old_colnames_GP]
+# Assign the new column names to VGO3_CP_metadata
+names(VGO3_GP_metadata_clean) <- new_colnames_GP
+head(VGO3_GP_metadata_clean)
+
+
+# Check column names
+head(VGO3_CP_metadata_clean)
+head(VGO3_GF_metadata_clean)
+head(VGO3_GP_metadata_clean)
+
+```
+
+# Metadata join for CP, GF and GP
+```{r}
+# There are differences in data structure among the 3 dataframes, so won't be able to join them currently 
+str(VGO3_CP_metadata_clean) # 969 obs. of  210 variables
+str(VGO3_GF_metadata_clean) # 100 obs. of  172 variables
+str(VGO3_GP_metadata_clean) # 214 obs. of  38 variables (each GP has OP and NP rows)
+
+# Convert all non-Date variables to character in VGO3_CP_metadata_clean
+VGO3_CP_metadata_clean <- VGO3_CP_metadata_clean %>%
+  mutate(across(where(~ !inherits(.x, "Date")), as.character))
+
+unnamed_cols <- which(names(VGO3_CP_metadata_clean) == "" | is.na(names(VGO3_CP_metadata_clean)))
+
+# Convert all non-Date variables to character in VGO3_GP_metadata_clean
+VGO3_GP_metadata_clean <- mutate_if(VGO3_GP_metadata_clean, function(x) !inherits(x, "Date"), as.character)
+# Convert all non-Date variables to character in VGO3_GF_metadata_clean
+# An extra NA column was added to the GF dataframe - remove this
+VGO3_GF_metadata_clean <- VGO3_GF_metadata_clean[, !is.na(colnames(VGO3_GF_metadata_clean))]
+VGO3_GF_metadata_clean <- mutate_if(VGO3_GF_metadata_clean, function(x) !inherits(x, "Date"), as.character)
+
+
+VGO3_metadata_all <- bind_rows(VGO3_CP_metadata_clean, VGO3_GP_metadata_clean, VGO3_GF_metadata_clean)
+VGO3_metadata_all[VGO3_metadata_all$population=="GF",]
+# Replace ' NULL' strings and blank cells with NA
+# Identify character columns
+char_columns <- sapply(VGO3_metadata_all, is.character)
+# Replace "NULL" and blank cells with NA in character columns
+VGO3_metadata_all[char_columns] <- lapply(VGO3_metadata_all[char_columns], function(x) {
+  ifelse(x == "NULL" | x == "", NA, x)
+})
+
+# Rename the column 'ID' to 'VGO3_ID'
+VGO3_metadata_all <- VGO3_metadata_all %>%
+  dplyr::rename(VGO3_ID = ID)
+
+write.csv(VGO3_metadata_all, "../Output/Metadata/VGO3_metadata_all.csv")
+```
+# Livestock exposure data for CP and GP
+```{r}
+# Livestock computations were performed with RVO 2021 data provided by Ben Bom 
+# Some participants have foreign land - take this into account later on
+RVO2021_livestock_exp <- read.csv("../Input/Livestock_computations/RVO2021_computations_max10km.csv")
+
+RVO2021_livestock_exp <- RVO2021_livestock_exp %>%
+  dplyr::rename(VGO3_ID = ID)
+
+RVO2021_livestock_exp$VGO3_ID <- as.character(RVO2021_livestock_exp$VGO3_ID)
+
+VGO3_metadata_all_RVO <- left_join(VGO3_metadata_all, RVO2021_livestock_exp, by = "VGO3_ID")
+
+# KRD data
+KRD2022 <- read.csv("../Input/Livestock_computations/KRD2022_livestock_characteristics.csv")
+
+KRD2022 <- KRD2022 %>%
+  dplyr::rename(VGO3_ID = respnr)
+
+KRD2022$VGO3_ID <- as.character(KRD2022$VGO3_ID)
+
+VGO3_metadata_all_RVO_KRD <- left_join(VGO3_metadata_all_RVO, KRD2022, by = "VGO3_ID")
+
+
+# RF-modelled microbial agents 
+RF_exp <- read.csv("../Output/RF_models/All_RF_model_predictions_whole_cohort.csv")
+
+RF_exp$X <- NULL
+
+RF_exp <- RF_exp %>%
+  dplyr::rename(VGO3_ID = respnr)
+
+RF_exp$VGO3_ID <- as.character(RF_exp$VGO3_ID)
+
+VGO3_metadata_all_RVO_KRD_RF <- left_join(VGO3_metadata_all_RVO_KRD, RF_exp, by = "VGO3_ID")
+
+
+# Dispersion-modelled endotoxin  
+endotoxin <- read.csv("O:/DGK/IRAS/EEPI/Projects/VGO/VGO3_2tm3_4__gezondheid/Data/Livestock_exposure/VGO14k_endodisp_2012_2020.csv")
+
+endotoxin$X <- NULL
+
+endotoxin <- endotoxin %>%
+  dplyr::rename(VGO3_ID = respnr)
+
+endotoxin$VGO3_ID <- as.character(endotoxin$VGO3_ID)
+
+VGO3_metadata_all_RVO_KRD_RF_endo <- left_join(VGO3_metadata_all_RVO_KRD_RF, endotoxin, by = "VGO3_ID")
+```
+## Standardising all livestock predictor variables of interest
+```{r}
+# z-score standardisation to all livestock variables of interest in analyses
+VGO3_metadata_all_RVO_KRD_RF_endo$EU_ANNUALAVG_PM10_2020
+VGO3_metadata_all_RVO_KRD_RF_endo$ecoli_RF_preds
+VGO3_metadata_all_RVO_KRD_RF_endo$staph_RF_preds
+VGO3_metadata_all_RVO_KRD_RF_endo$tetw_RF_preds
+VGO3_metadata_all_RVO_KRD_RF_endo$meca_RF_preds
+VGO3_metadata_all_RVO_KRD_RF_endo$KRD_nCowsWghtDist.3000m.sum
+VGO3_metadata_all_RVO_KRD_RF_endo$KRD_nGoatsWghtDist.3000m.sum
+VGO3_metadata_all_RVO_KRD_RF_endo$KRD_nPoultryWghtDist.3000m.sum
+VGO3_metadata_all_RVO_KRD_RF_endo$KRD_nPigsWghtDist.3000m.sum
+
+
+# List of variables to standardize
+vars_to_standardise <- c("EU_ANNUALAVG_PM10_2020", "ecoli_RF_preds", "staph_RF_preds", 
+                         "tetw_RF_preds", "meca_RF_preds", "KRD_nCowsWghtDist.3000m.sum", 
+                         "KRD_nGoatsWghtDist.3000m.sum", "KRD_nPoultryWghtDist.3000m.sum", 
+                         "KRD_nPigsWghtDist.3000m.sum")
+
+# Loop through each variable and standardize
+for (var in vars_to_standardise) {
+  new_var <- paste0(var, "_std")  # Create new variable name with '_std' suffix
+  VGO3_metadata_all_RVO_KRD_RF_endo[[new_var]] <- scale(VGO3_metadata_all_RVO_KRD_RF_endo[[var]])
+}
+```
+
+# Adjustments to the metadata
+```{r, echo=TRUE, message=FALSE, warning=FALSE}
+# Add a column 'sampling_season' to the dataframe
+VGO3_metadata_all_RVO_KRD_RF_endo$visit_date <- as.Date(VGO3_metadata_all_RVO_KRD_RF_endo$visit_date)
+month <- format(VGO3_metadata_all_RVO_KRD_RF_endo$visit_date, "%m")
+sampling_season <- character(length(month))
+
+# Map month to sampling_season
+for (i in 1:length(month)) {
+  if (month[i] %in% c("03", "04", "05")) {
+    sampling_season[i] <- "Spring"
+  } else if (month[i] %in% c("06", "07", "08")) {
+    sampling_season[i] <- "Summer"
+  } else if (month[i] %in% c("09", "10", "11")) {
+    sampling_season[i] <- "Autumn"
+  } else {
+    sampling_season[i] <- "Winter"
+  }
+}
+# Add sampling_season column to ps_metadata_CP_GF_GP
+VGO3_metadata_all_RVO_KRD_RF_endo$sampling_season <- sampling_season
+
+# For pneumonia patients, all values of fuhbpneumonialy (pneumonia in the last year are NA), convert this to Yes
+VGO3_metadata_all_RVO_KRD_RF_endo <- VGO3_metadata_all_RVO_KRD_RF_endo %>%
+  mutate(pneumonia_lastyr = ifelse(population == 'GP' & is.na(pneumonia_lastyr), 1, pneumonia_lastyr))
+
+
+# For the pneumonia patients we have COPD_status but for GF and CP we have COPD_emphysema diagnosis. 
+# Update COPD_emphysema_diag to match COPD_status where Population is GP
+VGO3_metadata_all_RVO_KRD_RF_endo <- VGO3_metadata_all_RVO_KRD_RF_endo %>%
+  mutate(
+    COPD_emphysema_diag = if_else(population == "GP", as.character(COPD_status), as.character(COPD_emphysema_diag))
+  )
+
+# Verify the changes
+head(VGO3_metadata_all_RVO_KRD_RF_endo %>% select(population, COPD_emphysema_diag, COPD_status) %>% filter(population == "GP"))
+
+
+# For the pneumonia patients we have lung_inhal_med but for GF and CP we have cort_inhaler_lastyr 
+# Update lung_med to match lung_inhal_med where population is GP
+VGO3_metadata_all_RVO_KRD_RF_endo <- VGO3_metadata_all_RVO_KRD_RF_endo %>%
+  mutate(lung_med = if_else(population == "GP", as.character(lung_inhal_med), as.character(lung_med))
+  )
+# Verify the changes
+head(VGO3_metadata_all_RVO_KRD_RF_endo %>% select(population, lung_med, lung_inhal_med) %>% filter(population == "GP"))
+VGO3_metadata_all_RVO_KRD_RF_endo$lung_med[VGO3_metadata_all_RVO_KRD_RF_endo$population=="GP"]
+
+# Create a new column GoatFarmExposureCategory
+# Since we don't have residential goat farm exposure information for goat farmers, we will just categorise them as 'Goat farmer' 
+# CPs will be categorised into <1000, 1000-2000, and >2000m from goat farms (can't use <500m as this is too few participants)
+VGO3_metadata_all_RVO_KRD_RF_endo <- VGO3_metadata_all_RVO_KRD_RF_endo %>%
+  mutate(GoatFarmExposureCategory = case_when(
+    # If the population is Goat farmer, set category to 'Goat farmer'
+    population == "GF" ~ "Goat farmer",
+    
+    # Control Population (CP)
+    population == "CP" & (is.na(RVO2021_MindistGoatFarm50plus_NEG) | RVO2021_MindistGoatFarm50plus_NEG <= -2000) ~ '>2000m',
+    population == "CP" & RVO2021_MindistGoatFarm50plus_NEG >= -1000 ~ '<1000m',
+    population == "CP" & RVO2021_MindistGoatFarm50plus_NEG > -2000 ~ '1000-2000m',
+    
+    # GP Population
+    population == "GP" & (is.na(RVO2021_MindistGoatFarm50plus_NEG) | RVO2021_MindistGoatFarm50plus_NEG <= -2000) ~ '>2000m',
+    population == "GP" & RVO2021_MindistGoatFarm50plus_NEG > -2000 ~ '<2000m',
+    
+    # For any other population or if the conditions are not met
+    TRUE ~ NA_character_
+  ))
+
+# Create 2 new variables related to goat farm exposure
+# Living within 2km of a goat farm
+# Living within 500m of a goat farm
+# Create new variables based on the conditions
+VGO3_metadata_all_RVO_KRD_RF_endo <- VGO3_metadata_all_RVO_KRD_RF_endo %>%
+  mutate(
+    GoatFarmwithin2000m = if_else(RVO2021_MindistGoatFarm50plus_NEG > -2000, 1, 0),
+    GoatFarmwithin1000m = if_else(RVO2021_MindistGoatFarm50plus_NEG > -1000, 1, 0),
+    GoatFarmwithin500m = if_else(RVO2021_MindistGoatFarm50plus_NEG > -500, 1, 0)
+  )
+
+# Check done correctly
+VGO3_metadata_all_RVO_KRD_RF_endo$GoatFarmwithin2000m[VGO3_metadata_all_RVO_KRD_RF_endo$population=="CP"]
+VGO3_metadata_all_RVO_KRD_RF_endo$GoatFarmwithin2000m[VGO3_metadata_all_RVO_KRD_RF_endo$population=="GP"]
+VGO3_metadata_all_RVO_KRD_RF_endo$RVO2021_MindistGoatFarm50plus_NEG[VGO3_metadata_all_RVO_KRD_RF_endo$population=="CP"]
+VGO3_metadata_all_RVO_KRD_RF_endo$RVO2021_MindistGoatFarm50plus_NEG[VGO3_metadata_all_RVO_KRD_RF_endo$population=="GP"]
+
+# Create a new column PoultryFarmExposureCategory
+# Since we don't have residential poultry farm exposure information for goat farmers, we cannot include them later on in the analyses of poultry farm exposure - so label them as NA now. 
+# CPs will be categorised into <1000, 1000-2000, and >2000m from goat farms (can't use <500m as this is too few participants)
+VGO3_metadata_all_RVO_KRD_RF_endo <- VGO3_metadata_all_RVO_KRD_RF_endo %>%
+  mutate(ChickenFarmExposureCategory = case_when(
+    population == "CP" & (is.na(RVO2021_MindistChickenFarm250plus_NEG) | RVO2021_MindistChickenFarm250plus_NEG <= -2000) ~ '>2000m',
+    population == "CP" & RVO2021_MindistChickenFarm250plus_NEG >= -1000 ~ '<1000m',
+    population == "CP" & RVO2021_MindistChickenFarm250plus_NEG > -2000 ~ '1000-2000m',
+    population == "GP" & (is.na(RVO2021_MindistChickenFarm250plus_NEG) | RVO2021_MindistChickenFarm250plus_NEG <= -2000) ~ '>2000m',
+    population == "GP" & RVO2021_MindistChickenFarm250plus_NEG > -2000 ~ '<2000m',
+    TRUE ~ NA_character_
+  )) %>%
+  mutate(ChickenFarmExposureCategory = ifelse(population == "Goat farmer", NA, ChickenFarmExposureCategory))
+
+
+VGO3_metadata_all_RVO_KRD_RF_endo$ChickenFarmExposureCategory[VGO3_metadata_all_RVO_KRD_RF_endo$population=="GF"]
+
+# Create a new column ChickenFarm1000m - is the participant living < 1000m from a chicken farm
+VGO3_metadata_all_RVO_KRD_RF_endo$ChickenFarm1000m <- ifelse(VGO3_metadata_all_RVO_KRD_RF_endo$RVO2021_nChickenFarm_1000m > 0, 1, 0)
+# Create a new column ChickenFarm2000m - is the participant living < 2000m from a chicken farm
+VGO3_metadata_all_RVO_KRD_RF_endo$ChickenFarm2000m <- ifelse(VGO3_metadata_all_RVO_KRD_RF_endo$RVO2021_nChickenFarm_2000m > 0, 1, 0)
+
+# Immune deficiency data is available for all participants - but for CP and GF this is split into immune deficiency due to illness and due to medication - merge them into one column for immune deficiency. If either imm_def_illness or imm_def_med is Yes then make the column 'imm_def' '1'
+# Check if population is CP or GF and either imm_def_med_current, imm_def_illness_current,imm_def_illness or imm_def_med is 1, then set imm_def to 1
+VGO3_metadata_all_RVO_KRD_RF_endo <- VGO3_metadata_all_RVO_KRD_RF_endo %>%
+  mutate(across(c(imm_def_med_current, imm_def_illness_current, imm_def_med, imm_def_illness), as.numeric))
+
+VGO3_metadata_all_RVO_KRD_RF_endo$imm_def <- ifelse(VGO3_metadata_all_RVO_KRD_RF_endo$population %in% c("CP", "GF"), 
+ifelse(rowSums(VGO3_metadata_all_RVO_KRD_RF_endo[, c("imm_def_med_current", "imm_def_illness_current", "imm_def_med", "imm_def_illness")], na.rm = TRUE) > 0, 1,
+ifelse(rowSums(VGO3_metadata_all_RVO_KRD_RF_endo[, c("imm_def_med_current", "imm_def_illness_current", "imm_def_med", "imm_def_illness")], na.rm = TRUE) == 0, 0, NA)),
+VGO3_metadata_all_RVO_KRD_RF_endo$imm_def)
+
+
+sum(VGO3_metadata_all_RVO_KRD_RF_endo$population=="GP") # 214 (n.b. this is because it is separate for NP and OP)
+sum(VGO3_metadata_all_RVO_KRD_RF_endo$population=="CP") # 969
+sum(VGO3_metadata_all_RVO_KRD_RF_endo$population=="GF") # 100
+
+
+# Remove duplicates for the GP population based on VGO3_ID
+VGO3_metadata_all_RVO_KRD_RF_endo_nodups <- VGO3_metadata_all_RVO_KRD_RF_endo %>%
+  group_by(population, VGO3_ID) %>%
+  filter(row_number() == 1) %>%
+  ungroup()
+
+sum(VGO3_metadata_all_RVO_KRD_RF_endo_nodups$population=="GP") # 108 (duplicates removed)
+sum(VGO3_metadata_all_RVO_KRD_RF_endo_nodups$population=="CP") # 969
+sum(VGO3_metadata_all_RVO_KRD_RF_endo_nodups$population=="GF") # 100
+
+dim(VGO3_metadata_all_RVO_KRD_RF_endo_nodups) # 1177 observations of 692 variables
+dim(VGO3_metadata_all_RVO_KRD_RF_endo) # 1284 obs of 692 variables
+```
+# Sample metadata
+```{r}
+VGO3_metadata_all_livestock_forjoin <- VGO3_metadata_all_RVO_KRD_RF_endo
+
+# Filter rows where population is GF or CP
+VGO3_metadata_CPGF_df <- VGO3_metadata_all_livestock_forjoin %>%
+  filter(population == 'GF' | population == 'CP')
+
+# Create duplicates for each unique participant ID
+duplicates_OP <- VGO3_metadata_CPGF_df %>%
+  group_by(VGO3_ID) %>%
+  dplyr::slice(rep(1:n(), each = 2)) %>%
+  mutate(niche = 'OP')
+
+duplicates_NP <- VGO3_metadata_CPGF_df %>%
+  group_by(VGO3_ID) %>%
+  dplyr::slice(rep(1:n(), each = 2)) %>%
+  mutate(niche = 'NP')
+
+# Combine the duplicates and remove original rows
+duplicated_df <- bind_rows(duplicates_OP, duplicates_NP) %>%
+  distinct() %>%
+  arrange(VGO3_ID)
+
+# Check the duplicated dataframe
+duplicated_df # 2140 rows 
+
+# Join with original GP metadata
+# Filter rows where population is GP
+VGO3_metadata_GP_df <- VGO3_metadata_all_livestock_forjoin %>%
+  filter(population == 'GP')
+
+# Combine together
+combined_df <- bind_rows(duplicated_df, VGO3_metadata_GP_df) # 2354 observations
+
+# Now combine with lab data
+VGO3_lab_metadata <- read.xlsx("../Input/VGO3_meta.xlsx", rowNames = TRUE)
+
+# For merge with lab metadata, we need to add the column VGO3_ID to the lab metadata
+# Add ID column based on sample_id
+VGO3_lab_metadata <- VGO3_lab_metadata %>%
+  mutate(VGO3_ID = case_when(
+    grepl("^3_\\d+_4(_M)?$", sample_id) | grepl("^3_\\d+_5(_M)?$", sample_id) ~ str_extract(sample_id, "(?<=3_)\\d+(?=_[45](_M)?$)"),
+    grepl("^3_\\d+_S$", sample_id) | grepl("^3_\\d+_K$", sample_id) ~ str_extract(sample_id, "(?<=3_)\\d+(?=_[SK]$)"),
+    TRUE ~ sample_id
+  ))
+
+VGO3_lab_metadata$VGO3_ID # Check new values oF VGO3_ID
+
+# New df from combined_df to be joined together
+combined_df_forjoin <- combined_df 
+
+# Merge the rows based on VGO3_ID and niche 
+# Convert the current VGO3_ID values for the GP to their VGO study number (retrieved from the original VGO3_GP_metadata provided by Inge Roof) - Unilabnummer is the participant number from the RIVM and VGO_studienr is the VGO3 participant ID that we want
+VGO3_GP_metadata$Unilabnummer <- as.character(VGO3_GP_metadata$Unilabnummer)
+VGO3_GP_metadata$population <- "GP" 
+
+VGO3_lab_metadata <- VGO3_lab_metadata %>%
+  left_join(VGO3_GP_metadata %>%
+              select(Unilabnummer, VGO_studienr),
+            by = c("VGO3_ID" = "Unilabnummer")) %>%
+  mutate(VGO3_ID = ifelse(!is.na(VGO_studienr), VGO_studienr, VGO3_ID)) %>%
+  select(-VGO_studienr)
+
+# Now we can join the metadata with the rest of the lab data
+VGO3_metadata_all_lab <- combined_df_forjoin  %>%
+  inner_join(VGO3_lab_metadata, by = c("VGO3_ID", "niche")) %>%
+  select(names(VGO3_lab_metadata), everything())
+
+# Find the rows in VGO3_lab_metadata that are not present in VGO3_lab_general_meta_1 or VGO3_lab_general_meta_2
+VGO3_lab_missingrows <- anti_join(VGO3_lab_metadata, VGO3_metadata_all_lab, by = "assay_sample") # 577 rows which don't have participant metadata
+VGO3_lab_missingrows$sample_id
+# Combine the dataframes
+VGO3_metadata_lab <- bind_rows(VGO3_metadata_all_lab, VGO3_lab_missingrows)
+```
+
+# Save all participant and sample metadata
+```{r}
+# This dataframe VGO3_metadata_all_RVO_KRD_RF_endo contains all metadata from participants and all livestock metadata (does not have GPs duplicated (i.e. metadata only for unique VGO3_ID))
+write.csv(VGO3_metadata_all_RVO_KRD_RF_endo_nodups, "../Output/Metadata/VGO3_participant_metadata.csv")
+
+# This includes participant metadata (all participants), livestock info, and sample metadata (lab metadata including blank sample metadata)
+write.csv(VGO3_metadata_lab, "../Output/Metadata/VGO3_participant_lab_metadata.csv")
+```
+# Descriptives of data
+# Population descriptives (all cohort)
+```{r, echo=TRUE, message=FALSE, warning=FALSE}
+# These are descriptives for all participants enrolled in the VGO3 study who had a home visit (not necessarily had samples taken from them though)
+
+VGO3_metadata_all_RVO_KRD_RF_endo_nodups %>%
+  filter(population == "CP") %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID)) # 969
+# Season
+VGO3_metadata_all_RVO_KRD_RF_endo_nodups %>%
+  filter(population == "CP") %>%
+  group_by(sampling_season) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))
+# 1 Autumn                      204
+# 2 Spring                      339
+# 3 Summer                      131
+# 4 Winter                      295
+
+# Gender
+VGO3_metadata_all_RVO_KRD_RF_endo_nodups %>%
+  filter(population == "CP") %>%
+  group_by(gender) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))
+#   gender unique_id_count
+#   <chr>            <int>
+# 1 0                  474
+# 2 1                  495
+
+# Smoking
+VGO3_metadata_all_RVO_KRD_RF_endo_nodups %>%
+  filter(population == "CP") %>%
+  group_by(smoked_ever) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))
+#   smoked_ever unique_id_count
+#   <chr>                 <int>
+# 1 0                       431
+# 2 1                       483
+# 3 2                        44
+# 4 NA                       11
+
+# Asthma
+VGO3_metadata_all_RVO_KRD_RF_endo_nodups %>%
+  filter(population == "CP") %>%
+  group_by(asthma_ever) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))
+#   asthma_ever unique_id_count
+#   <chr>                 <int>
+# 1 0                       892
+# 2 1                        67
+# 3 NA                       10
+
+# COPD/emphysema 
+VGO3_metadata_all_RVO_KRD_RF_endo_nodups %>%
+  filter(population == "CP") %>%
+  group_by(COPD_emphysema_diag) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))
+
+# abroad 
+VGO3_metadata_all_RVO_KRD_RF_endo_nodups %>%
+  filter(population == "CP") %>%
+  group_by(abroad_lastmth) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))
+
+# pneumococcal vaccine 
+VGO3_metadata_all_RVO_KRD_RF_endo_nodups %>%
+  filter(population == "CP") %>%
+  group_by(pneumococcal_vacc) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))
+
+# Flu vaccine 
+VGO3_metadata_all_RVO_KRD_RF_endo_nodups %>%
+  filter(population == "CP") %>%
+  group_by(flu_vacc) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))
+
+# Immune def 
+VGO3_metadata_all_RVO_KRD_RF_endo_nodups %>%
+  filter(population == "CP") %>%
+  group_by(imm_def) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))
+
+# age
+VGO3_metadata_all_RVO_KRD_RF_endo_nodups %>%
+  filter(population == "CP") %>%
+  summarise(
+    total_rows = n(),
+    missing_age = sum(is.na(age))
+  )
+str(VGO3_metadata_all_RVO_KRD_RF_endo_nodups$age)
+VGO3_metadata_all_RVO_KRD_RF_endo_nodups$age <- as.numeric(VGO3_metadata_all_RVO_KRD_RF_endo_nodups$age)
+
+VGO3_metadata_all_RVO_KRD_RF_endo_nodups %>%
+  filter(population == "CP") %>%
+  summarise(mean_age = mean(age, na.rm = TRUE))
+
+# Number within 2000m of a goat farm
+VGO3_metadata_all_RVO_KRD_RF_endo_nodups %>%
+    filter(population == "CP") %>%
+  filter(GoatFarmExposureCategory %in% c("<1000m", "1000-2000m")) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))
+
+# Number within 1000m of a goat farm
+VGO3_metadata_all_RVO_KRD_RF_endo_nodups %>%
+  filter(population == "CP") %>%
+  filter(GoatFarmExposureCategory %in% c("<1000m")) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))
+
+# Number within 500m of a goat farm
+VGO3_metadata_all_RVO_KRD_RF_endo_nodups %>%
+  filter(population == "CP") %>%
+  filter(GoatFarmwithin500m == 1) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))
+
+# Any animal contact
+VGO3_metadata_all_RVO_KRD_RF_endo_nodups %>%
+  filter(population == "CP") %>%
+  group_by(animal_contact_lastmth) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))
+
+
+# All animals listed in questionnaire
+VGO3_metadata_all_RVO_KRD_RF_endo_nodups %>%
+  filter(population == "CP") %>%
+  filter(
+    dog_contact_lastmth == 1 |
+    cat_contact_lastmth == 1 |
+    rodent_contact_lastmth == 1 |
+    bird_contact_lastmth == 1 |
+    chicken_contact_lastmth == 1 |
+    cow_contact_lastmth == 1 |
+    pig_contact_lastmth == 1 |
+    sheep_contact_lastmth == 1 |
+    goat_contact_lastmth == 1 |
+    horse_contact_lastmth == 1 |
+    otheranim_contact_lastmth == !NA |
+    animal_contact_lastmth == 1
+  ) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID)) 
+
+# Companion animal contact - defined as dogs, cats, horses, 
+VGO3_metadata_all_RVO_KRD_RF_endo_nodups %>%
+  filter(population == "CP") %>%
+  filter(
+    dog_contact_lastmth == 1 |
+    cat_contact_lastmth == 1 |
+    rodent_contact_lastmth == 1 |
+    bird_contact_lastmth == 1
+  ) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))
+
+# Livestock animal contact - defined as chickens, cows, pigs, sheep, goats, horses
+VGO3_metadata_all_RVO_KRD_RF_endo_nodups %>%
+  filter(population == "CP") %>%
+  filter(
+    chicken_contact_lastmth == 1 |
+    cow_contact_lastmth == 1 |
+    pig_contact_lastmth == 1 |
+    sheep_contact_lastmth == 1 |
+    goat_contact_lastmth == 1 |
+    horse_contact_lastmth == 1
+  ) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))
+
+
+# General health score 
+VGO3_metadata_all_RVO_KRD_RF_endo_nodups %>%
+  filter(population == "CP") %>%
+  group_by(health_status) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))
+VGO3_metadata_all_RVO_KRD_RF_endo_nodups_nohealthscore <- VGO3_metadata_all_RVO_KRD_RF_endo_nodups
+
+VGO3_metadata_all_RVO_KRD_RF_endo_nodups_nohealthscore %>%
+  filter(population == "CP") %>%
+  summarise(
+    total_rows = n(),
+    missing_health_status = sum(is.na(health_status))
+  )
+str(VGO3_metadata_all_RVO_KRD_RF_endo_nodups_nohealthscore$health_status)
+VGO3_metadata_all_RVO_KRD_RF_endo_nodups$health_status <- as.numeric(VGO3_metadata_all_livestock_nodups_nohealthscore$health_status)
+
+
+VGO3_metadata_all_livestock_nodups_nohealthscore %>%
+  filter(population == "CP") %>%
+  summarise(
+    mean_health_score = mean(health_status, na.rm = TRUE),
+    max_health_score = max(health_status, na.rm = TRUE),
+    min_health_score = min(health_status, na.rm = TRUE)
+  )
+
+
+# Pnuemonia in last year 
+VGO3_metadata_all_livestock_nodups %>%
+  filter(population == "CP") %>%
+  group_by(pneumonia_lastyr) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))%>%
+  mutate(percentage_of_total = (unique_id_count / sum(unique_id_count)) * 100)
+
+# Pnuemonia in last 3 years
+VGO3_metadata_all_livestock_nodups %>%
+  filter(population == "CP") %>%
+  group_by(pneumonia_last3yr) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))%>%
+  mutate(percentage_of_total = (unique_id_count / sum(unique_id_count)) * 100)
+
+# Antibiotics last year
+VGO3_metadata_all_livestock_nodups %>%
+  filter(population == "CP") %>%
+  group_by(antibiotics_lastyr) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))%>%
+  mutate(percentage_of_total = (unique_id_count / sum(unique_id_count)) * 100)
+
+# Antacids last year
+VGO3_metadata_all_livestock_nodups %>%
+  filter(population == "CP") %>%
+  group_by(antacids_lastyr) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))%>%
+  mutate(percentage_of_total = (unique_id_count / sum(unique_id_count)) * 100)
+
+# Lung medication last year
+VGO3_metadata_all_livestock_nodups %>%
+  filter(population == "CP") %>%
+  group_by(lung_med) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))%>%
+  mutate(percentage_of_total = (unique_id_count / sum(unique_id_count)) * 100)
+
+# beta blocker medication last year
+VGO3_metadata_all_livestock_nodups %>%
+  filter(population == "CP") %>%
+  group_by(beta_blockers) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))%>%
+  mutate(percentage_of_total = (unique_id_count / sum(unique_id_count)) * 100)
+
+# SOB
+VGO3_metadata_all_livestock_nodups %>%
+  filter(population == "CP") %>%
+  group_by(SOB_rest_lastyr) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))%>%
+  mutate(percentage_of_total = (unique_id_count / sum(unique_id_count)) * 100)
+
+# Daily coughing
+VGO3_metadata_all_livestock_nodups %>%
+  filter(population == "CP") %>%
+  group_by(cough_daily_3mperyr) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))%>%
+  mutate(percentage_of_total = (unique_id_count / sum(unique_id_count)) * 100)
+
+# Daily phlegm
+VGO3_metadata_all_livestock_nodups %>%
+  filter(population == "CP") %>%
+  group_by(phlegm_daily_3mperyr) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))%>%
+  mutate(percentage_of_total = (unique_id_count / sum(unique_id_count)) * 100)
+
+# nasal allergy
+VGO3_metadata_all_livestock_nodups %>%
+  filter(population == "CP") %>%
+  group_by(nasal_allergy) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))%>%
+  mutate(percentage_of_total = (unique_id_count / sum(unique_id_count)) * 100)
+
+# wheezing last year 
+VGO3_metadata_all_livestock_nodups %>%
+  filter(population == "CP") %>%
+  group_by(wheezing_lastyr) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))%>%
+  mutate(percentage_of_total = (unique_id_count / sum(unique_id_count)) * 100)
+
+
+# retired
+VGO3_metadata_all_livestock_nodups %>%
+  filter(population == "CP") %>%
+  group_by(retired) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))%>%
+  mutate(percentage_of_total = (unique_id_count / sum(unique_id_count)) * 100)
+
+
+# covid19
+VGO3_metadata_all_livestock_nodups %>%
+  filter(population == "CP") %>%
+  group_by(covid19) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))%>%
+  mutate(percentage_of_total = (unique_id_count / sum(unique_id_count)) * 100)
+
+# resp infec
+VGO3_metadata_all_livestock_nodups %>%
+  filter(population == "CP") %>%
+  group_by(acute_resp_infec_lastyr) %>%
+  summarise(unique_id_count = n_distinct(VGO3_ID))%>%
+  mutate(percentage_of_total = (unique_id_count / sum(unique_id_count)) * 100)
+```
+# Check some figures
+```{r}
+VGO3_metadata_lab_metadata %>%
+  filter(population == "GP" & niche == "NP") %>%
+  distinct(VGO3_ID) %>%
+  nrow() # 103
+VGO3_metadata_lab_metadata %>%
+  filter(population == "GP" & niche == "OP")  %>%
+  distinct(VGO3_ID)%>%
+  nrow() # 107
+
+VGO3_metadata_lab_metadata %>%
+  filter(population == "CP" & niche == "NP")%>%
+  distinct(VGO3_ID) %>%
+  nrow() # 957
+VGO3_metadata_lab_metadata %>%
+  filter(population == "CP" & niche == "OP") %>%
+  distinct(VGO3_ID) %>%
+  nrow() # 956
+
+VGO3_metadata_lab_metadata %>%
+  filter(population == "GF" & niche == "NP")  %>%
+  distinct(VGO3_ID)%>%
+  nrow() # 90
+VGO3_metadata_lab_metadata %>%
+  filter(population == "GF" & niche == "OP")  %>%
+  distinct(VGO3_ID)%>%
+  nrow() # 96
+
+```
+
