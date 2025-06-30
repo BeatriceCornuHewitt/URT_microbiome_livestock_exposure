@@ -24,6 +24,9 @@ Input/*
 # All output files
 Output/*
 
+# All superseded script files 
+Scripts/x superseded/*
+
 # RStudio files
 .Rproj.user/
 
