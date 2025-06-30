@@ -5,7 +5,7 @@
 **Contact**: b.cornuhewitt@uu.nl<br>
 
 ## Study Overview
-The scripts in this repository are related to a substudy of the VGO3 project (https://www.rivm.nl/veehouderij-en-gezondheid/onderzoek-veehouderij-en-gezondheid-omwonenden-vgo).This repository contains the code and analysis for a study investigating how livestock exposure affects the upper respiratory tract (URT) microbiome in adults living in a livestock-dense region of the Netherlands.
+The scripts in this repository are related to a substudy of the VGO3 project (https://www.rivm.nl/veehouderij-en-gezondheid/onderzoek-veehouderij-en-gezondheid-omwonenden-vgo). This repository contains the code and analysis for a study investigating how livestock exposure affects the upper respiratory tract (URT) microbiome in adults living in a livestock-dense region of the Netherlands.
 
 ## Objective
 The goal of the study was to understand whether occupational exposure (goat farming) and environmental exposure (living near farms) to livestock emissions influence the microbial composition of the nasopharynx (NP) and oropharynx (OP), which are important sites for respiratory health and infection resistance.
