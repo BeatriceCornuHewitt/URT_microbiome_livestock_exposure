@@ -12,11 +12,9 @@ The goal of the study was to understand whether occupational exposure (goat farm
 
 ## Methods
 We collected and analyzed:
-- Nasopharyngeal and oropharyngeal swabs from:
-      Goat farmers (91 NP, 96 OP)
-      Rural residents (956 NP, 954 OP)
-Microbiome profiling was performed using 16S rRNA gene sequencing (V4 hypervariable region).
-Environmental livestock exposure was estimated using farm density metrics and modelled microbial emissions (e.g., from goats, pigs, poultry, cattle).
+- Nasopharyngeal and oropharyngeal swabs from: Goat farmers (91 NP, 96 OP) & Rural residents (956 NP, 954 OP)
+- Microbiome profiling was performed using 16S rRNA gene sequencing (V4 hypervariable region).
+- Environmental livestock exposure was estimated using farm density metrics and modelled microbial emissions (e.g., from goats, pigs, poultry, cattle).
 
 ## Key Findings
 Occupational exposure (goat farming) had a strong impact on the respiratory microbiota:
